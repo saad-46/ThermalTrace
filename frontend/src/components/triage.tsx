@@ -1,6 +1,6 @@
 /** Triage priority, evidence chain and persistence strip.
- * Concepts adapted from the ThermalTrace Prototype (prioritisation breakdown, stepwise evidence
- * chain, per-day persistence view) and rebuilt on the production event bundle — real data only. */
+ * Prioritisation breakdown, stepwise evidence chain and per-day persistence view, built on the
+ * event bundle — real data only. */
 import { compass, fmtDate, fmtDistance, fmtNum } from "../lib/format";
 import { CLASS_META, FACILITY_LABELS, STATE_META } from "../lib/taxonomy";
 import type { EventDetail, PriorityBreakdown } from "../lib/types";

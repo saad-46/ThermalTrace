@@ -1,6 +1,6 @@
 # ThermalTrace — Architecture
 
-This document is the source of truth for how the platform fits together. For the reasoning behind the consolidation, see `REPOSITORY_AUDIT.md`.
+This document is the source of truth for how the platform fits together. For how the codebase came to be, see `PROJECT_HISTORY.md`.
 
 ## 1. System overview
 
@@ -46,7 +46,7 @@ flowchart LR
 |---|---|---|
 | API | FastAPI with Pydantic v2 and a versioned `/api/v1` prefix | Both source repos already use it. It gives typed schemas and OpenAPI for free. |
 | DB access | SQLAlchemy 2.0 (sync) + psycopg 3 + GeoAlchemy2, pooled engine | ORM for CRUD. Raw parameterized SQL (`text()`) for heavy spatial aggregates in repositories. Sync is enough, since FastAPI runs sync endpoints in a threadpool. |
-| Migrations | Alembic | Fixes schema drift (audit D11/B11). |
+| Migrations | Alembic | Fixes schema drift (R2-D11 / R1-B11, see `PROJECT_HISTORY.md`). |
 | Background jobs | **Postgres-backed queue** (`jobs` table, `FOR UPDATE SKIP LOCKED`) with a separate `worker` process and scheduler | Gives durable, idempotent, observable jobs without adding Redis to a 24-hour build. It is a well-understood pattern. Celery/RQ remain a drop-in later. |
 | Cache | `api_cache` table with TTLs | Covers Overpass, weather and STAC responses. Postgres already exists, so no Redis. |
 | Auth | Own JWT (HS256) with server-side session rows (revocable `jti`), bcrypt. Roles: `viewer < analyst < supervisor < admin` | No backdoor. Roles are assigned by an admin only. |

@@ -1,7 +1,6 @@
 """Triage priority — orders the analyst review queue.
 
-Adapted from the ThermalTrace Prototype's transparent prioritisation idea, re-based on real
-evidence. It answers "what should an analyst look at first?", NOT "how dangerous is this?".
+A transparent, additive score built only from observed and derived evidence. It answers "what should an analyst look at first?", NOT "how dangerous is this?".
 It is not a risk or threat score and is never presented as one.
 
 priority (0–100) = Σ five components, each 0–20:

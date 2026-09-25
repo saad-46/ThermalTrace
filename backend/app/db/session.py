@@ -2,7 +2,6 @@ import json
 import math
 import uuid
 from collections.abc import Iterator
-from contextlib import contextmanager
 from datetime import date, datetime
 
 from sqlalchemy import create_engine
@@ -58,20 +57,6 @@ def get_db() -> Iterator[Session]:
     db = SessionLocal()
     try:
         yield db
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
-
-
-@contextmanager
-def session_scope() -> Iterator[Session]:
-    """Transactional scope for workers/CLI: commits on success, rolls back on error."""
-    db = SessionLocal()
-    try:
-        yield db
-        db.commit()
     except Exception:
         db.rollback()
         raise

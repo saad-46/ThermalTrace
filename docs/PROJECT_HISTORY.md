@@ -1,65 +1,30 @@
-# Repository Audit — ThermalTrace consolidation
+# Project history
 
-**Date:** 2026-09-25 · **Auditor:** platform build team
-**Repos audited:**
+How the current codebase came to be. The source repositories are no longer needed to build, run or test ThermalTrace. This document records what was taken from each, what was fixed, and what was rejected, so that nothing depends on them.
 
-| # | Repository | HEAD | Commits |
+## Timeline
+
+| Date | Phase | Outcome |
+|---|---|---|
+| 2026-09-05 | Research | Problem statement (SIH26162) verified, data sources and method chosen (`RESEARCH.md`, `SIH-SUBMISSION.md`). |
+| 2026-09-25 | Platform build | The platform was rebuilt from two public repositories (below): FastAPI + PostGIS + Alembic backend, job workers, React/MapLibre web app and PWA. First push to `saad-46/ThermalTrace` (`876f229`). |
+| 2026-09-25 | Consolidation | A local UI prototype and a copy of the demo repository were audited feature by feature. Valuable ideas were rebuilt on real data (triage priority, global search, evidence chain, persistence strip, attribution rings); the rest was rejected with a reason (below). Branch `production-consolidation`. |
+| 2026-09-25 | Final cleanup | Repository sanitised and consolidated (`PRE_CLEANUP_INVENTORY.md`, `FINAL_REPOSITORY_INVENTORY.md`). |
+
+## Source repositories
+
+| ID | Repository | HEAD audited | Role |
 |---|---|---|---|
-| R1 | `rayyanafroz/sih-fire-backend` | `f10639d` | 6 |
-| R2 | `saad-46/thermal-trace-demo-1` | `4bc32a6` | 2 |
+| R1 | `rayyanafroz/sih-fire-backend` | `f10639d` | Donor: role model, JWT pattern, the Open-Meteo "no fabrication" contract, the wind-projection idea. |
+| R2 | `saad-46/thermal-trace-demo-1` | `4bc32a6` | Base: honest `data_mode`, evidence supporting/counter model, rule-cascade logic (now `rule-cascade-v1.0`), MapLibre map, research docs, labelled synthetic dataset (`data/demo/`). |
 
-Every "bug" below was confirmed by reading the code. Where it was also confirmed at runtime, that is stated.
+The IDs below (`R1-S1`, `R1-B5`, `R2-D1` …) are the ones used in `BUG_FIXES.md`.
 
----
+## R1 — security issues (none migrated)
 
-## R1 — `sih-fire-backend`
-
-### Structure
-```
-app/main.py            FastAPI app, startup DDL (create_all + raw CREATE TABLE), WebSocket KNN endpoint
-app/config.py          pydantic-settings
-app/database.py        async SQLAlchemy engine (asyncpg)
-app/models.py          User, FireEvent (ORM)
-app/schemas.py         Pydantic v2 I/O models
-app/oauth2.py          JWT (python-jose) + role guard
-app/utils.py           passlib bcrypt
-app/ai_service.py      heuristic "classifier", toxicology matrix, spread-prediction model, Gemini call
-app/worker.py          FIRMS fetch + classify + insert
-app/routers/{auth,users,fires}.py
-docker-compose.yml / Dockerfile   + duplicate copies docker-compose.txt, docker_file.txt, woker.txt
-```
-
-### Framework & architecture
-FastAPI with async SQLAlchemy 2.0 and asyncpg. There are no service or repository layers: routers call ORM and raw SQL directly. Every module uses `sys.path.insert` hacks to import siblings as top-level modules (`import models`), so the package only works with `PYTHONPATH=/app:/app/app`.
-
-### APIs
-`POST /login`, `POST /users/`, `POST /fires/trigger-fetch`, `DELETE /fires/purge-emulated`, `GET /fires/sensitive`, `GET /fires/public`, `GET /fires/predict-spread/{id}`, `WS /ws/v1/live-cursor-tracking`. There is no versioned prefix (except on the WebSocket), no pagination, no filters, and no health checks.
-
-### Database
-`users` and `fire_events` come from `create_all`. `india_boundary`, `osm_industrial_polygons`, `osm_vegetation_polygons` and `osm_critical_infrastructure` come from raw DDL at startup. There are no migrations. `fire_events` stores lat and lon as floats with **no acquisition date or time**, only `created_at`. GeoAlchemy2 is a dependency but is never used.
-
-### GIS
-- The India geofence is a hand-drawn polygon of about 35 vertices, with a bbox fallback if the query fails.
-- Nothing ever populates the OSM tables.
-- `worker.fetch_spatial_context` queries `planet_osm_polygon`, an osm2pgsql table this project never creates. The query always errors, then falls back to the empty tables.
-
-### ML
-There is no model. `AIModelLoader` loads `models/fire_hazard_ensemble.joblib`, which is not in the repo. The fallback is threshold rules that return hard-coded "confidence" values (0.90, 0.89, 0.78, 0.95, 0.94).
-
-### Deployment
-There is a Dockerfile and a compose file with a PostGIS service.
-
-### Strengths (worth carrying forward)
-- JWT and bcrypt auth structure, with a role enum (`user` / `official` / `admin`) and a `require_official_clearance` dependency pattern.
-- `get_live_weather()` uses Open-Meteo with no key. It raises `LiveDataUnavailableError` instead of fabricating weather. That is the right contract.
-- It uses `ST_Project` along the wind azimuth, which is reusable for a *potential dispersion direction* vector.
-- The KNN nearest-event query (`<->`) is a reasonable idea for map hover.
-- The FastAPI and Pydantic v2 foundation is sound.
-
-### Critical security issues
 | ID | Severity | Location | Issue |
 |---|---|---|---|
-| S1 | **Critical** | `routers/auth.py:20`, `oauth2.py:33` | **Hard-coded backdoor account.** The email `rayyan@gmail.com` with password `verystrongpass` always gets an `official` token, and any JWT with `user_id=99999` is accepted without a DB lookup. The credentials are in public git history, so treat them as compromised. |
+| S1 | **Critical** | `routers/auth.py:20`, `oauth2.py:33` | **Hard-coded backdoor account.** A fixed email and password (redacted here; public in that repository's history) always get an `official` token, and any JWT with `user_id=99999` is accepted without a DB lookup. The credentials are in public git history, so treat them as compromised. |
 | S2 | **Critical** | `schemas.UserCreate.role` | **Self-assigned privilege escalation.** Public `POST /users/` accepts `role: "admin"`. |
 | S3 | High | `config.py`, `docker-compose.yml` | The default `SECRET_KEY` is committed. If the env var is unset, anyone can forge tokens. |
 | S4 | High | `main.py` CORS | `allow_origins=["*"]` combined with `allow_credentials=True`. |
@@ -67,7 +32,10 @@ There is a Dockerfile and a compose file with a PostGIS service.
 | S6 | Medium | `routers/fires.py` | Raw exception strings are returned to clients (`detail=f"...{str(err)}"`). |
 | S7 | Low | compose | The FIRMS key placeholder string is treated as a real value, and the Postgres password is committed. |
 
-### Functional bugs
+The R1 credential is public in that repository's history. It was never used by ThermalTrace. Rotate it anywhere it was reused.
+
+## R1 — functional bugs
+
 | ID | Location | Bug | Impact |
 |---|---|---|---|
 | B1 | `worker.py:10,122` | The FIRMS URLs are malformed: `"https://nasa.gov{KEY}/VIIRS_NOAA20_NRT/..."` and `NASA_FIRMS_OPEN_LIVE_FEED = "https://nasa.gov"`. | **Ingestion can never retrieve FIRMS data.** The HTML response fails the `"latitude" in text` check, so the worker returns silently. The pipeline has never produced a real record in this state. |
@@ -83,50 +51,8 @@ There is a Dockerfile and a compose file with a PostGIS service.
 | B11 | `main.lifespan` | Startup DDL exceptions are swallowed by `print`. | The app boots with a broken schema. |
 | B12 | `database.run_background_pipeline` | Exceptions are printed and discarded, and no run record is written. | Failed ingestions are invisible. |
 
-### Technical debt / dead code
-`docker-compose.txt`, `docker_file.txt` and `woker.txt` duplicate other files. There is also the `purge-emulated` endpoint, `sys.path` hacks throughout, `print` used as logging, unused GeoAlchemy2, a partially unused LLM-key trio (Groq and Anthropic are never called), and a Python 3.11 base image with no pinned dependencies.
+## R2 — bugs
 
----
-
-## R2 — `thermal-trace-demo-1`
-
-### Structure
-```
-backend/app/api/          FastAPI app (single main.py), schemas
-backend/app/core/         settings, psycopg2 cursor helper
-backend/app/ingestion/    FIRMS client, Overpass client, orchestrator CLI
-backend/app/processing/   spatial join, persistence, rule classifier, orchestrator CLI
-backend/tests/            classifier unit tests
-frontend/                 React 18 + Vite + TS + MapLibre GL (single page)
-infra/postgres/init.sql   schema (docker-entrypoint)
-data/demo/                labelled synthetic detections + facilities
-docs/                     research, PRD, architecture, roadmap, SIH submission
-```
-
-### Framework & architecture
-FastAPI with synchronous psycopg2 and raw, parameterized SQL. The layers are clean (ingestion, processing, API), and ingestion and processing run as CLI scripts. There is no scheduler, auth or migrations.
-
-### APIs
-`/health`, `/ready`, `/api/v1/events`, `/api/v1/events/{id}`, `/api/v1/facilities`, `/api/v1/map`, `/api/v1/ingestion/runs`, `/api/v1/data-status`.
-
-### Database
-`ingestion_runs`, `thermal_detections` (geography points, GIST index, unique natural key), `industrial_facilities` and `event_classifications` (versioned by `classifier_version`). The schema only exists through `docker-entrypoint-initdb.d`, so it is never applied to an existing volume and there is no migration path.
-
-### GIS
-PostGIS `geography` is used correctly (distances in metres), with `ST_DWithin` and GIST indexes. Facilities are stored as points only (the Overpass `out center` centroid).
-
-### ML
-`rule-cascade-v0.1` is a deterministic cascade with supporting and counter evidence, a versioned classifier, and an explicit `insufficient_evidence` state. There is no trained model and no SHAP.
-
-### Strengths (keep)
-- **Honest data-mode handling.** `data_mode` is recorded at ingest and a `source_note` is kept on every row. The UI banner is driven by the database, not guessed.
-- The evidence bundle with supporting and counter evidence, plus versioned classifications, is exactly the product principle.
-- `normalize_confidence` for MODIS (numeric) versus VIIRS (l/n/h).
-- The classifier cascade encodes real domain reasoning (flare night-fraction, multi-month mining recurrence, the agricultural belt plus season).
-- The research docs (`01-research.md`) are strong and self-critical.
-- A MapLibre map with a data-driven style, and an evidence panel.
-
-### Bugs
 | ID | Location | Bug | Impact |
 |---|---|---|---|
 | D1 | `osm_client.fetch_live` | **No `User-Agent` header.** overpass-api.de returns **HTTP 406**. *Verified live 2026-09-25.* | `fetch_live` returns None, so it **silently falls back to synthetic demo facilities even when FIRMS is live**. That is the exact live/demo mixing the module docstring says it prevents. |
@@ -141,51 +67,43 @@ PostGIS `geography` is used correctly (distances in metres), with `ST_DWithin` a
 | D10 | `api.main` | No auth. CORS uses `allow_methods=*`. | Acceptable for a demo only. |
 | D11 | `init.sql` | Schema is applied only on a fresh volume. | Schema drift on existing deployments. |
 
-### Technical debt
-- `import json as _json` sits inside a loop.
-- `settings.persistence_grid_deg` is unused.
-- The frontend is a single page with no router and no loading or error states per panel.
-
----
-
 ## Consolidation decision
 
 **Base:** R2 (architecture, honesty model, evidence design, frontend). R1 is a *donor* for auth, roles and the weather contract.
 
-### KEEP
+#### KEEP
 - R2: evidence structure (supporting/counter/values), `data_mode` and provenance, the classifier cascade *logic* (becomes `RuleCascadeClassifier`, one explicit model), `normalize_confidence`, `geography` + GIST, MapLibre, research docs, synthetic demo dataset (behind `DEMO_MODE`).
 - R1: role model, JWT pattern, Open-Meteo client and its no-fabrication error contract, the `ST_Project`-along-wind idea.
 
-### MODIFY
+#### MODIFY
 - FIRMS client: all sensors, keyless public NRT CSVs plus the MAP_KEY Area API, retries with backoff, checkpoints, idempotent upsert, full field set (fixes D5, B1–B4).
 - OSM client: User-Agent, tiled per-AOI queries around detections, cache, configurable endpoints, correct tag taxonomy (fixes D1, D2, D6).
 - Persistence: computed per *event* in set-based SQL, not per detection (D8).
 - API: layered routers, a pooled SQLAlchemy engine, bbox and time filters, pagination (D9).
 
-### REWRITE
+#### REWRITE
 - Database layer: SQLAlchemy 2.0 + GeoAlchemy2 models with **Alembic** migrations (D11, B11).
 - Auth: fresh implementation. There is no backdoor. Roles are server-assigned, the secret key is required outside dev, and passwords are hashed with bcrypt directly (passlib is unmaintained) (S1–S4).
 - Processing: event clustering, a persistence engine, facility attribution, a feature pipeline, classifiers (rule + gradient boosting + SHAP), a confidence engine, and an evidence builder.
 - Frontend: routed application with a desktop analyst workspace and a mobile shell.
 
-### DELETE
+#### DELETE
 - R1: `FACILITY_TOXIC_MATRIX`, `generate_predictive_spread_report`, the Gemini "incident report", the backdoor login, `purge-emulated`, `planet_osm_*` queries, the `.txt` duplicate files, and the hand-drawn India polygon.
 - R2: the silent live-to-demo fallback in both clients. It is replaced by the explicit `DEMO_MODE`. A live failure now produces "source unavailable", not synthetic data.
 
-### MERGE
+#### MERGE
 - Auth, users and roles from R1 are merged into R2's API as `/api/v1/auth/*`.
 - R1's weather contract and R2's evidence bundle combine into a `weather` evidence section with "potential dispersion direction".
 - R1's WebSocket KNN idea becomes `GET /api/v1/events/nearest` (plain HTTP; the demand does not justify a socket).
 
----
+## Considered and not migrated (consolidation phase)
 
-## Environment verified this session (2026-09-25)
-| Check | Result |
-|---|---|
-| FIRMS keyless regional NRT CSV (`/data/active_fire/noaa-21-viirs-c2/csv/J2_VIIRS_C2_South_Asia_24h.csv`) | **200, real rows** (N21, acq 2026-09-24) |
-| Overpass with no User-Agent | **406** (root cause of D1) |
-| Overpass with a User-Agent | 200 |
-| Copernicus Data Space STAC (`stac.dataspace.copernicus.eu/v1`) | 200 |
-| Element84 Earth Search STAC | 200 |
-| Open-Meteo | Reachable; returned `"service is overloaded"` on one call, so the weather client must handle provider errors |
-| Docker | Installed; daemon not running at session start |
+| Feature | Source | Reason |
+|---|---|---|
+| Hand-weighted classification engine | UI prototype | Its outputs are not probabilities. Production's cascade and confidence engine are stricter and evidence-based. |
+| Guided demo walkthrough | UI prototype | Meaningful only over synthetic data. |
+| "Why ThermalTrace" card | UI prototype | Marketing, not functionality. |
+| `localStorage` analyst state | UI prototype | Production persists this server-side with an audit trail. |
+| Next.js / Zustand / Recharts / Tailwind | UI prototype | These would duplicate production's stack. No capability gap. |
+| Land-cover filter | UI prototype | OSM land context covers too few events. It returns with a land-cover raster (roadmap). |
+| Demo vertical slice code | R2 | Superseded. It was the base of the production rebuild. |

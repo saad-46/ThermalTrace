@@ -1,6 +1,6 @@
 # Bug fixes
 
-This log covers major defects: the root cause, the impact, the fix, and how the fix is guarded against regression. Source-repository IDs refer to `REPOSITORY_AUDIT.md`.
+This log covers major defects: the root cause, the impact, the fix, and how the fix is guarded against regression. Source-repository IDs (R1-…, R2-…) refer to `PROJECT_HISTORY.md`.
 
 ## Inherited from the source repositories
 
@@ -49,3 +49,4 @@ This log covers major defects: the root cause, the impact, the fix, and how the 
 | 21 | Deployed map would fail to render tiles | MapLibre ≥ 5 loads `maplibre-gl-worker.mjs` via a relative URL; the production build referenced but never emitted it | Worker bundled by Vite (`?worker&url`, ES format) and registered with `setWorkerUrl` | Playwright suite run against the **production build** (`vite preview`) with zero-console-error assertion |
 | 22 | Dev server: "Worker failed to load" after the MapLibre upgrade | Dependency pre-bundling moved MapLibre into `.vite/deps`, breaking its relative worker URL | `optimizeDeps.exclude: ["maplibre-gl"]` | Playwright suite against the dev server |
 | 23 | LightGBM 4.6.0 (required: 4.5.0 has an RCE advisory) failed to import on Windows | 4.6.0 wheels no longer bundle the OpenMP runtime (`vcomp140.dll`) | `app/ml/__init__.py` registers scikit-learn's vendored copy; no system-wide install needed; Linux uses libgomp | `tests/test_ml.py`; container import check |
+| 24 | Copying `.env.development.example` to `.env` (the documented setup) made Sentry fail to start, and made SMTP, VAPID and Copernicus look configured | Blank values were followed by inline comments (`SENTRY_DSN=   # [OPTIONAL]`), which dotenv parses as the value | Comments moved to their own line in all three templates | `test_env_templates_have_no_inline_comments_on_blank_values`; found by the fresh-clone test |

@@ -5,7 +5,6 @@ import time
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -171,7 +170,3 @@ def load_demo_dataset(db: Session, job_id=None) -> dict:
     finish_run(run, "success", started)
     db.commit()
     return {"inserted": inserted, "duplicates": dupes}
-
-
-def latest_detection_time(db: Session) -> datetime | None:
-    return db.execute(select(func.max(ThermalDetection.acq_datetime))).scalar()

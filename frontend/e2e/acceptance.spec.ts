@@ -1,6 +1,7 @@
 /**
  * Final acceptance scenario (docs/TESTING.md §E2E). Runs against a live stack:
  *   E2E_BASE_URL (default http://localhost:5173), E2E_EMAIL, E2E_PASSWORD (analyst+ account), E2E_EVENT (optional public id)
+ *   E2E_SEARCH (optional search term; default "TT-")
  * Screenshots → e2e/screenshots/ (git-ignored; curated copies live in docs/screenshots/).
  */
 import { expect, test, type Page } from "@playwright/test";
@@ -44,9 +45,11 @@ test.describe("desktop analyst workflow", () => {
     await page.waitForTimeout(1500);
     await shot(page, "01-live-map");
 
-    // Global search: district → map, then event id → investigation
+    // Global search: a term with results, then event id → investigation. The default matches event
+    // ids, which exist in any processed database; district names (e.g. E2E_SEARCH=Dhanbad) need
+    // geocoding enrichment first.
     const search = page.getByRole("combobox", { name: /Search events/ });
-    await search.fill("Dhanbad");
+    await search.fill(process.env.E2E_SEARCH ?? "TT-");
     await expect(page.getByRole("option").first()).toBeVisible({ timeout: 10_000 });
     await shot(page, "02-global-search");
     const first = page.locator("aside .mono").first();

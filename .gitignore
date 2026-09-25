@@ -1,28 +1,55 @@
+# --- Python ---
 __pycache__/
-*.pyc
+*.py[cod]
 .venv/
 venv/
-.env
-node_modules/
-dist/
-*.tsbuildinfo
-build/
 *.egg-info/
 .pytest_cache/
 .mypy_cache/
-postgres-data/
-*.log
-.DS_Store
-Thumbs.db
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
 
-# ThermalTrace runtime artefacts
-backend/var/
-data/datasets/*
-!data/datasets/README.md
-!data/datasets/cea_template.csv
+# --- Node / frontend ---
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+coverage/
+.vite/
+npm-debug.log*
+
+# --- Environment and secrets (only *.example templates are tracked) ---
 .env
 .env.*
 !.env*.example
+*.pem
+*.key
+*credentials*.txt
+service-account*.json
+
+# --- Runtime data (logs, generated reports, trained models, imported datasets) ---
+backend/var/
+*.log
+postgres-data/
+data/datasets/*
+!data/datasets/README.md
+!data/datasets/cea_template.csv
+
+# --- Test artefacts ---
 frontend/e2e/screenshots/
 frontend/test-results/
 frontend/playwright-report/
+frontend/blob-report/
+playwright/.cache/
+
+# --- Editors and OS ---
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini

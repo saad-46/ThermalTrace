@@ -6,7 +6,7 @@ inspired by publicly documented thermal-activity *patterns* at real, named locat
 flare pattern near Jamnagar, persistent coal-seam fire behavior near Jharia, seasonal stubble
 burning in Punjab, a forest-fire season cluster in Uttarakhand, a stable thermal-power-plant
 process-heat pattern, and one deliberately sparse/ambiguous case) so that every branch of the
-classifier taxonomy (`docs/01-research.md` §3) has a demonstrable example, including the
+classifier taxonomy (`docs/RESEARCH.md` §3) has a demonstrable example, including the
 "insufficient evidence" state.
 
 **They are not a claim that these exact detections occurred.** Every row ingested from this file

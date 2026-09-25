@@ -338,3 +338,18 @@ def test_rate_limit_is_per_token_not_per_ip(monkeypatch):
     assert [c.get("/api/v1/events", headers=tok_a).status_code for _ in range(3)] == [401, 401, 401]
     assert c.get("/api/v1/events", headers=tok_a).status_code == 429
     assert c.get("/api/v1/events", headers=tok_b).status_code == 401  # separate bucket, still authenticated-checked
+
+
+def test_env_templates_have_no_inline_comments_on_blank_values():
+    """A copied template must parse to empty values, not comment text (a blank key with an inline
+    comment made Sentry, SMTP, VAPID and Copernicus look configured)."""
+    from pathlib import Path
+
+    from dotenv import dotenv_values
+
+    root = Path(__file__).resolve().parents[2]
+    templates = sorted(root.glob(".env*.example"))
+    assert len(templates) == 3
+    for template in templates:
+        polluted = [k for k, v in dotenv_values(template).items() if v and v.lstrip().startswith("#")]
+        assert polluted == [], f"{template.name}: {polluted}"

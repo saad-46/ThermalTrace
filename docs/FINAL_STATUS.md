@@ -1,8 +1,8 @@
-# Final status — production consolidation (2026-09-25)
+# Final status (2026-09-25)
 
-**Repository:** `D:\Projects\ThermalTrace` (the only long-term repository; remote `saad-46/ThermalTrace`). **Branch:** `production-consolidation`, not yet merged or pushed. `main` is unchanged.
+**Repository:** `saad-46/ThermalTrace`. **Branch:** `production-consolidation`, ready to merge into `main`.
 
-## Live state (real data only, `DEMO_MODE=false`)
+## Live state at the time of writing (development database; real data only, `DEMO_MODE=false`)
 
 | Measure | Value |
 |---|---|
@@ -16,9 +16,9 @@
 
 ## COMPLETED (this phase)
 
-- **Consolidation**: `D:\Projects\ThermalTrace` is now the repository root (a clean clone of `saad-46/ThermalTrace`). The Demo and Prototype were fully audited (`MASTER_CODEBASE_AUDIT.md`, `MASTER_FEATURE_MATRIX.md`). Everything valuable is integrated or recorded as rejected with a reason (`FEATURE_INTEGRATION_LOG.md`).
+- **Consolidation**: this repository is the single source. Earlier prototypes were audited feature by feature; everything valuable was rebuilt here on real data, and the rest is recorded as rejected with a reason (`PROJECT_HISTORY.md`, `FEATURES.md`).
 - **Local facility index**: scheduled 1° tile sync from OSM into PostGIS. Enrichment now asks Overpass only for land use where tiles are fresh. The OSM error rate fell from 15.2 % to 3.0 %.
-- **Triage priority** (from the Prototype, re-based on real evidence), with its explanation, a priority-sorted queue and a priority filter.
+- **Triage priority** (built only from observed and derived evidence), with its explanation, a priority-sorted queue and a priority filter.
 - **Global search**: server-side, trigram-indexed search across event IDs, districts, facilities, classifications and coordinates.
 - **Evidence chain**, **per-day persistence strip**, **qualitative confidence decomposition**, **attribution rings**, and **weather in the timeline**.
 - **Training feedback dataset export** (CSV and JSON, audited).
@@ -28,12 +28,12 @@
 - **Frontend unit and component tests** (Vitest, 17). **E2E** extended to tablet, with guards for console errors, horizontal overflow and request storms.
 - **Security**: every dependency with a published advisory upgraded. Both `pip-audit` and `npm audit` are clean. LightGBM 4.5.0 had a remote-code-execution advisory.
 - **Fixes**: Events-page refetch loop, per-IP rate-limit bucket, migration 0002 downgrade, MapLibre worker missing from production builds, Nominatim health tracking, idle-in-transaction sessions, and the priority tier/label mismatch. Details are in `BUG_FIXES.md` #12–23.
-- **Delete-safety test passed.** A fresh clone rebuilds, migrates, ingests real data and passes every test with the reference directories hidden (`TESTING.md`).
-- **Docs**: MASTER_CODEBASE_AUDIT, MASTER_FEATURE_MATRIX, FEATURE_INTEGRATION_LOG, API_INTEGRATION_MATRIX, DATABASE_AUDIT, SECURITY_AUDIT, FEATURE_ROADMAP, plus BUG_FIXES, TESTING, API (75 operations), DATA_SOURCES, ML, GIS and README updates.
+- **Fresh-clone test passed.** A fresh clone installs, migrates, ingests real data and passes every test with nothing outside the repository (`TESTING.md`).
+- **Final cleanup**: generated artefacts removed, dead code and unused dependencies removed, docs consolidated (audits merged into their topical documents; `PROJECT_HISTORY.md` and `FEATURES.md` added), inventories recorded (`PRE_CLEANUP_INVENTORY.md`, `FINAL_REPOSITORY_INVENTORY.md`).
 
 ## PARTIALLY COMPLETED
 
-- **ML.** A LightGBM model (`lgbm-20260925115351`) is now **trained on live data but deliberately left inactive**:
+- **ML.** A LightGBM model was trained on the development database (`lgbm-20260925115351`) and **deliberately left inactive**; no model artifact is shipped in the repository:
   - Its labels are 1 analyst adjudication plus 209 rule-derived weak labels.
   - Its hold-out macro-F1 of 1.0 only shows that it reproduces the rule cascade. It is **not** evidence of accuracy, and the model card says so.
   - The rule cascade remains the classifier of record.

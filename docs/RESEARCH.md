@@ -112,7 +112,7 @@ Framing: this is **multi-class tabular classification on engineered per-detectio
 | Vision Transformer | Rejected — data-hungry, weak explainability, no advantage here |
 | Unsupervised anomaly detection | Adopted as a secondary pre-filter feeding the "insufficient evidence" pathway |
 
-**v0 (this build): rule-based weak-label cascade**, not a trained model — stated as a real, deliberate limitation (see `00-audit-and-verification.md` §4), matching the artifact's own recommended build order: validate the labeling logic before investing further. A trained XGBoost classifier is the documented next step once the pipeline has produced enough weakly-labeled + spot-checked examples to train on.
+**v0 (this build): rule-based weak-label cascade**, not a trained model — stated as a real, deliberate limitation (see `ML.md`), matching the artifact's own recommended build order: validate the labeling logic before investing further. A trained XGBoost classifier is the documented next step once the pipeline has produced enough weakly-labeled + spot-checked examples to train on.
 
 ### Labeling cascade (weak supervision)
 1. VIIRS Nightfire match → weak-label `industrial_flare` (high confidence — Nightfire is itself a validated flare product; gated by its Data Use License).

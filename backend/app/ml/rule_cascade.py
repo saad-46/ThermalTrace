@@ -1,5 +1,5 @@
-"""Deterministic rule cascade (event level). Ported from thermal-trace-demo-1's rule-cascade-v0.1
-(detection level) and extended with the full taxonomy, land context and FRP steadiness.
+"""Deterministic rule cascade (event level). Grew out of an earlier
+detection-level cascade (rule-cascade-v0.1), extended with the full taxonomy, land context and FRP steadiness.
 
 It encodes published domain knowledge (see docs/ML.md §Rules): flares are persistent,
 night-visible and co-located with oil/gas infrastructure; process heat is recurring at heavy

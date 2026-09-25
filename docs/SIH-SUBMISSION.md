@@ -6,13 +6,13 @@
 
 **Why not just point at FIRMS's own "Static Thermal Anomalies" feature?** STA (since Feb 2025) is the closest existing thing to this PS, and we cite it explicitly rather than pretend it doesn't exist. It's a global annual mask keyed to a stale (~2022) WRI power-plant database, with no fine-grained taxonomy, no confidence/evidence UI, and no dashboard. ThermalTrace differentiates on three specific things: (1) a fresher, India-specific fused reference layer (OSM + Global Energy Monitor + CEA, not WRI alone), (2) a transparent evidence bundle per detection instead of a bare mask, (3) an integrated open pipeline with an actual analyst-facing GIS dashboard.
 
-**Why AI, if the classifier is rule-based right now?** Because the honest answer to "is this XGBoost or is it duct tape?" matters more than sounding impressive — see `01-research.md` §7. The rule cascade *is* the documented, correct v0 given zero labeled data exists on day one; it directly produces the weakly-labeled examples a trained classifier needs next. This is stated as a roadmap item, not hidden.
+**Why AI, if the classifier is rule-based right now?** Because the honest answer to "is this XGBoost or is it duct tape?" matters more than sounding impressive — see `RESEARCH.md` §7. The rule cascade *is* the documented, correct v0 given zero labeled data exists on day one; it directly produces the weakly-labeled examples a trained classifier needs next. This is stated as a roadmap item, not hidden.
 
 **Why persistence, why evidence, why "insufficient evidence" as an output?** A refinery flare burning every night is normal; a new hotspot at a facility with no thermal history is not. Treating both as "a fire was detected" throws away the signal that actually matters to an analyst. And a system that can say "I don't have enough evidence yet" is more trustworthy to a security-adjacent evaluator than one that always outputs a confident label — false-positive classifications cost analyst time.
 
 **What we are not claiming:** not real-time (near-real-time — FIRMS's own ~3hr NRT latency), not a replacement for analysts or for FIRMS/Kayrros/Capterio, not globally validated, not a novel classification *concept* (US Patent 11,308,595 B1 already covers a similar taxonomy — our novelty is the India-specific data fusion and evidence transparency, not the taxonomy idea itself).
 
-## Predicted judge questions — strong vs. weak answers (selected, see `01-research.md` for full grounding)
+## Predicted judge questions — strong vs. weak answers (selected, see `RESEARCH.md` for full grounding)
 
 | Question | Weak answer to avoid | Strong answer |
 |---|---|---|
@@ -47,4 +47,4 @@
 3:30–4:15 — deliberately show one "insufficient evidence — manual review required" case, and say why that's a feature, not a bug.
 4:15–5:00 — close on evidence transparency, near-real-time framing, and the honest roadmap (rule-based v0 → trained classifier next).
 
-**Open item before this is submission-ready:** re-verify the Theme field and full official text live on sih.gov.in (see `00-audit-and-verification.md` §2 — the direct portal fetch this session couldn't reach SIH26162's page directly), and spend 10 minutes looking at `pyrosights.vercel.app` manually (it renders client-side, so it needs an actual browser look, not a fetch) to know what the named competitor has actually built.
+**Open item before this is submission-ready:** re-verify the Theme field and full official text live on sih.gov.in (the portal page could not be fetched automatically), and spend 10 minutes looking at `pyrosights.vercel.app` manually (it renders client-side, so it needs an actual browser look, not a fetch) to know what the named competitor has actually built.
