@@ -64,7 +64,7 @@ def facility_sync(db: Session, payload: dict, job: Job) -> dict:
 
     res = fs.sync_tiles(db, int(payload.get("limit", 4)))
     if res["remaining"] and (res["synced"] or res["failed"]):  # keep draining the backlog politely
-        enqueue(db, "facility_sync", payload, dedupe_key="facility_sync", priority=85, delay_s=10)
+        enqueue(db, "facility_sync", payload, dedupe_key="facility_sync", priority=45, delay_s=10)
     return res
 
 
@@ -109,10 +109,11 @@ HANDLERS: dict[str, Handler] = {
     "housekeeping": housekeeping,
 }
 
-# Recurring schedule: kind -> (interval seconds, payload)
-SCHEDULE: dict[str, tuple[int, dict]] = {
-    "firms_poll": (settings.firms_poll_minutes * 60, {"window": "24h"}),
-    "enrich_batch": (15 * 60, {"limit": 40}),
-    "facility_sync": (60 * 60, {"limit": 4}),
-    "housekeeping": (6 * 3600, {}),
+# Recurring schedule: kind -> (interval seconds, payload, queue priority; lower runs first).
+# Facility sync outranks per-event enrichment: every synced tile makes enrichment of its events cheap.
+SCHEDULE: dict[str, tuple[int, dict, int]] = {
+    "firms_poll": (settings.firms_poll_minutes * 60, {"window": "24h"}, 30),
+    "facility_sync": (60 * 60, {"limit": 4}, 45),
+    "enrich_batch": (15 * 60, {"limit": 40}, 60),
+    "housekeeping": (6 * 3600, {}, 90),
 }

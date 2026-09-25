@@ -81,9 +81,9 @@ def main() -> None:
     while not _stop:
         now = time.monotonic()
         if args.scheduler:
-            for kind, (interval, payload) in SCHEDULE.items():
+            for kind, (interval, payload, priority) in SCHEDULE.items():
                 if now - last_enqueued.get(kind, -1e9) >= interval:
-                    queue.enqueue(db, kind, payload, dedupe_key=f"sched:{kind}", priority=50)
+                    queue.enqueue(db, kind, payload, dedupe_key=f"sched:{kind}", priority=priority)
                     last_enqueued[kind] = now
         if now - last_beat > 30:
             _heartbeat(db, worker_id, started, done, args.scheduler)
