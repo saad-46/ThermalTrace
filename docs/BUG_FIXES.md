@@ -32,3 +32,17 @@ This log covers major defects: the root cause, the impact, the fix, and how the 
 | 9 | Map canvas blank (572×300) | `maplibre-gl.css` sets `.maplibregl-map { position: relative }` after app CSS, collapsing the absolutely positioned container to 0 px; the workspace also used `height:100%` in a flex child | Higher-specificity selector; workspace pinned with `position:absolute; inset:0` | Playwright screenshots |
 | 10 | Review form state could reset on refetch | Panel component defined inside the page render → remounted each render | Hoisted to module scope | Manual |
 | 11 | Docker Desktop failed to start on this machine | Orphaned AF_UNIX socket reparse points in `%LOCALAPPDATA%\Docker\run` and `docker-secrets-engine` could not be removed | Renamed the stale directories (non-destructive) | Environment note |
+
+## Found during production consolidation (2026-09-25)
+
+| # | Symptom | Root cause | Fix | Guard |
+|---|---|---|---|---|
+| 12 | Events page sent ~8 list requests/s from one open tab, exhausting the rate limit (477 requests in ~3 min) | `sinceFromDays()` stamped `new Date()` on every render → the React Query key changed on every render → refetch → re-render loop | Query memoised in the page; `since` rounded to the minute so keys are stable everywhere | Vitest `query-key stability`; E2E asserts ≤ 1 list request while idle for 5 s |
+| 13 | Whole E2E run failed with 429 after the first test | Rate limiter keyed per client IP; shared-IP users (office NAT, test browsers) share one bucket | Keyed per session token (hashed); anonymous traffic per IP; default 600/min | `test_rate_limit_is_per_token_not_per_ip` |
+| 14 | Assistive tech (and Playwright) saw table headers as plain cells | `<th>` without `scope` inside the table markup was not exposed as `columnheader` | `scope="col"` on all 109 table headers | E2E locates `columnheader` "Priority" |
+| 15 | `alembic downgrade` failed on any database with ingestion history | Migration 0002 downgrade ran `DELETE FROM data_sources` despite FKs from runs, sources and observations | Delete only unreferenced seed rows | Integration suite runs base→head on a populated test DB (passes repeatedly) |
+| 16 | Enrichment could take hours to reach most events | Public Overpass queried per 5.5 km cell (~30 s each) | Local facility index synced by 1° tile; land-only per-cell queries once tiles are fresh | Unit tests for tile coverage and query shape; OSM error rate 15.2 % → 3.0 % |
+| 17 | Nominatim showed "Unknown" health despite continuous use | Geocoding step never reported to the source-health tracker | `record_success` / `record_failure` added | Data sources page |
+| 18 | Worker sessions sat "idle in transaction" for minutes | A cache read opened a transaction held across slow Overpass calls | Commit before provider calls | `pg_stat_activity` check |
+| 19 | Map at tablet width ≈250 px wide | 208 px sidebar + 360 px panel at 820 px viewport | Icon-rail navigation 768–1100 px; 340 px panel | E2E tablet test + overflow check |
+| 20 | Triage priority 69.9 displayed as "70" yet tiered "elevated" | Tier computed on the unrounded score | Integer score; tier derived from the same integer | `test_priority_components_and_tiers` |

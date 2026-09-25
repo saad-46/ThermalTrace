@@ -137,7 +137,7 @@ See [docs/TESTING.md](docs/TESTING.md) for coverage and the recorded acceptance 
 - [Repository audit](docs/REPOSITORY_AUDIT.md)
 - [Bug fixes](docs/BUG_FIXES.md)
 - [Final status](docs/FINAL_STATUS.md)
-- [Roadmap](docs/ROADMAP.md)
+- [Feature roadmap](docs/FEATURE_ROADMAP.md)
 - [Research](docs/01-research.md)
 - [SIH submission](docs/SIH-SUBMISSION.md)
 

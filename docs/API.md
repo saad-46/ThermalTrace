@@ -129,6 +129,7 @@ GET  /api/v1/reports/{id}/download
 
 | Method | Path | Summary |
 |---|---|---|
+| GET | `/api/v1/ml/training-dataset` | Adjudicated training dataset (event â†’ prediction â†’ analyst label â†’ features â†’ reviewer â†’ model version) |
 | GET | `/api/v1/models` | Model versions with model cards |
 | POST | `/api/v1/models/{model_id}/activate` | Activate |
 
@@ -155,6 +156,12 @@ GET  /api/v1/reports/{id}/download
 |---|---|---|
 | GET | `/api/v1/satellite/{observation_id}/swir.png` | AOI SWIR composite (B12/B8A/B4) via Copernicus â€” requires CDSE OAuth credentials |
 
+### search
+
+| Method | Path | Summary |
+|---|---|---|
+| GET | `/api/v1/search` | Search events, places, facilities, classifications and coordinates |
+
 ### sources
 
 | Method | Path | Summary |
@@ -165,6 +172,7 @@ GET  /api/v1/reports/{id}/download
 | GET | `/api/v1/jobs` | Jobs |
 | GET | `/api/v1/jobs/{job_id}` | Job |
 | GET | `/api/v1/sources` | Source registry with health, freshness and configuration state |
+| GET | `/api/v1/sources/facility-index` | Local OSM facility index coverage (1Â° tiles) |
 
 ### system
 
