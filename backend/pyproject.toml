@@ -1,0 +1,13 @@
+[tool.ruff]
+line-length = 130
+target-version = "py312"
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["B008", "E501", "B904", "UP038"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = ["integration: needs TEST_DATABASE_URL (PostGIS)"]

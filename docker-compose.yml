@@ -1,0 +1,94 @@
+# Local development stack. Production deployment: see docs/DEPLOYMENT.md.
+name: thermaltrace
+
+x-backend-env: &backend-env
+  ENVIRONMENT: ${ENVIRONMENT:-development}
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-thermaltrace}:${POSTGRES_PASSWORD:-thermaltrace_dev_only}@db:5432/${POSTGRES_DB:-thermaltrace}
+  SECRET_KEY: ${SECRET_KEY:-dev-only-insecure-secret-change-me}
+  CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+  DEMO_MODE: ${DEMO_MODE:-false}
+  FIRMS_MAP_KEY: ${FIRMS_MAP_KEY:-}
+  COPERNICUS_CLIENT_ID: ${COPERNICUS_CLIENT_ID:-}
+  COPERNICUS_CLIENT_SECRET: ${COPERNICUS_CLIENT_SECRET:-}
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_USERNAME: ${SMTP_USERNAME:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SMTP_FROM: ${SMTP_FROM:-}
+  VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+  VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+  VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+  SENTRY_DSN: ${SENTRY_DSN:-}
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-thermaltrace}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-thermaltrace_dev_only}
+      POSTGRES_DB: ${POSTGRES_DB:-thermaltrace}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-thermaltrace} -d ${POSTGRES_DB:-thermaltrace}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    build: ./backend
+    command: ["alembic", "upgrade", "head"]
+    environment: *backend-env
+    depends_on:
+      db: { condition: service_healthy }
+
+  api:
+    build: ./backend
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
+    environment: *backend-env
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - reports:/app/var
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build: ./backend
+    command: ["python", "-m", "app.workers.run", "--scheduler", "--lane", "bulk"]
+    environment: *backend-env
+    volumes:
+      - reports:/app/var
+      - ./data:/data:ro
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  worker-interactive:
+    build: ./backend
+    command: ["python", "-m", "app.workers.run", "--lane", "interactive"]
+    environment: *backend-env
+    volumes:
+      - reports:/app/var
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  reports:

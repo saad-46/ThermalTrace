@@ -1,0 +1,34 @@
+# Bug fixes
+
+This log covers major defects: the root cause, the impact, the fix, and how the fix is guarded against regression. Source-repository IDs refer to `REPOSITORY_AUDIT.md`.
+
+## Inherited from the source repositories
+
+| ID | Root cause | Impact | Fix | Guard |
+|---|---|---|---|---|
+| R1-B1 | FIRMS URLs built as `https://nasa.gov{KEY}/…` and `https://nasa.gov` | FIRMS ingestion never worked; the worker returned silently | New `FIRMSClient` with the documented endpoints for all sensors | `test_viirs_row_normalized`, live runs recorded in `ingestion_runs` |
+| R1-B3/B4 | No acquisition time columns; no uniqueness | Persistence impossible; duplicates on every trigger | Full FIRMS field set; natural-key unique constraint | `test_ingestion_is_idempotent` |
+| R1-B5/B6 | Queried a nonexistent `planet_osm_polygon` table; fabricated distances on exceptions | Spatial context always "none"; features invented | Overpass enrichment into `facilities` / `land_context`; features are NaN when unknown | `test_rule_agri_needs_land_context` |
+| R1-B9/B10 | Toxicology claims keyed on substrings; invented spread-rate formula | Unsupported claims shown as fact | Removed. Replaced by the wind-derived *potential dispersion direction*, labelled as such | Docs + UI copy |
+| R1-S1/S2/S3 | Backdoor account, self-assigned roles, default JWT secret | Critical auth bypass | New auth (see SECURITY.md) | `test_roles_cannot_be_self_assigned`, `test_auth_flow_and_error_shape` |
+| R2-D1 | Overpass requests sent no User-Agent → HTTP 406 | Silent fallback to *synthetic* facilities while FIRMS was live | UA always sent; failures recorded; no demo fallback | Verified live 2026-09-25 |
+| R2-D2 | One Overpass query for all industrial land in India | Timeouts → demo fallback | Bounded per-cell queries | `test_overpass_query_is_bounded_and_uses_bb` |
+| R2-D3 | Facilities re-inserted every run | Duplicate attribution | `(source_id, external_id)` unique + consolidation | Integration tests |
+| R2-D6 | `man_made=works` mapped to "refinery" | Any factory could produce a "flare" label | Explicit taxonomy; name hints only where unambiguous | `test_osm_taxonomy` |
+| R2-D7/D8 | Per-detection classification with four spatial queries each | Same fire classified N times; unusable at live volume | Event clustering + set-based stats | `test_clustering_persistence_attribution_classification` |
+
+## Found during this build
+
+| # | Symptom | Root cause | Fix | Guard |
+|---|---|---|---|---|
+| 1 | Every OSM way/relation dropped (Hazira returned 3 facilities instead of 42) | Overpass `out center bb`: `center` and `bb` are mutually exclusive, so ways had bounds but no centre | `out tags bb` + centre derived from bounds | `test_overpass_query_is_bounded_and_uses_bb` |
+| 2 | Overpass 504s and 75 s timeouts; 35 of 1,351 events enriched after 35 min | Key-only `industrial=*` filter + one land clause per event point (84 clauses) | 6 combined regex clauses; land in a padded bbox | Same test; Data sources error rate |
+| 3 | NTPC Kawas (gas) labelled a coal plant | Name heuristic `thermal power → coal`; in India "thermal" also covers gas | Coal only for unambiguous names; registry fuel overrides via merge | `test_osm_taxonomy` |
+| 4 | JSONB insert failed for every event | `datetime` in evidence provenance; NaN would also be rejected by Postgres JSON | Engine `json_serializer` that ISO-formats dates, stringifies UUIDs, maps NaN/inf → null | Integration tests |
+| 5 | `ingest` crashed after fetch | `.rowcount` on a `RETURNING` result object | Count returned rows | `test_ingestion_is_idempotent` |
+| 6 | Login rejected `analyst@thermaltrace.local` | `EmailStr` rejects special-use TLDs | Login accepts any bounded string (exact match); creation keeps `EmailStr` | Manual |
+| 7 | PDF report stuck "pending" for minutes | One worker processed jobs serially; a long enrichment batch blocked the report | Interactive and bulk worker **lanes** | Playwright report step |
+| 8 | Whole app crashed after login: "failed to invert matrix" | MapLibre received `center: undefined, zoom: undefined`, which overrode defaults with NaN | Build view options conditionally; map wrapped in an error boundary | Playwright console-error assertion |
+| 9 | Map canvas blank (572×300) | `maplibre-gl.css` sets `.maplibregl-map { position: relative }` after app CSS, collapsing the absolutely positioned container to 0 px; the workspace also used `height:100%` in a flex child | Higher-specificity selector; workspace pinned with `position:absolute; inset:0` | Playwright screenshots |
+| 10 | Review form state could reset on refetch | Panel component defined inside the page render → remounted each render | Hoisted to module scope | Manual |
+| 11 | Docker Desktop failed to start on this machine | Orphaned AF_UNIX socket reparse points in `%LOCALAPPDATA%\Docker\run` and `docker-secrets-engine` could not be removed | Renamed the stale directories (non-destructive) | Environment note |

@@ -1,0 +1,33 @@
+{
+  "note": "Synthetic demo facility layer — see data/demo/README.md. Coordinates approximate.",
+  "facilities": [
+    {
+      "name": "Demo Refinery (Jamnagar-area, synthetic)",
+      "facility_type": "refinery",
+      "latitude": 22.3336,
+      "longitude": 69.8412,
+      "tags": {"man_made": "works", "product": "oil"}
+    },
+    {
+      "name": "Demo Coalfield / Mine Area (Jharia-area, synthetic)",
+      "facility_type": "mine_quarry",
+      "latitude": 23.7398,
+      "longitude": 86.4141,
+      "tags": {"landuse": "quarry"}
+    },
+    {
+      "name": "Demo Thermal Power Plant (synthetic)",
+      "facility_type": "power_plant",
+      "latitude": 24.1521,
+      "longitude": 82.6490,
+      "tags": {"power": "plant", "plant:source": "coal"}
+    },
+    {
+      "name": "Demo Small Industrial Unit (synthetic, ambiguous case)",
+      "facility_type": "industrial_area",
+      "latitude": 21.1520,
+      "longitude": 79.0930,
+      "tags": {"landuse": "industrial"}
+    }
+  ]
+}

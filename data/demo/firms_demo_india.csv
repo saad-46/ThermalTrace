@@ -1,0 +1,78 @@
+latitude,longitude,acq_date,acq_time,satellite,instrument,frp,confidence,daynight,case_study
+22.3336,69.8412,2026-07-02,2130,NOAA-20,VIIRS,38.2,h,N,jamnagar_refinery_flare
+22.3341,69.8408,2026-07-05,2118,NOAA-21,VIIRS,41.7,h,N,jamnagar_refinery_flare
+22.3330,69.8415,2026-07-08,0142,Suomi NPP,VIIRS,35.9,h,N,jamnagar_refinery_flare
+22.3338,69.8410,2026-07-11,2109,NOAA-20,VIIRS,44.1,h,N,jamnagar_refinery_flare
+22.3335,69.8413,2026-07-14,2201,NOAA-21,VIIRS,39.6,h,N,jamnagar_refinery_flare
+22.3332,69.8409,2026-07-17,0135,Suomi NPP,VIIRS,42.3,h,N,jamnagar_refinery_flare
+22.3339,69.8411,2026-07-20,2144,NOAA-20,VIIRS,37.8,h,N,jamnagar_refinery_flare
+22.3336,69.8414,2026-07-23,2125,NOAA-21,VIIRS,40.5,h,N,jamnagar_refinery_flare
+22.3334,69.8407,2026-07-26,0128,Suomi NPP,VIIRS,43.9,h,N,jamnagar_refinery_flare
+22.3337,69.8412,2026-07-29,2117,NOAA-20,VIIRS,36.4,h,N,jamnagar_refinery_flare
+22.3340,69.8409,2026-08-01,1332,Terra,MODIS,33.1,82,D,jamnagar_refinery_flare
+22.3333,69.8416,2026-08-04,2153,NOAA-21,VIIRS,45.2,h,N,jamnagar_refinery_flare
+22.3338,69.8410,2026-08-07,0140,Suomi NPP,VIIRS,38.7,h,N,jamnagar_refinery_flare
+22.3335,69.8413,2026-08-10,2131,NOAA-20,VIIRS,41.0,h,N,jamnagar_refinery_flare
+22.3331,69.8408,2026-08-13,2210,NOAA-21,VIIRS,39.3,h,N,jamnagar_refinery_flare
+22.3339,69.8412,2026-08-16,0122,Suomi NPP,VIIRS,42.8,h,N,jamnagar_refinery_flare
+22.3336,69.8411,2026-08-19,1305,Aqua,MODIS,34.6,79,D,jamnagar_refinery_flare
+22.3334,69.8414,2026-08-22,2148,NOAA-20,VIIRS,40.1,h,N,jamnagar_refinery_flare
+22.3337,69.8409,2026-08-25,2126,NOAA-21,VIIRS,37.5,h,N,jamnagar_refinery_flare
+22.3332,69.8412,2026-08-28,0133,Suomi NPP,VIIRS,43.4,h,N,jamnagar_refinery_flare
+23.7398,86.4141,2026-03-05,1245,Terra,MODIS,9.2,64,D,jharia_coal_seam_fire
+23.7405,86.4133,2026-03-19,1318,Aqua,MODIS,7.8,58,D,jharia_coal_seam_fire
+23.7391,86.4148,2026-04-02,2214,NOAA-20,VIIRS,11.4,n,N,jharia_coal_seam_fire
+23.7402,86.4139,2026-04-16,1252,Terra,MODIS,8.6,61,D,jharia_coal_seam_fire
+23.7396,86.4144,2026-04-30,2233,NOAA-21,VIIRS,10.1,n,N,jharia_coal_seam_fire
+23.7400,86.4136,2026-05-14,1309,Aqua,MODIS,9.9,66,D,jharia_coal_seam_fire
+23.7393,86.4150,2026-05-28,2201,Suomi NPP,VIIRS,12.0,n,N,jharia_coal_seam_fire
+23.7407,86.4130,2026-06-11,1237,Terra,MODIS,7.3,55,D,jharia_coal_seam_fire
+23.7399,86.4142,2026-06-25,2219,NOAA-20,VIIRS,10.8,n,N,jharia_coal_seam_fire
+23.7392,86.4147,2026-07-09,1327,Aqua,MODIS,8.9,60,D,jharia_coal_seam_fire
+23.7404,86.4135,2026-07-23,2207,NOAA-21,VIIRS,11.6,n,N,jharia_coal_seam_fire
+23.7397,86.4141,2026-08-06,1244,Terra,MODIS,9.4,63,D,jharia_coal_seam_fire
+23.7401,86.4138,2026-08-20,2225,Suomi NPP,VIIRS,10.3,n,N,jharia_coal_seam_fire
+23.7395,86.4145,2026-08-30,1258,Aqua,MODIS,8.1,57,D,jharia_coal_seam_fire
+23.7403,86.4133,2026-08-31,2151,NOAA-20,VIIRS,11.9,n,N,jharia_coal_seam_fire
+23.7399,86.4140,2026-09-01,1240,Terra,MODIS,9.7,65,D,jharia_coal_seam_fire
+23.7396,86.4143,2026-09-02,2233,NOAA-21,VIIRS,10.6,n,N,jharia_coal_seam_fire
+23.7402,86.4137,2026-09-03,1315,Aqua,MODIS,8.4,59,D,jharia_coal_seam_fire
+30.2417,75.8384,2025-10-16,0812,Terra,MODIS,22.3,71,D,punjab_stubble_burning
+30.2432,75.8399,2025-10-16,1344,Aqua,MODIS,19.8,68,D,punjab_stubble_burning
+30.2409,75.8372,2025-10-18,0755,Terra,MODIS,25.1,74,D,punjab_stubble_burning
+30.2448,75.8410,2025-10-19,1321,Aqua,MODIS,21.6,70,D,punjab_stubble_burning
+30.2401,75.8353,2025-10-21,0803,Terra,MODIS,27.4,77,D,punjab_stubble_burning
+30.2440,75.8404,2025-10-23,1337,Aqua,MODIS,18.9,66,D,punjab_stubble_burning
+30.2420,75.8378,2025-10-25,0819,Terra,MODIS,23.7,72,D,punjab_stubble_burning
+30.2392,75.8348,2025-10-28,1309,Aqua,MODIS,26.2,75,D,punjab_stubble_burning
+30.2447,75.8394,2025-10-31,0741,Terra,MODIS,20.4,69,D,punjab_stubble_burning
+30.2398,75.8356,2025-11-02,1352,Aqua,MODIS,24.8,73,D,punjab_stubble_burning
+30.2429,75.8386,2025-11-04,0827,Terra,MODIS,22.9,71,D,punjab_stubble_burning
+30.2414,75.8367,2025-11-06,1318,Aqua,MODIS,19.3,67,D,punjab_stubble_burning
+30.2436,75.8406,2025-11-08,0806,Terra,MODIS,25.6,76,D,punjab_stubble_burning
+30.2407,75.8359,2025-11-09,1329,Aqua,MODIS,21.1,70,D,punjab_stubble_burning
+30.2423,75.8375,2025-11-10,0812,Terra,MODIS,23.4,72,D,punjab_stubble_burning
+29.4015,79.4611,2026-04-21,1122,Aqua,MODIS,14.2,68,D,uttarakhand_wildfire
+29.4030,79.4627,2026-04-22,1108,Terra,MODIS,16.7,71,D,uttarakhand_wildfire
+29.4045,79.4642,2026-04-23,1130,Aqua,MODIS,18.9,74,D,uttarakhand_wildfire
+29.4060,79.4657,2026-04-24,1115,Terra,MODIS,20.3,76,D,uttarakhand_wildfire
+29.4078,79.4673,2026-04-25,2245,NOAA-20,VIIRS,17.5,n,N,uttarakhand_wildfire
+29.4095,79.4690,2026-04-26,1121,Aqua,MODIS,22.8,78,D,uttarakhand_wildfire
+29.4111,79.4705,2026-04-27,1107,Terra,MODIS,19.6,73,D,uttarakhand_wildfire
+29.4127,79.4722,2026-04-28,2233,NOAA-21,VIIRS,15.4,n,N,uttarakhand_wildfire
+29.4144,79.4737,2026-04-29,1129,Aqua,MODIS,13.9,65,D,uttarakhand_wildfire
+29.4159,79.4753,2026-04-30,1114,Terra,MODIS,11.2,60,D,uttarakhand_wildfire
+29.4174,79.4768,2026-05-01,1123,Aqua,MODIS,9.8,55,D,uttarakhand_wildfire
+29.4189,79.4785,2026-05-02,2251,NOAA-20,VIIRS,8.1,l,N,uttarakhand_wildfire
+24.1523,82.6489,2026-06-04,1256,Terra,MODIS,13.4,62,D,thermal_power_plant_process_heat
+24.1518,82.6494,2026-06-18,2207,NOAA-20,VIIRS,15.1,n,N,thermal_power_plant_process_heat
+24.1526,82.6486,2026-07-02,1240,Aqua,MODIS,12.8,60,D,thermal_power_plant_process_heat
+24.1520,82.6491,2026-07-16,2219,NOAA-21,VIIRS,14.6,n,N,thermal_power_plant_process_heat
+24.1524,82.6488,2026-07-30,1305,Terra,MODIS,13.9,63,D,thermal_power_plant_process_heat
+24.1517,82.6493,2026-08-13,2201,Suomi NPP,VIIRS,15.5,n,N,thermal_power_plant_process_heat
+24.1522,82.6490,2026-08-27,1252,Aqua,MODIS,13.1,61,D,thermal_power_plant_process_heat
+24.1519,82.6492,2026-09-01,2214,NOAA-20,VIIRS,14.9,n,N,thermal_power_plant_process_heat
+24.1525,82.6487,2026-09-03,1247,Terra,MODIS,13.6,62,D,thermal_power_plant_process_heat
+21.1512,79.0923,2026-08-02,1301,Aqua,MODIS,3.2,42,D,ambiguous_insufficient_evidence
+21.1518,79.0917,2026-08-19,2244,NOAA-21,VIIRS,2.8,l,N,ambiguous_insufficient_evidence
+21.1509,79.0929,2026-09-01,1256,Terra,MODIS,3.6,45,D,ambiguous_insufficient_evidence
