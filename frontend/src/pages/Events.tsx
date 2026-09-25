@@ -1,12 +1,13 @@
 import { Search } from "lucide-react";
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { DEFAULT_FILTERS, FilterButton, TimeRange, toQuery, type FilterState } from "../components/filters";
+import { PriorityPill } from "../components/triage";
 import { Async, ClassLabel, Empty, ModePill, PersistencePill, StatePill } from "../components/ui";
 import { fmtDistance, fmtDuration, fmtNum, relTime } from "../lib/format";
 import { useEvents } from "../lib/hooks";
 
-const SORTS: [string, string][] = [["last_detected", "Most recent"], ["confidence", "Confidence"], ["frp", "Peak FRP"], ["persistence", "Persistence"], ["observations", "Detections"]];
+const SORTS: [string, string][] = [["priority", "Triage priority"], ["last_detected", "Most recent"], ["confidence", "Confidence"], ["frp", "Peak FRP"], ["persistence", "Persistence"], ["observations", "Detections"]];
 const QUEUES: [string, string, Partial<FilterState>][] = [
   ["all", "All events", {}],
   ["review", "Needs review", { confidence_state: ["INSUFFICIENT_EVIDENCE", "LOW_CONFIDENCE"] }],
@@ -16,14 +17,20 @@ const QUEUES: [string, string, Partial<FilterState>][] = [
 
 export default function Events() {
   const nav = useNavigate();
-  const [filters, setFilters] = useState<FilterState>({ ...DEFAULT_FILTERS, min_observations: null });
+  const [params] = useSearchParams();
+  // Deep links from global search, e.g. /events?classification=flare
+  const [filters, setFilters] = useState<FilterState>({
+    ...DEFAULT_FILTERS, min_observations: null, days: params.get("classification") ? null : DEFAULT_FILTERS.days,
+    classification: params.getAll("classification"),
+  });
   const [queue, setQueue] = useState("all");
-  const [sort, setSort] = useState("last_detected");
+  const [sort, setSort] = useState("priority");
   const [offset, setOffset] = useState(0);
   const [q, setQ] = useState("");
   const limit = 50;
   const merged = useMemo(() => ({ ...filters, ...QUEUES.find((x) => x[0] === queue)![2], q }), [filters, queue, q]);
-  const res = useEvents(toQuery(merged as FilterState), sort, limit, offset);
+  const query = useMemo(() => toQuery(merged as FilterState), [merged]);
+  const res = useEvents(query, sort, limit, offset);
   const setF = (f: FilterState) => { setFilters(f); setOffset(0); };
 
   return (
@@ -56,16 +63,17 @@ export default function Events() {
               <div className="table-wrap">
                 <table className="table">
                   <thead><tr>
-                    <th>Event</th><th>Location</th><th>Classification</th><th>Persistence</th><th>Status</th>
-                    <th className="right">Detections</th><th className="right">Peak FRP</th><th>Nearest facility</th><th>Last seen</th>
+                    <th scope="col">Event</th><th scope="col">Priority</th><th scope="col">Location</th><th scope="col">Classification</th><th scope="col">Persistence</th><th scope="col">Status</th>
+                    <th scope="col" className="right">Detections</th><th scope="col" className="right">Peak FRP</th><th scope="col">Nearest facility</th><th scope="col">Last seen</th>
                   </tr></thead>
                   <tbody>
                     {d.items.map((e) => (
                       <tr key={e.id} className="click" tabIndex={0} onClick={() => nav(`/events/${e.public_id}`)} onKeyDown={(k) => k.key === "Enter" && nav(`/events/${e.public_id}`)}>
                         <td><span className="mono">{e.public_id}</span>{e.data_mode !== "live" && <> <ModePill mode={e.data_mode} /></>}</td>
+                        <td><PriorityPill score={e.priority_score} /></td>
                         <td>{[e.admin_district, e.admin_state].filter(Boolean).join(", ") || <span className="faint mono">{e.latitude.toFixed(3)}, {e.longitude.toFixed(3)}</span>}</td>
                         <td><ClassLabel cls={e.classification} short /></td>
-                        <td><PersistencePill p={e.persistence_class} /> <span className="faint">{fmtDuration(e.duration_hours)}</span></td>
+                        <td className="nowrap"><PersistencePill p={e.persistence_class} /> <span className="faint">{fmtDuration(e.duration_hours)}</span></td>
                         <td><StatePill state={e.display_state} /></td>
                         <td className="right num">{e.observation_count} <span className="faint">/{e.sensor_count}</span></td>
                         <td className="right num">{fmtNum(e.frp_max)} MW</td>

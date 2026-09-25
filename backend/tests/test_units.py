@@ -319,3 +319,22 @@ def test_smtp_user_alias(monkeypatch):
     monkeypatch.setenv("SMTP_USER", "ops-mailer")
     monkeypatch.delenv("SMTP_USERNAME", raising=False)
     assert Settings().smtp_username == "ops-mailer"
+
+
+def test_rate_limit_is_per_token_not_per_ip(monkeypatch):
+    """Analysts behind one NAT must not share a bucket; anonymous traffic stays per-IP."""
+    from fastapi.testclient import TestClient
+
+    from app.core import middleware
+    from app.main import app
+
+    monkeypatch.setattr(middleware.settings, "rate_limit_per_minute", 3)
+    monkeypatch.setattr(middleware, "_limiter", middleware._FixedWindow())
+    c = TestClient(app)
+    codes = [c.get("/api/v1/events").status_code for _ in range(4)]
+    assert codes == [401, 401, 401, 429]  # anonymous: shared IP bucket exhausted
+    tok_a = {"Authorization": "Bearer " + "a" * 60}
+    tok_b = {"Authorization": "Bearer " + "b" * 60}
+    assert [c.get("/api/v1/events", headers=tok_a).status_code for _ in range(3)] == [401, 401, 401]
+    assert c.get("/api/v1/events", headers=tok_a).status_code == 429
+    assert c.get("/api/v1/events", headers=tok_b).status_code == 401  # separate bucket, still authenticated-checked

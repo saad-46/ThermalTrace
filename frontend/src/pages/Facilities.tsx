@@ -38,7 +38,7 @@ export default function Facilities() {
         <Async q={res} lines={10} empty={(d) => (d.items.length ? null : <Empty title="No facilities match" />)}>{(d) => (
           <>
             <div className="table-wrap"><table className="table">
-              <thead><tr><th>Facility</th><th>Type</th><th>Operator</th><th className="right">Capacity</th><th>Sources</th><th className="right">Confidence</th><th className="right">Events ≤3 km</th></tr></thead>
+              <thead><tr><th scope="col">Facility</th><th scope="col">Type</th><th scope="col">Operator</th><th scope="col" className="right">Capacity</th><th scope="col">Sources</th><th scope="col" className="right">Confidence</th><th scope="col" className="right">Events ≤3 km</th></tr></thead>
               <tbody>{d.items.map((f) => (
                 <tr key={f.id} className="click" tabIndex={0} onClick={() => nav(`/facilities/${f.id}`)} onKeyDown={(k) => k.key === "Enter" && nav(`/facilities/${f.id}`)}>
                   <td style={{ fontWeight: 500 }}>{f.name ?? <span className="faint">Unnamed</span>}<div className="faint mono" style={{ fontSize: 11 }}>{f.latitude.toFixed(3)}, {f.longitude.toFixed(3)}</div></td>

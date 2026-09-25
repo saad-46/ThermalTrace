@@ -11,6 +11,7 @@ import {
   AnswerGrid, ConfidenceBreakdown, EventRowMini, EvidenceList, EvidenceMatrix, ExtLink, FacilityList, Fingerprint, ModelPanel,
   PersistencePanel, Provenance, Timeline,
 } from "./evidence";
+import { EvidenceChain, PriorityPanel, PriorityPill } from "./triage";
 import { ClassLabel, Empty, errText, ModePill, StatePill, useToast } from "./ui";
 import { downloadFile } from "../lib/api";
 
@@ -305,6 +306,7 @@ export function EventHeader({ ev }: { ev: EventDetail }) {
         <StatePill state={ev.display_state} />
         <ModePill mode={ev.data_mode} />
         <span className={`pill ${ev.status === "active" ? "thermal" : ""}`}>{ev.status}</span>
+        <PriorityPill score={ev.priority_score} tier={ev.priority_components?.tier} />
       </div>
       <div className="row wrap" style={{ gap: 10 }}>
         <ClassLabel cls={ev.classification} />
@@ -332,6 +334,8 @@ export function Investigation({ ev, compact, initialTab = "Summary" }: { ev: Eve
         {tab === "Summary" && (
           <>
             <div className="section"><h4>Investigation summary</h4><AnswerGrid ev={ev} /></div>
+            <div className="section"><h4>Evidence chain</h4><EvidenceChain ev={ev} /></div>
+            <div className="section"><h4>Why is this prioritised?</h4><PriorityPanel p={ev.priority_components} /></div>
             <div className="section"><h4>Evidence confidence matrix</h4><div className="table-wrap"><EvidenceMatrix ev={ev} /></div></div>
             <div className="section"><h4>Confidence components</h4><ConfidenceBreakdown ev={ev} /></div>
             <div className="section"><h4>Thermal fingerprint</h4><Fingerprint ev={ev} /></div>

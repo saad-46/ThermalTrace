@@ -2,13 +2,16 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { HBars, StackedBars } from "../components/charts";
-import { Async, ClassLabel, Empty, PersistencePill, StatePill } from "../components/ui";
-import { api } from "../lib/api";
+import { Async, ClassLabel, Empty, errText, PersistencePill, StatePill, useToast } from "../components/ui";
+import { api, downloadFile } from "../lib/api";
+import { useSession } from "../lib/session";
 import { fmtDistance, relTime, titleCase } from "../lib/format";
 import { CLASS_META, FACILITY_LABELS, FP_REASONS } from "../lib/taxonomy";
 import type { EventSummary } from "../lib/types";
 
 export default function Analytics() {
+  const { can } = useSession();
+  const toast = useToast();
   const [days, setDays] = useState(30);
   const trends = useQuery({ queryKey: ["trends", days], queryFn: () => api<{ rows: { bucket: string; classification: string; detections: number }[] }>("/analytics/trends", { query: { days } }) });
   const hotspots = useQuery({ queryKey: ["hotspots", days], queryFn: () => api<{ districts: { admin_state: string; admin_district: string; events: number; detections: number; persistent: number; industrial: number }[]; facility_types: { facility_type: string; events: number; facilities: number }[]; note: string }>("/analytics/hotspots", { query: { days } }) });
@@ -43,7 +46,7 @@ export default function Analytics() {
 
         <section className="panel"><div className="panel-head"><h2>Persistent thermal sources</h2><span className="right faint">ranked by persistence evidence — not a threat ranking</span></div>
           <Async q={persistent} empty={(d) => (d.length ? null : <Empty title="None identified yet" />)}>{(d) => (
-            <div className="table-wrap"><table className="table"><thead><tr><th>Event</th><th>Location</th><th>Classification</th><th>Persistence</th><th className="right">Active days</th><th className="right">Platforms</th><th>Nearest facility</th><th>Status</th><th>Last seen</th></tr></thead>
+            <div className="table-wrap"><table className="table"><thead><tr><th scope="col">Event</th><th scope="col">Location</th><th scope="col">Classification</th><th scope="col">Persistence</th><th scope="col" className="right">Active days</th><th scope="col" className="right">Platforms</th><th scope="col">Nearest facility</th><th scope="col">Status</th><th scope="col">Last seen</th></tr></thead>
               <tbody>{d.map((e) => (
                 <tr key={e.id}><td><Link className="mono" to={`/events/${e.public_id}`}>{e.public_id}</Link></td><td>{[e.admin_district, e.admin_state].filter(Boolean).join(", ") || "—"}</td>
                   <td><ClassLabel cls={e.classification} short /></td><td><PersistencePill p={e.persistence_class} /> <span className="num faint">{e.persistence_score?.toFixed(2)}</span></td>
@@ -76,7 +79,9 @@ export default function Analytics() {
           </div></section>
         </div>
 
-        <section className="panel"><div className="panel-head"><h2>Analyst feedback loop</h2><span className="right faint">training feedback dataset & false-positive intelligence</span></div><div className="panel-body">
+        <section className="panel"><div className="panel-head"><h2>Analyst feedback loop</h2><span className="right faint">training feedback dataset & false-positive intelligence</span>
+          {can("supervisor") && <button className="btn sm" onClick={() => downloadFile("/ml/training-dataset?format=csv", "thermaltrace_training_dataset.csv").catch((e) => toast(errText(e), "error"))}>Export training dataset (CSV)</button>}
+        </div><div className="panel-body">
           <Async q={feedback}>{(d) => (
             <div className="grid cols-3">
               <div><div className="metric" style={{ padding: 0 }}><div className="label">Adjudicated training labels</div><div className="value">{d.adjudicated_labels}</div>
@@ -86,7 +91,7 @@ export default function Analytics() {
                 ? <HBars rows={d.false_positives.map((r) => ({ label: FP_REASONS[r.false_positive_reason] ?? r.false_positive_reason, value: r.n, sub: `system said ${r.system_source_class}` }))} color="var(--bad)" />
                 : <div className="faint">No false positives recorded.</div>}</div>
               <div><h4 style={{ marginBottom: 6 }}>System vs analyst</h4>{d.system_vs_analyst.length ? (
-                <table className="table"><thead><tr><th>System label</th><th className="right">Conf.</th><th className="right">Reclass.</th><th className="right">Rej.</th></tr></thead>
+                <table className="table"><thead><tr><th scope="col">System label</th><th scope="col" className="right">Conf.</th><th scope="col" className="right">Reclass.</th><th scope="col" className="right">Rej.</th></tr></thead>
                   <tbody>{d.system_vs_analyst.map((r) => <tr key={r.system_source_class}><td>{CLASS_META[r.system_source_class as keyof typeof CLASS_META]?.short ?? r.system_source_class}</td><td className="right num">{r.confirmed}</td><td className="right num">{r.reclassified}</td><td className="right num">{r.rejected}</td></tr>)}</tbody></table>
               ) : <div className="faint">No reviews yet.</div>}</div>
             </div>

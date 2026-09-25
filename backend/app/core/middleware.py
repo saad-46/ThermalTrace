@@ -4,6 +4,7 @@ The limiter is in-process (per API replica). It protects against accidental floo
 credential stuffing on /auth/login; a shared limiter (e.g. at the gateway) is the documented
 upgrade for multi-replica deployments (docs/SECURITY.md).
 """
+import hashlib
 import logging
 import threading
 import time
@@ -70,7 +71,15 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if path.startswith("/api/v1/auth/login"):
             ok = _limiter.hit(f"login:{client}", settings.login_rate_limit_per_minute)
         elif path.startswith("/api/"):
-            ok = _limiter.hit(f"api:{client}", settings.rate_limit_per_minute)
+            # Authenticated traffic is limited per session token, not per IP: analysts behind one
+            # office NAT must not share a bucket. Forged tokens gain nothing — they fail JWT
+            # verification (no DB work) and anonymous requests stay limited per IP.
+            auth = request.headers.get("authorization", "")
+            if auth.lower().startswith("bearer ") and len(auth) > 40:
+                key = "tok:" + hashlib.sha256(auth[7:].encode()).hexdigest()[:24]
+            else:
+                key = f"ip:{client}"
+            ok = _limiter.hit(key, settings.rate_limit_per_minute)
         else:
             ok = True
         if not ok:

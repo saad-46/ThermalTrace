@@ -60,7 +60,7 @@ export default function Overview() {
             <div className="panel-head"><h2>Persistent thermal sources</h2><span className="right"><Link to="/analytics">All</Link></span></div>
             <div className="panel-body">
               <Async q={persistent} empty={(d) => (d.length ? null : <Empty title="None yet" />)}>{(d) => (
-                <table className="table"><thead><tr><th>Event</th><th>Where</th><th>Classification</th><th>Status</th><th className="right">Active days</th></tr></thead>
+                <table className="table"><thead><tr><th scope="col">Event</th><th scope="col">Where</th><th scope="col">Classification</th><th scope="col">Status</th><th scope="col" className="right">Active days</th></tr></thead>
                   <tbody>{d.map((e) => (
                     <tr key={e.id}><td><Link className="mono" to={`/events/${e.public_id}`}>{e.public_id}</Link></td>
                       <td>{[e.admin_district, e.admin_state].filter(Boolean).join(", ") || "—"}</td>

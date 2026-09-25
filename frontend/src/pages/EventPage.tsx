@@ -2,6 +2,7 @@ import { ArrowLeft, Map as MapIcon } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { AnswerGrid, ConfidenceBreakdown, EvidenceList, EvidenceMatrix, FacilityList, Fingerprint, ModelPanel, PersistencePanel, Provenance, Timeline } from "../components/evidence";
 import { EventActions, EventHeader, ReviewPanel, SatellitePanel, SimilarEvents, WeatherPanel } from "../components/investigation";
+import { EvidenceChain, PriorityPanel } from "../components/triage";
 import { ErrorState, Skeleton } from "../components/ui";
 import { useEvent } from "../lib/hooks";
 
@@ -30,6 +31,7 @@ export default function EventPage() {
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.35fr) minmax(0, 1fr)", gap: 12, alignItems: "start" }}>
         <div className="stack" style={{ gap: 12 }}>
           <P title="Investigation summary"><AnswerGrid ev={ev} /></P>
+          <P title="Evidence chain"><EvidenceChain ev={ev} /></P>
           <P title="Evidence confidence matrix" flush><div className="table-wrap"><EvidenceMatrix ev={ev} /></div></P>
           <P title="Evidence bundle">
             {(["observed", "derived", "external", "model"] as const).map((k) => {
@@ -44,6 +46,7 @@ export default function EventPage() {
         <div className="stack" style={{ gap: 12 }}>
           <P title="Analyst review"><ReviewPanel ev={ev} /></P>
           <P title="Confidence components"><ConfidenceBreakdown ev={ev} /></P>
+          <P title="Why is this prioritised?"><PriorityPanel p={ev.priority_components} /></P>
           <P title="Model evidence"><ModelPanel ev={ev} /></P>
           <P title="Satellite imagery"><SatellitePanel ev={ev} /></P>
           <P title="Weather at last detection"><WeatherPanel ev={ev} /></P>

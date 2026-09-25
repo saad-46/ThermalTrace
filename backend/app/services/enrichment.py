@@ -69,6 +69,7 @@ def enrich_osm(db: Session, events: list[ThermalEvent]) -> dict:
         key = cache.make_key("overpass-land" if land_only else "overpass", cell=(cy, cx), r=fac_radius,
                              pts=[(round(a, 3), round(b, 3)) for a, b in points])
         cached = cache.get(db, key)
+        db.commit()  # release the snapshot before a slow provider call (no idle-in-transaction sessions)
         if cached:
             stats["cached"] += 1
 
@@ -169,8 +170,10 @@ def enrich_geocode(db: Session, ev: ThermalEvent) -> None:
                                   "accept-language": "en"}, timeout=15, max_attempts=2, min_interval_s=1.1)
             data = res.response.json()
         except (ProviderError, ValueError) as exc:
+            source_health.record_failure(db, "nominatim", str(exc))
             _mark(ev, "geocode", "failed", str(exc))
             return
+        source_health.record_success(db, "nominatim", res.latency_ms, 1)
         cache.put(db, key, data, timedelta(days=90))
     addr = data.get("address") or {}
     if not addr:

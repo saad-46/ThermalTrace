@@ -9,9 +9,11 @@ import { fmtDate, fmtDistance, fmtNum, relTime } from "../lib/format";
 import { actions, useWatchlists } from "../lib/hooks";
 import { useSession } from "../lib/session";
 import { FACILITY_LABELS, SOURCE_NAMES, STATE_META } from "../lib/taxonomy";
-import type { DisplayState, Facility, PersistenceClass, SourceClass } from "../lib/types";
+import type { DisplayState, Facility, FacilityProfile, PersistenceClass, SourceClass } from "../lib/types";
 
 interface FacEvents {
+  profile: FacilityProfile;
+  within_m: number;
   events: { id: string; public_id: string; first_detected: string; last_detected: string; classification: SourceClass; persistence_class: PersistenceClass; confidence_state: DisplayState; review_status: string; observation_count: number; frp_max: number; distance_m: number }[];
   weekly: { week: string; detections: number; frp_max: number }[];
 }
@@ -56,7 +58,7 @@ export default function FacilityPage() {
                 <dt>Confidence</dt><dd className="num">{f.confidence.toFixed(2)} ({f.source_count} independent source{f.source_count > 1 ? "s" : ""})</dd>
               </dl>
               <h4 style={{ margin: "14px 0 6px" }}>Source records</h4>
-              <table className="table"><thead><tr><th>Source</th><th>Record</th><th>Dataset</th><th>Retrieved</th></tr></thead>
+              <table className="table"><thead><tr><th scope="col">Source</th><th scope="col">Record</th><th scope="col">Dataset</th><th scope="col">Retrieved</th></tr></thead>
                 <tbody>{(f.sources ?? []).map((s) => (
                   <tr key={s.source + s.external_id}><td>{SOURCE_NAMES[s.source] ?? s.source}</td>
                     <td>{s.url ? <ExtLink href={s.url}>{s.name ?? s.external_id}</ExtLink> : (s.name ?? s.external_id)}<div className="faint" style={{ fontSize: 11 }}>{s.source_type}</div></td>
@@ -67,8 +69,16 @@ export default function FacilityPage() {
             <section className="panel"><div className="panel-head"><h2>Thermal history within 3 km</h2></div><div className="panel-body">
               <Async q={hist} empty={(h) => (h.events.length ? null : <Empty title="No thermal events linked">No FIRMS event has been attributed within 3 km in the loaded history.</Empty>)}>{(h) => (
                 <div className="stack" style={{ gap: 12 }}>
+                  <div className="metrics">
+                    <div className="metric"><div className="label">Events ≤ {h.within_m / 1000} km</div><div className="value">{h.profile.events}</div><div className="hint">{h.profile.detections} detections</div></div>
+                    <div className="metric"><div className="label">Persistent</div><div className="value">{h.profile.persistent}</div><div className="hint">{h.profile.active} active now</div></div>
+                    <div className="metric"><div className="label">Peak FRP</div><div className="value">{fmtNum(h.profile.frp_max, 0)} <span style={{ fontSize: 12 }}>MW</span></div></div>
+                    <div className="metric"><div className="label">Activity window</div><div className="value" style={{ fontSize: 14 }}>{fmtDate(h.profile.first_activity)} → {fmtDate(h.profile.last_activity)}</div><div className="hint">{h.profile.analyst_confirmed} analyst-confirmed</div></div>
+                  </div>
+                  <div className="chips">{h.profile.classifications.map((c) => <span key={c.classification} className="chip"><ClassLabel cls={c.classification === "unprocessed" ? null : c.classification as SourceClass} short /> {c.n}</span>)}</div>
+                  <div className="faint" style={{ fontSize: 11.5 }}>{h.profile.note}</div>
                   <HBars rows={h.weekly.map((w) => ({ label: `week of ${fmtDate(w.week)}`, value: w.detections }))} color="var(--thermal)" />
-                  <table className="table"><thead><tr><th>Event</th><th>Classification</th><th>Persistence</th><th>Status</th><th className="right">Distance</th><th>Last seen</th></tr></thead>
+                  <table className="table"><thead><tr><th scope="col">Event</th><th scope="col">Classification</th><th scope="col">Persistence</th><th scope="col">Status</th><th scope="col" className="right">Distance</th><th scope="col">Last seen</th></tr></thead>
                     <tbody>{h.events.map((e) => (
                       <tr key={e.id}><td><Link className="mono" to={`/events/${e.public_id}`}>{e.public_id}</Link></td><td><ClassLabel cls={e.classification} short /></td>
                         <td><PersistencePill p={e.persistence_class} /></td>

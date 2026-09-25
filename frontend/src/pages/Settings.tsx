@@ -31,7 +31,7 @@ function Users() {
         <div className="help faint" style={{ width: "100%", fontSize: 11.5 }}>Passwords need ≥ 12 characters mixing three of: lowercase, uppercase, digits, symbols.</div>
       </div>
       <Async q={users}>{(d) => (
-        <table className="table"><thead><tr><th>User</th><th>Role</th><th>Status</th><th>Last login</th></tr></thead>
+        <table className="table"><thead><tr><th scope="col">User</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col">Last login</th></tr></thead>
           <tbody>{d.items.map((u) => (
             <tr key={u.id}><td>{u.full_name}<div className="faint" style={{ fontSize: 11.5 }}>{u.email}</div></td>
               <td><select className="select" aria-label={`Role for ${u.email}`} value={u.role} onChange={(e) => update(u.id, { role: e.target.value as Role })}>{["viewer", "analyst", "supervisor", "admin"].map((r) => <option key={r}>{r}</option>)}</select></td>

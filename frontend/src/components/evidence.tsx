@@ -4,6 +4,7 @@ import { compass, fmtDate, fmtDateTime, fmtDistance, fmtNum, fmtPct, relTime, ti
 import { CLASS_META, FACILITY_LABELS, KNOWLEDGE_LABELS, SOURCE_NAMES } from "../lib/taxonomy";
 import type { EventDetail, EventSummary, Evidence } from "../lib/types";
 import { ContributionChart, EvolutionChart } from "./charts";
+import { PersistenceStrip } from "./triage";
 import { ClassLabel, Empty, Meter, PersistencePill, StatePill } from "./ui";
 
 const DIR_MARK: Record<Evidence["direction"], string> = { supports: "+", contradicts: "−", neutral: "·", missing: "?" };
@@ -46,6 +47,16 @@ export function AnswerGrid({ ev }: { ev: EventDetail }) {
   );
 }
 
+const MISSING_TO_COMPONENT: Record<string, string> = {
+  "satellite imagery": "satellite", weather: "weather", "land context": "context_support", "trained model": "model_agreement",
+};
+
+/** Qualitative reading of a component, so analysts see "Strong / Weak / Unavailable" rather than only a number. */
+export function qualitative(name: string, value: number, missing: string[]): "Strong" | "Moderate" | "Weak" | "Unavailable" {
+  if (missing.some((m) => MISSING_TO_COMPONENT[m] === name)) return "Unavailable";
+  return value >= 0.7 ? "Strong" : value >= 0.4 ? "Moderate" : "Weak";
+}
+
 export function ConfidenceBreakdown({ ev }: { ev: EventDetail }) {
   const c = ev.confidence_components;
   if (!c) return <Empty title="Not yet scored" />;
@@ -55,7 +66,10 @@ export function ConfidenceBreakdown({ ev }: { ev: EventDetail }) {
         <div key={k.name} title={k.explanation}>
           <div className="row" style={{ fontSize: 12, justifyContent: "space-between" }}>
             <span>{COMPONENT_LABELS[k.name] ?? k.name} <span className="faint">×{k.weight.toFixed(2)}</span></span>
-            <span className="num mono">{k.value.toFixed(2)}</span>
+            <span className="row" style={{ gap: 8 }}>
+              <span className={`qual ${qualitative(k.name, k.value, c.missing).toLowerCase()}`}>{qualitative(k.name, k.value, c.missing)}</span>
+              <span className="num mono">{k.value.toFixed(2)}</span>
+            </span>
           </div>
           <Meter value={k.value} tone={k.value >= 0.7 ? "info" : k.value >= 0.4 ? "" : "warn"} label={COMPONENT_LABELS[k.name]} />
           <div className="faint" style={{ fontSize: 11.5 }}>{k.explanation}</div>
@@ -76,7 +90,7 @@ export function ConfidenceBreakdown({ ev }: { ev: EventDetail }) {
 export function EvidenceMatrix({ ev }: { ev: EventDetail }) {
   return (
     <table className="table matrix">
-      <thead><tr><th>Evidence</th><th>Availability</th><th style={{ width: 90 }}>Strength</th><th>Detail</th></tr></thead>
+      <thead><tr><th scope="col">Evidence</th><th scope="col">Availability</th><th scope="col" style={{ width: 90 }}>Strength</th><th scope="col">Detail</th></tr></thead>
       <tbody>
         {ev.evidence_matrix.map((r) => (
           <tr key={r.type}>
@@ -148,7 +162,7 @@ export function FacilityList({ ev }: { ev: EventDetail }) {
     return <Empty title="No mapped facility within 10 km">{ev.enrichment_state?.osm?.status === "ok" ? "OpenStreetMap and loaded registries were checked. Absence may reflect incomplete mapping." : "Infrastructure context has not been retrieved yet."}</Empty>;
   return (
     <table className="table">
-      <thead><tr><th>Facility</th><th className="right">Distance</th><th className="right">Attribution</th><th>Sources</th></tr></thead>
+      <thead><tr><th scope="col">Facility</th><th scope="col" className="right">Distance</th><th scope="col" className="right">Attribution</th><th scope="col">Sources</th></tr></thead>
       <tbody>
         {ev.facilities.map((f) => (
           <tr key={f.id}>
@@ -193,6 +207,7 @@ export function PersistencePanel({ ev }: { ev: EventDetail }) {
           </dl>
         </>
       )}
+      <div><h4 style={{ marginBottom: 6 }}>Detections by day</h4><PersistenceStrip ev={ev} /></div>
       <div><h4 style={{ marginBottom: 6 }}>Event evolution</h4><EvolutionChart days={days} /></div>
     </div>
   );
@@ -218,7 +233,7 @@ export function Provenance({ ev }: { ev: EventDetail }) {
   return (
     <div className="table-wrap">
       <table className="table">
-        <thead><tr><th>Information</th><th>Source</th><th>Dataset / version</th><th>Observed</th><th>Retrieved</th></tr></thead>
+        <thead><tr><th scope="col">Information</th><th scope="col">Source</th><th scope="col">Dataset / version</th><th scope="col">Observed</th><th scope="col">Retrieved</th></tr></thead>
         <tbody>{rows.map((r, i) => <tr key={i}><td>{r.what}</td><td>{r.source}</td><td className="mono" style={{ fontSize: 11.5 }}>{r.dataset}</td><td className="num" style={{ fontSize: 12 }}>{r.observed}</td><td className="num" style={{ fontSize: 12 }}>{r.retrieved}</td></tr>)}</tbody>
       </table>
     </div>

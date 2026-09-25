@@ -11,10 +11,10 @@ import type { AlertRule } from "../lib/types";
 type Draft = {
   name: string; latitude: string; longitude: string; radius_km: string; watchlist_id: string; source_classes: string[];
   persistence_classes: string[]; facility_types: string[]; facility_within_km: string; min_confidence: string; min_frp: string;
-  min_duration_hours: string; channels: string[];
+  min_duration_hours: string; channels: string[]; cooldown_minutes: string;
 };
 const EMPTY_DRAFT: Draft = { name: "", latitude: "", longitude: "", radius_km: "5", watchlist_id: "", source_classes: [], persistence_classes: [],
-  facility_types: [], facility_within_km: "", min_confidence: "", min_frp: "", min_duration_hours: "", channels: ["in_app"] };
+  facility_types: [], facility_within_km: "", min_confidence: "", min_frp: "", min_duration_hours: "", channels: ["in_app"], cooldown_minutes: "60" };
 const FAC_TYPES = ["refinery", "oil_gas", "flare_site", "power_plant_coal", "steel_plant", "cement_plant", "chemical_plant", "coal_mine", "mine", "factory", "industrial_area"];
 const toggle = (l: string[], v: string) => (l.includes(v) ? l.filter((x) => x !== v) : [...l, v]);
 const num = (s: string) => (s.trim() === "" ? null : Number(s));
@@ -31,6 +31,7 @@ function RuleForm({ initial, onDone, rule }: { initial: Draft; onDone: () => voi
       source_classes: d.source_classes, persistence_classes: d.persistence_classes, facility_types: d.facility_types,
       facility_within_m: d.facility_within_km ? Number(d.facility_within_km) * 1000 : null, min_confidence: num(d.min_confidence),
       min_frp: num(d.min_frp), min_duration_hours: num(d.min_duration_hours), channels: d.channels,
+      cooldown_minutes: num(d.cooldown_minutes) ?? 0,
     };
     try { await save.mutateAsync(body); toast(rule ? "Rule updated" : "Rule created and evaluated against recent events"); onDone(); }
     catch (e) { toast(errText(e), "error"); }
@@ -69,6 +70,8 @@ function RuleForm({ initial, onDone, rule }: { initial: Draft; onDone: () => voi
       <div className="field"><label>Delivery</label><div className="row">
         {(["in_app", "email", "push"] as const).map((c) => <label key={c} className="check"><input type="checkbox" checked={d.channels.includes(c)} onChange={() => setD({ ...d, channels: toggle(d.channels, c) })} />{titleCase(c)}</label>)}
       </div><div className="help">Email and push are delivered only if configured on the server; skipped deliveries are recorded on each alert.</div></div>
+      {F("cooldown_minutes", "Email/push cooldown (minutes)", { type: "number", min: 0, max: 10080, style: { width: 130 } })}
+      <div className="help faint" style={{ marginTop: -6, fontSize: 11.5 }}>After an email or push is sent, further matches within this window still create in-app alerts but do not notify externally (recorded as skipped).</div>
       <div className="row"><button className="btn primary" onClick={submit} disabled={!d.name || save.isPending || !d.channels.length}>{rule ? "Save rule" : "Create rule"}</button>
         <button className="btn ghost" onClick={onDone}>Cancel</button></div>
     </div>
@@ -79,7 +82,8 @@ function draftFrom(r: AlertRule): Draft {
   return { name: r.name, latitude: r.latitude?.toString() ?? "", longitude: r.longitude?.toString() ?? "", radius_km: r.radius_m ? String(r.radius_m / 1000) : "5",
     watchlist_id: r.watchlist_id ?? "", source_classes: r.source_classes, persistence_classes: r.persistence_classes, facility_types: r.facility_types,
     facility_within_km: r.facility_within_m ? String(r.facility_within_m / 1000) : "", min_confidence: r.min_confidence?.toString() ?? "",
-    min_frp: r.min_frp?.toString() ?? "", min_duration_hours: r.min_duration_hours?.toString() ?? "", channels: r.channels };
+    min_frp: r.min_frp?.toString() ?? "", min_duration_hours: r.min_duration_hours?.toString() ?? "", channels: r.channels,
+    cooldown_minutes: String(r.cooldown_minutes ?? 0) };
 }
 
 export default function Alerts() {
@@ -114,7 +118,7 @@ export default function Alerts() {
             <div className="right seg">{[[undefined, "All"], ["new", "New"], ["acknowledged", "Acknowledged"], ["resolved", "Resolved"]].map(([k, l]) => (
               <button key={l} className={status === k ? "on" : ""} onClick={() => setStatus(k)}>{l}</button>))}</div></div>
           <Async q={alerts} empty={(d) => (d.items.length ? null : <Empty title="No alerts">Alerts appear here when a rule matches a newly processed event.</Empty>)}>{(d) => (
-            <div className="table-wrap"><table className="table"><thead><tr><th>Alert</th><th>Severity</th><th>Delivery</th><th>When</th><th /></tr></thead>
+            <div className="table-wrap"><table className="table"><thead><tr><th scope="col">Alert</th><th scope="col">Severity</th><th scope="col">Delivery</th><th scope="col">When</th><th scope="col" /></tr></thead>
               <tbody>{d.items.map((a) => (
                 <tr key={a.id} style={{ opacity: a.status === "resolved" ? 0.6 : 1 }}>
                   <td><Link to={`/events/${a.event_public_id}`} style={{ fontWeight: a.status === "new" ? 600 : 400 }}>{a.title}</Link>
@@ -143,7 +147,7 @@ export default function Alerts() {
                     r.facility_types.length ? `within ${fmtDistance(r.facility_within_m)} of ${r.facility_types.map((t) => FACILITY_LABELS[t]).join("/")}` : null,
                     r.min_confidence != null ? `confidence ≥ ${r.min_confidence}` : null, r.min_frp != null ? `FRP ≥ ${r.min_frp} MW` : null].filter(Boolean).join(" · ")}
                 </div>
-                <div className="faint" style={{ fontSize: 11.5 }}>{r.alert_count} alert(s) · {r.channels.join(", ")} · last triggered {relTime(r.last_triggered_at)}</div>
+                <div className="faint" style={{ fontSize: 11.5 }}>{r.alert_count} alert(s) · {r.channels.join(", ")}{r.cooldown_minutes ? ` · ${r.cooldown_minutes} min cooldown` : ""} · last triggered {relTime(r.last_triggered_at)}</div>
               </div>
             ))}</div>
           )}</Async>

@@ -59,6 +59,42 @@ export interface EventSummary {
   admin_district: string | null;
   country: string | null;
   assigned_to: string | null;
+  priority_score: number | null;
+}
+
+export interface PriorityComponent {
+  name: "thermal_intensity" | "persistence" | "industrial_proximity" | "classification_confidence" | "sensor_corroboration";
+  points: number;
+  max: number;
+  detail: string;
+}
+export interface PriorityBreakdown {
+  score: number;
+  tier: "high" | "elevated" | "routine" | "low";
+  components: PriorityComponent[];
+  note: string;
+}
+
+export interface SearchResults {
+  query: string;
+  coordinates: { latitude: number; longitude: number } | null;
+  events: { id: string; public_id: string; classification: SourceClass | null; confidence_state: DisplayState | null; review_status: string; admin_district: string | null; admin_state: string | null; distance_m: number | null }[];
+  places: { admin_district: string | null; admin_state: string | null; events: number; latitude: number; longitude: number }[];
+  facilities: { id: string; name: string | null; facility_type: string; operator: string | null; latitude: number; longitude: number; primary_source: string }[];
+  classifications: { key: SourceClass; label: string }[];
+}
+
+export interface FacilityProfile {
+  events: number;
+  persistent: number;
+  active: number;
+  analyst_confirmed: number;
+  detections: number;
+  frp_max: number | null;
+  first_activity: string | null;
+  last_activity: string | null;
+  classifications: { classification: string; n: number }[];
+  note: string;
 }
 
 export interface Contribution {
@@ -174,7 +210,7 @@ export interface Scene {
 }
 export interface TimelineItem {
   at: string;
-  kind: "first_seen" | "observation" | "satellite" | "classification" | "review" | "alert" | "latest";
+  kind: "first_seen" | "observation" | "satellite" | "weather" | "classification" | "review" | "alert" | "latest";
   label: string;
   detail: string | null;
 }
@@ -224,6 +260,7 @@ export interface EventDetail extends EventSummary {
   confidence_components: { score: number; state: string; components: ConfidenceComponent[]; missing: string[] } | null;
   data_quality_detail: { grade: string; score: number; factors: { factor: string; score: number; detail: string }[] } | null;
   fingerprint: Record<string, number | string | string[] | null> | null;
+  priority_components: PriorityBreakdown | null;
   enrichment_state: Record<string, { status: string; at: string; detail: string | null }> | null;
   datasets: string[];
   footprint: GeoJSON.Polygon | null;
@@ -282,6 +319,8 @@ export interface AlertRule {
   min_frp: number | null;
   min_duration_hours: number | null;
   channels: ("in_app" | "email" | "push")[];
+  cooldown_minutes: number;
+  last_notified_at: string | null;
   created_at: string;
   last_triggered_at: string | null;
   alert_count: number;

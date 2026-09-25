@@ -13,8 +13,11 @@ export interface LayerState {
   dispersion: boolean;
   imagery: boolean;
   heat: boolean;
+  radius: boolean;
 }
-export const DEFAULT_LAYERS: LayerState = { events: true, facilities: true, detections: true, dispersion: true, imagery: false, heat: false };
+export const DEFAULT_LAYERS: LayerState = { events: true, facilities: true, detections: true, dispersion: true, imagery: false, heat: false, radius: true };
+/** Rule "near" threshold (2 km) and backend facility search radius (ATTRIBUTION_RADIUS_M, 10 km). */
+const RINGS_M = [2000, 10000];
 
 const STYLE_LIGHT = (import.meta.env.VITE_MAP_STYLE_LIGHT as string) || "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
 const STYLE_DARK = (import.meta.env.VITE_MAP_STYLE_DARK as string) || "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
@@ -37,8 +40,12 @@ function destination(lat: number, lon: number, bearing: number, meters: number):
   return [(l2 * 180) / Math.PI, (p2 * 180) / Math.PI];
 }
 
+function ring(lat: number, lon: number, meters: number): GeoJSON.Position[] {
+  return Array.from({ length: 73 }, (_, i) => destination(lat, lon, i * 5, meters));
+}
+
 function focusGeo(ev: EventDetail | null) {
-  if (!ev) return { dets: EMPTY, footprint: EMPTY, arrow: EMPTY, links: EMPTY };
+  if (!ev) return { dets: EMPTY, footprint: EMPTY, arrow: EMPTY, links: EMPTY, rings: EMPTY };
   const dets: GeoJSON.FeatureCollection = {
     type: "FeatureCollection",
     features: ev.detections.map((d) => ({ type: "Feature", geometry: { type: "Point", coordinates: [d.longitude, d.latitude] },
@@ -63,7 +70,12 @@ function focusGeo(ev: EventDetail | null) {
     features: ev.facilities.slice(0, 3).map((f) => ({ type: "Feature", properties: { d: Math.round(f.distance_m) },
       geometry: { type: "LineString", coordinates: [[ev.longitude, ev.latitude], [f.longitude, f.latitude]] } })),
   };
-  return { dets, footprint, arrow, links };
+  const rings: GeoJSON.FeatureCollection = {
+    type: "FeatureCollection",
+    features: RINGS_M.map((r) => ({ type: "Feature", properties: { label: `${r / 1000} km` },
+      geometry: { type: "LineString", coordinates: ring(ev.latitude, ev.longitude, r) } })),
+  };
+  return { dets, footprint, arrow, links, rings };
 }
 
 interface Props {
@@ -119,6 +131,7 @@ export default function MapCanvas({ filters, layers, theme, selectedId, focus, o
       map.addSource("focus-footprint", { type: "geojson", data: EMPTY });
       map.addSource("focus-arrow", { type: "geojson", data: EMPTY });
       map.addSource("focus-links", { type: "geojson", data: EMPTY });
+      map.addSource("focus-rings", { type: "geojson", data: EMPTY });
 
       map.addLayer({ id: "heat", type: "heatmap", source: "events-raw", layout: { visibility: "none" }, paint: {
         "heatmap-weight": ["interpolate", ["linear"], ["get", "obs"], 1, 0.2, 50, 1],
@@ -132,6 +145,11 @@ export default function MapCanvas({ filters, layers, theme, selectedId, focus, o
       map.addLayer({ id: "fac-label", type: "symbol", source: "facilities", minzoom: 10, layout: {
         "text-field": ["coalesce", ["get", "name"], ""], "text-size": 10.5, "text-offset": [0, 1.1], "text-anchor": "top", "text-optional": true },
         paint: { "text-color": theme === "dark" ? "#c9ced6" : "#4a505c", "text-halo-color": theme === "dark" ? "#16181d" : "#fff", "text-halo-width": 1.2 } });
+      map.addLayer({ id: "focus-rings", type: "line", source: "focus-rings", paint: {
+        "line-color": theme === "dark" ? "#7d8490" : "#868e96", "line-width": 1, "line-dasharray": [4, 3] } });
+      map.addLayer({ id: "focus-rings-label", type: "symbol", source: "focus-rings", layout: {
+        "symbol-placement": "line", "text-field": ["get", "label"], "text-size": 10, "text-font": ["Open Sans Regular", "Noto Sans Regular"] },
+        paint: { "text-color": theme === "dark" ? "#b0b6bf" : "#4a505c", "text-halo-color": theme === "dark" ? "#16181d" : "#fff", "text-halo-width": 1.2 } });
       map.addLayer({ id: "focus-footprint", type: "fill", source: "focus-footprint", paint: { "fill-color": "#e8590c", "fill-opacity": 0.08 } });
       map.addLayer({ id: "focus-footprint-line", type: "line", source: "focus-footprint", paint: { "line-color": "#e8590c", "line-width": 1, "line-dasharray": [2, 2] } });
       map.addLayer({ id: "focus-links", type: "line", source: "focus-links", paint: { "line-color": "#1c6fd1", "line-width": 1, "line-dasharray": [1, 2] } });
@@ -233,6 +251,7 @@ export default function MapCanvas({ filters, layers, theme, selectedId, focus, o
     ["fac", "fac-label"].forEach((l) => vis(l, layers.facilities));
     ["focus-dets", "focus-footprint", "focus-footprint-line", "focus-links"].forEach((l) => vis(l, layers.detections));
     vis("focus-arrow", layers.dispersion);
+    ["focus-rings", "focus-rings-label"].forEach((l) => vis(l, layers.radius));
     vis("imagery", layers.imagery);
   }, [ready, layers]);
 
@@ -249,6 +268,7 @@ export default function MapCanvas({ filters, layers, theme, selectedId, focus, o
     (map.getSource("focus-footprint") as GeoJSONSource).setData(g.footprint);
     (map.getSource("focus-arrow") as GeoJSONSource).setData(g.arrow);
     (map.getSource("focus-links") as GeoJSONSource).setData(g.links);
+    (map.getSource("focus-rings") as GeoJSONSource).setData(g.rings);
   }, [ready, selectedId, focus, replayUntil]);
 
   const lastFocus = useRef<string | null>(null);

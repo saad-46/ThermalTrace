@@ -8,6 +8,7 @@ export default defineConfig({
   use: {
     baseURL: process.env.E2E_BASE_URL ?? "http://localhost:5173",
     trace: "retain-on-failure",
+    screenshot: "only-on-failure",
     launchOptions: { args: ["--enable-unsafe-swiftshader", "--use-angle=swiftshader"] }, // WebGL for MapLibre in headless CI
   },
 });

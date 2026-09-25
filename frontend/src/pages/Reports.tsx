@@ -15,7 +15,7 @@ export default function Reports() {
       <section className="panel">
         <Async q={reports} empty={(d) => (d.items.length ? null : <Empty title="No reports yet">Open an event and choose "Generate report".</Empty>)}>{(d) => (
           <div className="table-wrap"><table className="table">
-            <thead><tr><th>Report</th><th>Status</th><th>Created</th><th className="right">Size</th><th>SHA-256</th><th /></tr></thead>
+            <thead><tr><th scope="col">Report</th><th scope="col">Status</th><th scope="col">Created</th><th scope="col" className="right">Size</th><th scope="col">SHA-256</th><th scope="col" /></tr></thead>
             <tbody>{d.items.map((r) => (
               <tr key={r.id}>
                 <td>{r.title}</td>

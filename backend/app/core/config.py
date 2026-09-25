@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     secret_key: SecretStr = SecretStr(_INSECURE_DEV_SECRET)
     access_token_ttl_minutes: int = 480
     cors_origins: str = "http://localhost:5173"
-    rate_limit_per_minute: int = 240
+    rate_limit_per_minute: int = 600  # per session token (per IP when anonymous)
     login_rate_limit_per_minute: int = 10
 
     # --- NASA FIRMS ------------------------------------------------------------------------

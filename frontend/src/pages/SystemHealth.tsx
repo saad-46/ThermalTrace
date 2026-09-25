@@ -40,7 +40,7 @@ export default function SystemHealth() {
           </div>
           <div className="grid cols-2">
             <section className="panel"><div className="panel-head"><h2>Workers</h2></div>
-              <table className="table"><thead><tr><th>Worker</th><th>Last heartbeat</th><th className="right">Jobs</th></tr></thead>
+              <table className="table"><thead><tr><th scope="col">Worker</th><th scope="col">Last heartbeat</th><th scope="col" className="right">Jobs</th></tr></thead>
                 <tbody>{s.workers.map((w) => <tr key={w.worker_id}><td className="mono" style={{ fontSize: 11.5 }}>{w.worker_id}{w.is_scheduler && <span className="pill" style={{ marginLeft: 6 }}>scheduler</span>}</td><td className="num">{relTime(w.last_seen_at)}</td><td className="right num">{w.jobs_done}</td></tr>)}</tbody></table></section>
             <section className="panel"><div className="panel-head"><h2>Integration configuration</h2></div><div className="panel-body stack" style={{ gap: 5 }}>
               {Object.entries(s.configuration).map(([k, v]) => (
@@ -66,14 +66,14 @@ export default function SystemHealth() {
             </div>
           ))}
           <details className="section"><summary style={{ cursor: "pointer" }}>Feature pipeline ({m.features.length} features)</summary>
-            <table className="table" style={{ marginTop: 8 }}><thead><tr><th>Feature</th><th>Origin</th><th>Description</th></tr></thead>
+            <table className="table" style={{ marginTop: 8 }}><thead><tr><th scope="col">Feature</th><th scope="col">Origin</th><th scope="col">Description</th></tr></thead>
               <tbody>{m.features.map((f) => <tr key={f.name}><td className="mono">{f.name}</td><td>{f.origin}</td><td className="muted">{f.description}</td></tr>)}</tbody></table></details></div>
         )}</Async>
       </section>
       <section className="panel" style={{ marginTop: 12 }}>
         <div className="panel-head"><h2>Audit log</h2></div>
         <Async q={audit} empty={(d) => (d.length ? null : <Empty title="No audit entries" />)}>{(d) => (
-          <div className="table-wrap" style={{ maxHeight: 360 }}><table className="table"><thead><tr><th>When</th><th>User</th><th>Action</th><th>Entity</th><th>IP</th></tr></thead>
+          <div className="table-wrap" style={{ maxHeight: 360 }}><table className="table"><thead><tr><th scope="col">When</th><th scope="col">User</th><th scope="col">Action</th><th scope="col">Entity</th><th scope="col">IP</th></tr></thead>
             <tbody>{d.map((a) => <tr key={a.id}><td className="num">{relTime(a.occurred_at)}</td><td>{a.email ?? "—"}</td><td className="mono" style={{ fontSize: 11.5 }}>{a.action}</td><td className="faint mono" style={{ fontSize: 11 }}>{a.entity_type} {a.entity_id?.slice(0, 8)}</td><td className="faint">{a.ip}</td></tr>)}</tbody></table></div>
         )}</Async>
       </section>

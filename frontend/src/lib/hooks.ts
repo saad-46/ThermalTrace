@@ -20,9 +20,13 @@ export interface EventFilters {
   q?: string;
 }
 
-export function sinceFromDays(days: number | null): string | undefined {
+/** Start of a relative time window, rounded down to the minute. Rounding keeps React Query keys
+ * stable across renders — an unrounded timestamp changes the key on every render and causes an
+ * endless refetch loop (see docs/BUG_FIXES.md). */
+export function sinceFromDays(days: number | null, now = Date.now()): string | undefined {
   if (!days) return undefined;
-  return new Date(Date.now() - days * 86_400_000).toISOString();
+  const t = now - days * 86_400_000;
+  return new Date(t - (t % 60_000)).toISOString();
 }
 
 export const useStatus = () =>

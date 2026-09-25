@@ -18,6 +18,7 @@ const LAYER_LABELS: [keyof LayerState, string, string][] = [
   ["facilities", "Industrial facilities", "OSM + registries, zoom ≥ 6"],
   ["detections", "Event pixels & footprint", "Selected event's FIRMS pixels (purple = night)"],
   ["dispersion", "Potential dispersion direction", "Down-wind vector from weather at detection time"],
+  ["radius", "Attribution radius", "2 km (rule threshold) and 10 km (facility search) rings around the selected event"],
   ["imagery", "Satellite basemap", "Sentinel-2 cloudless 2021 mosaic (EOX)"],
 ];
 

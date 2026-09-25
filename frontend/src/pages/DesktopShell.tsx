@@ -2,6 +2,7 @@ import {
   Activity, Bell, BarChart3, Building2, Database, Eye, FileText, LayoutGrid, List, LogOut, Map as MapIcon, Moon, Server, Settings as Cog, Sun,
 } from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
+import GlobalSearch from "../components/GlobalSearch";
 import { DemoBanner, Freshness } from "../components/ui";
 import { useUnread } from "../lib/hooks";
 import { useSession, useTheme } from "../lib/session";
@@ -34,14 +35,14 @@ export default function DesktopShell() {
   return (
     <div className="shell">
       <nav className="nav" aria-label="Primary">
-        <div className="brand"><span className="brand-mark" aria-hidden /> ThermalTrace</div>
+        <div className="brand"><span className="brand-mark" aria-hidden /> <span className="nav-label">ThermalTrace</span></div>
         <div className="nav-list">
           {NAV.map((g) => (
             <div key={g.group}>
               <div className="nav-group">{g.group}</div>
               {g.items.filter((i) => !("role" in i) || can(i.role!)).map(({ to, label, icon: Icon, ...rest }) => (
-                <NavLink key={to} to={to} className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
-                  <Icon size={15} strokeWidth={1.75} aria-hidden /> {label}
+                <NavLink key={to} to={to} title={label} aria-label={label} className={({ isActive }) => `nav-item ${isActive ? "active" : ""}`}>
+                  <Icon size={15} strokeWidth={1.75} aria-hidden /> <span className="nav-label">{label}</span>
                   {"badge" in rest && unread.data?.count ? <span className="count" aria-label={`${unread.data.count} unread`}>{unread.data.count}</span> : null}
                 </NavLink>
               ))}
@@ -51,7 +52,7 @@ export default function DesktopShell() {
         <div className="nav-foot">
           <div className="row" style={{ gap: 8 }}>
             <Activity size={14} className="faint" aria-hidden />
-            <div style={{ minWidth: 0 }}>
+            <div style={{ minWidth: 0 }} className="nav-label">
               <div style={{ fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user?.full_name}</div>
               <div className="faint" style={{ fontSize: 11.5 }}>{titleCase(user?.role)}</div>
             </div>
@@ -60,13 +61,14 @@ export default function DesktopShell() {
             <button className="btn ghost sm icon" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label="Toggle dark mode" title="Toggle theme">
               {theme === "dark" ? <Sun size={14} /> : <Moon size={14} />}
             </button>
-            <button className="btn ghost sm" onClick={() => logout()}><LogOut size={14} /> Sign out</button>
+            <button className="btn ghost sm" onClick={() => logout()} aria-label="Sign out"><LogOut size={14} /> <span className="nav-label">Sign out</span></button>
           </div>
         </div>
       </nav>
       <header className="header">
-        <Freshness />
+        <GlobalSearch />
         <span className="spacer" />
+        <Freshness />
       </header>
       <main className="main" style={{ display: "flex", flexDirection: "column" }}>
         <DemoBanner />

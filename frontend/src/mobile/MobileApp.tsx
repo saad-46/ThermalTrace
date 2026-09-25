@@ -5,7 +5,9 @@ import { Link, Navigate, NavLink, Route, Routes, useNavigate, useParams, useSear
 import { ConfidenceBreakdown, EvidenceList, EvidenceMatrix, FacilityList, Fingerprint, ModelPanel, PersistencePanel, Timeline } from "../components/evidence";
 import { DEFAULT_FILTERS, FilterPanel, TimeRange, toQuery, type FilterState } from "../components/filters";
 import { EventActions, EventHeader, ReviewPanel, SatellitePanel, WeatherPanel } from "../components/investigation";
+import GlobalSearch from "../components/GlobalSearch";
 import MapCanvas, { DEFAULT_LAYERS } from "../components/MapCanvas";
+import { EvidenceChain, PriorityPanel, PriorityPill } from "../components/triage";
 import { Async, Boundary, ClassLabel, DemoBanner, Empty, ErrorState, Freshness, Skeleton, StatePill, errText, useToast } from "../components/ui";
 import { api } from "../lib/api";
 import { fmtDistance, relTime } from "../lib/format";
@@ -67,7 +69,9 @@ function Sheet({ children, snap, setSnap }: { children: ReactNode; snap: number;
 // ------------------------------------------------------------------ evidence cards (swipeable)
 function EvidenceCards({ ev }: { ev: EventDetail }) {
   const cards: [string, ReactNode][] = [
+    ["Evidence chain", <EvidenceChain ev={ev} key="ch" />],
     ["Evidence matrix", <div className="table-wrap" key="m"><EvidenceMatrix ev={ev} /></div>],
+    ["Why prioritised", <PriorityPanel p={ev.priority_components} key="pr" />],
     ["Confidence", <ConfidenceBreakdown ev={ev} key="c" />],
     ["Facilities", <div className="table-wrap" key="f"><FacilityList ev={ev} /></div>],
     ["Persistence", <PersistencePanel ev={ev} key="p" />],
@@ -144,26 +148,27 @@ function EventItem({ e }: { e: EventSummary }) {
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="row" style={{ justifyContent: "space-between" }}><span className="mono">{e.public_id}</span><span className="faint" style={{ fontSize: 12 }}>{relTime(e.last_detected)}</span></div>
         <div className="faint" style={{ fontSize: 12.5 }}>{[e.admin_district, e.admin_state].filter(Boolean).join(", ") || `${e.latitude.toFixed(3)}, ${e.longitude.toFixed(3)}`}</div>
-        <div className="row wrap" style={{ marginTop: 4 }}><ClassLabel cls={e.classification} short /><StatePill state={e.display_state} /></div>
+        <div className="row wrap" style={{ marginTop: 4 }}><ClassLabel cls={e.classification} short /><StatePill state={e.display_state} /><PriorityPill score={e.priority_score} /></div>
       </div>
     </Link>
   );
 }
 
 function EventsScreen() {
-  const [queue, setQueue] = useState<"recent" | "review" | "persistent" | "near">("recent");
+  const [queue, setQueue] = useState<"priority" | "recent" | "review" | "persistent" | "near">("priority");
   const [near, setNear] = useState<{ lat: number; lon: number } | null>(null);
   const toast = useToast();
   const filters = queue === "review" ? { confidence_state: ["INSUFFICIENT_EVIDENCE", "LOW_CONFIDENCE"], min_observations: 2 }
     : queue === "persistent" ? { persistence: ["persistent"] } : {};
-  const list = useEvents(filters, queue === "persistent" ? "persistence" : "last_detected", 50, 0);
+  const list = useEvents(filters, queue === "persistent" ? "persistence" : queue === "priority" ? "priority" : "last_detected", 50, 0);
   const nearby = useAsyncNear(near);
   const findNear = () => navigator.geolocation?.getCurrentPosition((p) => { setNear({ lat: p.coords.latitude, lon: p.coords.longitude }); setQueue("near"); },
     () => toast("Location unavailable — check permissions", "error"), { timeout: 10000 });
   return (
     <Shell title="Events">
+      <div style={{ padding: "8px 12px 0" }}><GlobalSearch compact /></div>
       <div style={{ padding: "8px 12px", display: "flex", gap: 6, overflowX: "auto" }} className="chips">
-        {([["recent", "Recent"], ["review", "Needs review"], ["persistent", "Persistent"]] as const).map(([k, l]) => (
+        {([["priority", "Priority"], ["recent", "Recent"], ["review", "Needs review"], ["persistent", "Persistent"]] as const).map(([k, l]) => (
           <button key={k} className={`chip ${queue === k ? "on" : ""}`} onClick={() => setQueue(k)}>{l}</button>))}
         <button className={`chip ${queue === "near" ? "on" : ""}`} onClick={findNear}><LocateFixed size={12} /> Near me</button>
       </div>
