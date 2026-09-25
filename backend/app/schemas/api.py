@@ -95,6 +95,7 @@ class EventSummary(BaseModel):
     admin_district: str | None
     country: str | None
     assigned_to: uuid.UUID | None
+    priority_score: float | None = None
 
 
 class EventDetail(EventSummary):
@@ -102,6 +103,7 @@ class EventDetail(EventSummary):
     confidence_components: dict | None
     data_quality_detail: dict | None
     fingerprint: dict | None
+    priority_components: dict | None = None
     enrichment_state: dict | None
     datasets: list[str]
     footprint: dict | None
@@ -193,6 +195,7 @@ class AlertRuleIn(BaseModel):
     min_frp: float | None = Field(None, ge=0)
     min_duration_hours: float | None = Field(None, ge=0)
     channels: list[Literal["in_app", "email", "push"]] = ["in_app"]
+    cooldown_minutes: int = Field(0, ge=0, le=10_080, description="suppress email/push for this long after a notification")
 
 
 class AlertRuleOut(AlertRuleIn):
@@ -283,7 +286,8 @@ class JobOut(ORM):
 
 
 class IngestionTriggerIn(BaseModel):
-    kind: Literal["firms_poll", "firms_historical", "process_events", "enrich_batch", "import_registry", "load_demo", "train_model"]
+    kind: Literal["firms_poll", "firms_historical", "process_events", "enrich_batch", "facility_sync", "import_registry", "load_demo",
+                  "train_model"]
     payload: dict[str, Any] = {}
 
 

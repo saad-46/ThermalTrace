@@ -7,7 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import AliasChoices, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -74,7 +74,7 @@ class Settings(BaseSettings):
     # --- delivery ----------------------------------------------------------------------------
     smtp_host: str | None = None
     smtp_port: int = 587
-    smtp_username: str | None = None
+    smtp_username: str | None = Field(None, validation_alias=AliasChoices("smtp_username", "smtp_user"))
     smtp_password: SecretStr | None = None
     smtp_from: str | None = None
     vapid_public_key: str | None = None

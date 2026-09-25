@@ -19,6 +19,7 @@ from app.processing import attribution, clustering, persistence
 from app.processing.confidence import assess_data_quality, compute_confidence
 from app.processing.evidence import build_evidence, fingerprint
 from app.processing.features import HEAVY, MINES, OIL_GAS, build_features, to_json_safe
+from app.processing.priority import compute_priority
 
 logger = logging.getLogger(__name__)
 PIPELINE_VERSION = "pipeline-1.0"
@@ -125,6 +126,8 @@ def analyse_event(db: Session, event_id: uuid.UUID, history_days: int | None = N
     ev.nearest_facility_id = min(ranked, key=lambda r: r["distance_m"])["id"] if ranked else None
     ev.nearest_facility_distance_m = min((r["distance_m"] for r in ranked), default=None)
     ev.fingerprint = fingerprint(ev_dict, pm.as_dict(), top, land_cats, _row(weather) if weather else None)
+    prio = compute_priority(ev.frp_max, pm.score, top["score"] if top else None, conf.score, ev.sensor_count)
+    ev.priority_score, ev.priority_components = prio.score, prio.as_dict()
     ev.processed_at = datetime.now(UTC)
     ev.processing_version = PIPELINE_VERSION
     return cls

@@ -140,6 +140,25 @@ class ApiCache(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
 
 
+class FacilitySyncTile(Base):
+    """Local facility index maintenance: one row per 1-degree tile synced from OSM Overpass.
+    Event enrichment reads facilities from the local index instead of querying Overpass per event."""
+
+    __tablename__ = "facility_sync_tiles"
+    tile_key: Mapped[str] = mapped_column(String(24), primary_key=True)  # "lat:lon" of the SW corner
+    west: Mapped[float] = mapped_column(Float, nullable=False)
+    south: Mapped[float] = mapped_column(Float, nullable=False)
+    east: Mapped[float] = mapped_column(Float, nullable=False)
+    north: Mapped[float] = mapped_column(Float, nullable=False)
+    status: Mapped[str] = mapped_column(String(12), nullable=False, default="pending")  # pending | ok | failed
+    event_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    features_found: Mapped[int | None] = mapped_column(Integer)
+    facilities_new: Mapped[int | None] = mapped_column(Integer)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    error: Mapped[str | None] = mapped_column(Text)
+
+
 class WorkerHeartbeat(Base):
     __tablename__ = "worker_heartbeats"
     worker_id: Mapped[str] = mapped_column(String(120), primary_key=True)

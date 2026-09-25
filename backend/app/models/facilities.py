@@ -36,6 +36,7 @@ class Facility(Base):
     __table_args__ = (
         Index("ix_facilities_geom", "geom", postgresql_using="gist"),
         Index("ix_facilities_type", "facility_type"),
+        Index("ix_facilities_name_trgm", "name", postgresql_using="gin", postgresql_ops={"name": "gin_trgm_ops"}),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()

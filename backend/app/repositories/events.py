@@ -15,6 +15,7 @@ SORTS = {
     "persistence": "e.persistence_score DESC NULLS LAST",
     "observations": "e.observation_count DESC",
     "first_detected": "e.first_detected DESC",
+    "priority": "e.priority_score DESC NULLS LAST",
 }
 
 _LIST_COLS = """
@@ -22,7 +23,7 @@ _LIST_COLS = """
   e.observation_count, e.sensor_count, e.sensors, e.days_active, e.duration_hours, e.frp_max, e.frp_mean,
   e.night_fraction, e.status, e.review_status, e.persistence_class, e.persistence_score, e.classification,
   e.classification_probability, e.confidence_score, e.confidence_state, e.data_quality,
-  e.nearest_facility_distance_m, e.admin_state, e.admin_district, e.country, e.assigned_to,
+  e.nearest_facility_distance_m, e.admin_state, e.admin_district, e.country, e.assigned_to, e.priority_score,
   f.name AS nearest_facility_name, f.facility_type AS nearest_facility_type
 """
 
@@ -59,6 +60,9 @@ def _filters(p: dict) -> tuple[str, dict]:
     if p.get("min_confidence") is not None:
         clauses.append("e.confidence_score >= :min_confidence")
         params["min_confidence"] = p["min_confidence"]
+    if p.get("min_priority") is not None:
+        clauses.append("e.priority_score >= :min_priority")
+        params["min_priority"] = p["min_priority"]
     if p.get("min_observations") is not None:
         clauses.append("e.observation_count >= :min_observations")
         params["min_observations"] = p["min_observations"]
@@ -100,7 +104,8 @@ def events_geojson(db: Session, p: dict, limit: int) -> dict:
     where, params = _filters(p)
     rows = db.execute(text(f"""
         SELECT e.id, e.public_id, e.longitude, e.latitude, e.classification, e.persistence_class, e.confidence_state,
-               e.review_status, e.confidence_score, e.frp_max, e.observation_count, e.status, e.data_mode, e.last_detected
+               e.review_status, e.confidence_score, e.frp_max, e.observation_count, e.status, e.data_mode, e.last_detected,
+               e.priority_score
         FROM thermal_events e LEFT JOIN facilities f ON f.id = e.nearest_facility_id
         WHERE {where} ORDER BY e.last_detected DESC LIMIT :limit"""), {**params, "limit": limit + 1}).mappings().all()
     truncated = len(rows) > limit
@@ -115,7 +120,7 @@ def events_geojson(db: Session, p: dict, limit: int) -> dict:
                 "state": display_state(r["confidence_state"] or "INSUFFICIENT_EVIDENCE", r["review_status"]),
                 "confidence": round(r["confidence_score"] or 0, 2), "frp": round(r["frp_max"] or 0, 1),
                 "obs": r["observation_count"], "status": r["status"], "mode": r["data_mode"],
-                "last": r["last_detected"].isoformat(),
+                "last": r["last_detected"].isoformat(), "priority": round(r["priority_score"] or 0),
             },
         })
     return {"type": "FeatureCollection", "features": feats, "truncated": truncated, "limit": limit}
@@ -123,7 +128,7 @@ def events_geojson(db: Session, p: dict, limit: int) -> dict:
 
 def _event_row(db: Session, event_id: uuid.UUID) -> dict:
     row = db.execute(text(f"SELECT {_LIST_COLS}, e.persistence_metrics, e.confidence_components, e.data_quality_detail, "
-                          "e.fingerprint, e.enrichment_state, e.datasets, e.frp_sum, e.frp_std, e.confidence_mean, "
+                          "e.fingerprint, e.priority_components, e.enrichment_state, e.datasets, e.frp_sum, e.frp_std, e.confidence_mean, "
                           "e.processed_at, e.processing_version, ST_AsGeoJSON(e.footprint::geometry)::json AS footprint "
                           "FROM thermal_events e LEFT JOIN facilities f ON f.id = e.nearest_facility_id "
                           "WHERE e.id = :id"), {"id": event_id}).mappings().first()
@@ -213,6 +218,10 @@ def build_timeline(ev: dict) -> list[dict]:
         items.append({"at": s["acquired_at"], "kind": "satellite",
                       "label": f"Sentinel-2 scene ({s['relation']})",
                       "detail": f"{s['platform']}, {s['cloud_cover']:.0f}% cloud" if s["cloud_cover"] is not None else s["platform"]})
+    for w in ev["weather"]:
+        items.append({"at": w["observed_at"], "kind": "weather", "label": "Weather context",
+                      "detail": f"{w['condition'] or '—'}, wind {w['wind_speed_ms'] if w['wind_speed_ms'] is not None else '—'} m/s "
+                                f"from {w['wind_direction_deg'] if w['wind_direction_deg'] is not None else '—'}° ({w['dataset']})"})
     for c in ev["classification_history"][:5]:
         items.append({"at": c["created_at"], "kind": "classification",
                       "label": f"Classified: {c['source_class']} / {c['persistence_class']}",

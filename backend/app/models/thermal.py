@@ -82,6 +82,7 @@ class ThermalEvent(Base):
         Index("ix_events_persistence", "persistence_class"),
         Index("ix_events_confidence", "confidence_score"),
         Index("ix_events_status", "status", "review_status"),
+        Index("ix_events_district_trgm", "admin_district", postgresql_using="gin", postgresql_ops={"admin_district": "gin_trgm_ops"}),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
@@ -125,6 +126,9 @@ class ThermalEvent(Base):
     data_quality: Mapped[str | None] = mapped_column(String(16))
     data_quality_detail: Mapped[dict | None] = mapped_column(JSONB)
     fingerprint: Mapped[dict | None] = mapped_column(JSONB)
+    # Triage priority (0-100): orders the analyst queue. Not a risk/threat score. See processing/priority.py.
+    priority_score: Mapped[float | None] = mapped_column(Float, index=True)
+    priority_components: Mapped[dict | None] = mapped_column(JSONB)
 
     nearest_facility_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("facilities.id", ondelete="SET NULL"), index=True

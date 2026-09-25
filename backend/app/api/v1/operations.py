@@ -168,6 +168,15 @@ def sources(user: User = CurrentUser, db: Session = Depends(get_db)):
     return out
 
 
+@router.get("/sources/facility-index", tags=["sources"], summary="Local OSM facility index coverage (1° tiles)")
+def facility_index(user: User = CurrentUser, db: Session = Depends(get_db)):
+    from app.services.facility_sync import FRESH_DAYS, coverage
+
+    tiles = db.execute(text("""SELECT tile_key, status, event_count, features_found, facilities_new, last_synced_at, error
+                               FROM facility_sync_tiles ORDER BY event_count DESC LIMIT 50""")).mappings().all()
+    return {"coverage": coverage(db), "fresh_days": FRESH_DAYS, "tiles": [dict(t) for t in tiles]}
+
+
 @router.get("/ingestion/runs", tags=["sources"])
 def ingestion_runs(source: str | None = None, page: Page = Depends(pagination), user: User = CurrentUser, db: Session = Depends(get_db)):
     q = select(IngestionRun)
@@ -246,6 +255,58 @@ def activate(model_id: str, request: Request, admin: User = AdminUser, db: Sessi
     db.commit()
     enqueue(db, "process_events", {"reanalyse_all": True}, dedupe_key="process_events", priority=40)
     return {"active": model_id}
+
+
+# --- ML training feedback dataset ---------------------------------------------------------------------
+_TRAINING_SQL = text(
+    """
+    SELECT e.public_id, e.id AS event_id, r.id AS review_id, r.created_at AS reviewed_at, u.email AS reviewer,
+           r.decision, r.source_class AS analyst_label, r.persistence_class AS analyst_persistence,
+           r.false_positive_reason, r.system_source_class AS system_label, r.system_confidence_score AS system_confidence,
+           c.primary_model_id AS model_version, c.pipeline_version, e.latitude, e.longitude, e.first_detected,
+           (SELECT mp.features_used FROM model_predictions mp WHERE mp.event_id = e.id AND mp.created_at <= r.created_at
+             ORDER BY mp.created_at DESC LIMIT 1) AS features
+    FROM analyst_reviews r
+    JOIN thermal_events e ON e.id = r.event_id
+    LEFT JOIN users u ON u.id = r.user_id
+    LEFT JOIN classifications c ON c.id = r.classification_id
+    WHERE r.decision <> 'note' AND e.data_mode <> 'demo'
+    ORDER BY r.created_at
+    """
+)
+
+
+@router.get("/ml/training-dataset", tags=["models"],
+            summary="Adjudicated training dataset (event → prediction → analyst label → features → reviewer → model version)")
+def training_dataset(fmt: str = Query("json", alias="format", pattern="^(json|csv)$"), request: Request = None,
+                     user: User = SupervisorUser, db: Session = Depends(get_db)):
+    import csv
+    import io
+
+    from fastapi.responses import Response
+
+    from app.processing.features import FEATURE_NAMES
+
+    rows = [dict(r) for r in db.execute(_TRAINING_SQL).mappings()]
+    audit.record(db, request, user.id, "ml.training_dataset.export", detail={"rows": len(rows), "format": fmt})
+    db.commit()
+    label_rule = ("confirm/reclassify → analyst_label is a positive label for that class; reject/false_positive → the "
+                  "system_label is wrong (false_positive_reason says what it was); escalate → unresolved, exclude from training")
+    if fmt == "json":
+        return {"rows": rows, "count": len(rows), "feature_names": FEATURE_NAMES, "label_semantics": label_rule}
+    buf = io.StringIO()
+    cols = [k for k in (rows[0].keys() if rows else _TRAINING_COLS) if k != "features"] + FEATURE_NAMES
+    w = csv.DictWriter(buf, fieldnames=cols, extrasaction="ignore")
+    w.writeheader()
+    for r in rows:
+        w.writerow({**{k: v for k, v in r.items() if k != "features"}, **(r.get("features") or {})})
+    return Response(buf.getvalue(), media_type="text/csv",
+                    headers={"content-disposition": 'attachment; filename="thermaltrace_training_dataset.csv"'})
+
+
+_TRAINING_COLS = ("public_id", "event_id", "review_id", "reviewed_at", "reviewer", "decision", "analyst_label",
+                  "analyst_persistence", "false_positive_reason", "system_label", "system_confidence", "model_version",
+                  "pipeline_version", "latitude", "longitude", "first_detected")
 
 
 # --- admin: audit + system health --------------------------------------------------------------------------

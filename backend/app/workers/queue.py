@@ -33,7 +33,7 @@ def enqueue(db: Session, kind: str, payload: dict | None = None, *, dedupe_key: 
 # Lanes keep user-facing work (reports, on-demand enrichment) from queueing behind bulk jobs.
 LANES: dict[str, tuple[str, ...]] = {
     "interactive": ("render_report", "enrich_event", "process_events", "import_registry", "train_model"),
-    "bulk": ("firms_poll", "firms_historical", "load_demo", "enrich_batch", "housekeeping", "process_events"),
+    "bulk": ("firms_poll", "firms_historical", "load_demo", "enrich_batch", "facility_sync", "housekeeping", "process_events"),
 }
 
 _CLAIM = text(

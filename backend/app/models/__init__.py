@@ -13,6 +13,7 @@ from app.models.ops import (  # noqa: F401
     ApiCache,
     AuditLog,
     DataSource,
+    FacilitySyncTile,
     IngestionCheckpoint,
     IngestionError,
     IngestionRun,

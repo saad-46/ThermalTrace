@@ -119,23 +119,46 @@ _FACILITY_FILTERS = [
 _LAND_FILTERS = ['["landuse"~"^(farmland|orchard|meadow|forest|residential)$"]', '["natural"~"^(wood|scrub)$"]']
 
 
-def build_query(lat: float, lon: float, facility_radius_m: int, land_radius_m: int, timeout_s: int = 45,
-                land_points: list[tuple[float, float]] | None = None) -> str:
-    """Facilities within `facility_radius_m` of (lat, lon); land use in the bbox covering
-    `land_points` padded by `land_radius_m` (per-event distances are computed locally)."""
-    import math
-
-    pts = land_points or [(lat, lon)]
-    pad_lat = land_radius_m / 111_320.0
-    pad_lon = land_radius_m / (111_320.0 * max(math.cos(math.radians(lat)), 0.1))
-    s_, n_ = min(p[0] for p in pts) - pad_lat, max(p[0] for p in pts) + pad_lat
-    w_, e_ = min(p[1] for p in pts) - pad_lon, max(p[1] for p in pts) + pad_lon
-    around = f"around:{facility_radius_m},{lat:.5f},{lon:.5f}"
-    bbox = f"{s_:.5f},{w_:.5f},{n_:.5f},{e_:.5f}"
-    parts = [f"nwr{f}({around});" for f in _FACILITY_FILTERS] + [f"nwr{f}({bbox});" for f in _LAND_FILTERS]
+def _wrap(parts: list[str], timeout_s: int) -> str:
     body = "\n  ".join(parts)
     # `bb` and `center` are mutually exclusive geometry modes; centres are derived from bounds.
     return f"[out:json][timeout:{timeout_s}][maxsize:67108864];\n(\n  {body}\n);\nout tags bb;"
+
+
+def _bbox_str(south: float, west: float, north: float, east: float) -> str:
+    return f"{south:.5f},{west:.5f},{north:.5f},{east:.5f}"
+
+
+def land_bbox(points: list[tuple[float, float]], pad_m: int) -> tuple[float, float, float, float]:
+    """(south, west, north, east) covering `points` padded by `pad_m` metres."""
+    import math
+
+    lat0 = sum(p[0] for p in points) / len(points)
+    pad_lat = pad_m / 111_320.0
+    pad_lon = pad_m / (111_320.0 * max(math.cos(math.radians(lat0)), 0.1))
+    return (min(p[0] for p in points) - pad_lat, min(p[1] for p in points) - pad_lon,
+            max(p[0] for p in points) + pad_lat, max(p[1] for p in points) + pad_lon)
+
+
+def build_query(lat: float, lon: float, facility_radius_m: int, land_radius_m: int, timeout_s: int = 45,
+                land_points: list[tuple[float, float]] | None = None) -> str:
+    """Facilities within `facility_radius_m` of (lat, lon) plus land use around `land_points`.
+    Used only where the local facility index does not yet cover the area."""
+    around = f"around:{facility_radius_m},{lat:.5f},{lon:.5f}"
+    bbox = _bbox_str(*land_bbox(land_points or [(lat, lon)], land_radius_m))
+    return _wrap([f"nwr{f}({around});" for f in _FACILITY_FILTERS] + [f"nwr{f}({bbox});" for f in _LAND_FILTERS], timeout_s)
+
+
+def build_land_query(points: list[tuple[float, float]], land_radius_m: int, timeout_s: int = 30) -> str:
+    """Land use only (2 clauses) — the per-event query once facilities come from the local index."""
+    bbox = _bbox_str(*land_bbox(points, land_radius_m))
+    return _wrap([f"nwr{f}({bbox});" for f in _LAND_FILTERS], timeout_s)
+
+
+def build_facility_tile_query(south: float, west: float, north: float, east: float, timeout_s: int = 120) -> str:
+    """All facility candidates in a tile — the scheduled local-index sync query."""
+    bbox = _bbox_str(south, west, north, east)
+    return _wrap([f"nwr{f}({bbox});" for f in _FACILITY_FILTERS], timeout_s)
 
 
 class OverpassClient:
@@ -144,8 +167,17 @@ class OverpassClient:
 
     def query_around(self, lat: float, lon: float, facility_radius_m: int = 10000, land_radius_m: int = 1500,
                      land_points: list[tuple[float, float]] | None = None) -> tuple[list[OsmFeature], str, float]:
-        """Returns (features, endpoint_used, latency_ms). Tries each endpoint once before failing."""
-        query = build_query(lat, lon, facility_radius_m, land_radius_m, land_points=land_points)
+        """Facilities + land use around a point. Returns (features, endpoint_used, latency_ms)."""
+        return self.run(build_query(lat, lon, facility_radius_m, land_radius_m, land_points=land_points))
+
+    def query_land(self, points: list[tuple[float, float]], land_radius_m: int = 1500) -> tuple[list[OsmFeature], str, float]:
+        return self.run(build_land_query(points, land_radius_m))
+
+    def query_facility_tile(self, south: float, west: float, north: float, east: float) -> tuple[list[OsmFeature], str, float]:
+        return self.run(build_facility_tile_query(south, west, north, east), timeout=150)
+
+    def run(self, query: str, timeout: float = 75) -> tuple[list[OsmFeature], str, float]:
+        """Execute a query, trying each endpoint once (rotating the start). Raises the last ProviderError."""
         last: ProviderError | None = None
         # Rotate the starting endpoint so load spreads across public mirrors.
         OverpassClient._rr = (getattr(OverpassClient, "_rr", -1) + 1) % len(self.endpoints)
@@ -153,7 +185,7 @@ class OverpassClient:
         for endpoint in ordered:
             try:
                 res = request(
-                    PROVIDER, "POST", endpoint, data={"data": query}, timeout=75, max_attempts=1,
+                    PROVIDER, "POST", endpoint, data={"data": query}, timeout=timeout, max_attempts=1,
                     min_interval_s=settings.overpass_min_interval_s,
                     headers={"Accept": "application/json"},
                 )

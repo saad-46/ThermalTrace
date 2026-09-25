@@ -101,6 +101,10 @@ class AlertRule(Base):
     channels: Mapped[list[str]] = mapped_column(ARRAY(String(12)), nullable=False, default=lambda: ["in_app"])
     created_at: Mapped[datetime] = created_at()
     last_triggered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # External deliveries (email/push) are suppressed within this window after the last notification;
+    # alerts are still created in-app and the suppression is recorded on each delivery row.
+    cooldown_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    last_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Alert(Base):

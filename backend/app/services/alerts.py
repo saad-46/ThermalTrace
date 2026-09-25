@@ -4,6 +4,7 @@ import json
 import logging
 import smtplib
 import uuid
+from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 
 from sqlalchemy import select, text
@@ -78,12 +79,25 @@ def evaluate_rules(db: Session, event_ids: list) -> dict:
     return {"alerts": created}
 
 
+def in_cooldown(rule: AlertRule, now: datetime | None = None) -> bool:
+    if not rule.cooldown_minutes or rule.last_notified_at is None:
+        return False
+    return (now or datetime.now(UTC)) - rule.last_notified_at < timedelta(minutes=rule.cooldown_minutes)
+
+
 def deliver(db: Session, alert: Alert, rule: AlertRule) -> None:
+    """In-app delivery always happens. External channels (email/push) are suppressed while the
+    rule is in cooldown; the suppression is recorded, never hidden."""
     user = db.get(User, rule.owner_id)
+    cooling = in_cooldown(rule)
+    notified_externally = False
     for channel in rule.channels or ["in_app"]:
         status, error, recipient = "sent", None, None
         try:
-            if channel == "in_app":
+            if channel != "in_app" and cooling:
+                status = "skipped"
+                error = f"cooldown: rule notified {rule.last_notified_at:%H:%M} UTC, window {rule.cooldown_minutes} min"
+            elif channel == "in_app":
                 recipient = str(user.id)
             elif channel == "email":
                 recipient = user.email
@@ -105,7 +119,10 @@ def deliver(db: Session, alert: Alert, rule: AlertRule) -> None:
         except Exception as exc:  # delivery failure is recorded, alert still exists in-app
             logger.exception("alert delivery failed (%s)", channel)
             status, error = "failed", f"{type(exc).__name__}: {exc}"[:500]
+        notified_externally |= channel != "in_app" and status == "sent"
         db.add(AlertDelivery(alert_id=alert.id, channel=channel, status=status, error=error, recipient=recipient))
+    if notified_externally:
+        rule.last_notified_at = alert.triggered_at or datetime.now(UTC)
 
 
 def _send_email(to: str, alert: Alert) -> None:

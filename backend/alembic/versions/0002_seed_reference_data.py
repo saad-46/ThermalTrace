@@ -81,4 +81,11 @@ def downgrade() -> None:
     conn = op.get_bind()
     conn.execute(sa.text("DELETE FROM role_permissions"))
     conn.execute(sa.text("DELETE FROM permissions"))
-    conn.execute(sa.text("DELETE FROM data_sources"))
+    # Seed rows may be referenced by real data (runs, facility sources, observations); only remove
+    # the unreferenced ones — referenced rows disappear with their tables in 0001's downgrade.
+    conn.execute(sa.text(
+        """DELETE FROM data_sources d WHERE NOT EXISTS (SELECT 1 FROM ingestion_runs r WHERE r.source_id = d.id)
+             AND NOT EXISTS (SELECT 1 FROM ingestion_checkpoints c WHERE c.source_id = d.id)
+             AND NOT EXISTS (SELECT 1 FROM facility_sources f WHERE f.source_id = d.id)
+             AND NOT EXISTS (SELECT 1 FROM weather_observations w WHERE w.source_id = d.id)
+             AND NOT EXISTS (SELECT 1 FROM satellite_observations s WHERE s.source_id = d.id)"""))

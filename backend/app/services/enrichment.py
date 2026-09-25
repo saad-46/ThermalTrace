@@ -17,13 +17,13 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.core.config import settings
 from app.gis.geo import haversine_m
 from app.integrations.http import ProviderError, request
-from app.integrations.overpass import OsmFeature, OverpassClient, classify_facility, classify_land
+from app.integrations.overpass import OsmFeature, OverpassClient, classify_land
 from app.integrations.sentinel import SatelliteSearchService
 from app.integrations.weather import WeatherClient
 from app.models.enrichment import SatelliteObservation, WeatherObservation
 from app.models.facilities import LandContext
 from app.models.thermal import ThermalEvent
-from app.services import cache, facilities, source_health
+from app.services import cache, facility_sync, source_health
 
 logger = logging.getLogger(__name__)
 CELL_DEG = 0.05  # ≈5.5 km; one Overpass request serves every event in a cell
@@ -51,17 +51,23 @@ def _point_bounds_distance(lat: float, lon: float, f) -> float:
 
 
 def enrich_osm(db: Session, events: list[ThermalEvent]) -> dict:
-    """Group events by cell; one Overpass request per cell; upsert facilities + land context."""
+    """Group events by cell; one Overpass request per cell.
+
+    Cells whose surroundings are covered by the local facility index (facility_sync) only query
+    land use — a small, fast request. Other cells fall back to the bounded facility+land query."""
     client = OverpassClient()
     by_cell: dict[tuple[int, int], list[ThermalEvent]] = defaultdict(list)
     for ev in events:
         by_cell[_cell(ev.latitude, ev.longitude)].append(ev)
-    stats = {"cells": 0, "cached": 0, "failed": 0, "facilities_new": 0}
+    stats = {"cells": 0, "cached": 0, "failed": 0, "facilities_new": 0, "land_only": 0}
     for (cy, cx), cell_events in by_cell.items():
         clat, clon = (cy + 0.5) * CELL_DEG, (cx + 0.5) * CELL_DEG
         points = [(e.latitude, e.longitude) for e in cell_events[:MAX_LAND_POINTS]]
         fac_radius = int(settings.attribution_radius_m + 4000)
-        key = cache.make_key("overpass", cell=(cy, cx), r=fac_radius, pts=[(round(a, 3), round(b, 3)) for a, b in points])
+        needed = set().union(*(facility_sync.tiles_around(e.latitude, e.longitude) for e in cell_events))
+        land_only = facility_sync.fresh_tiles(db, needed) == needed
+        key = cache.make_key("overpass-land" if land_only else "overpass", cell=(cy, cx), r=fac_radius,
+                             pts=[(round(a, 3), round(b, 3)) for a, b in points])
         cached = cache.get(db, key)
         if cached:
             stats["cached"] += 1
@@ -70,7 +76,10 @@ def enrich_osm(db: Session, events: list[ThermalEvent]) -> dict:
             endpoint = cached["endpoint"]
         else:
             try:
-                feats, endpoint, latency = client.query_around(clat, clon, fac_radius, LAND_RADIUS_M, land_points=points)
+                if land_only:
+                    feats, endpoint, latency = client.query_land(points, LAND_RADIUS_M)
+                else:
+                    feats, endpoint, latency = client.query_around(clat, clon, fac_radius, LAND_RADIUS_M, land_points=points)
             except ProviderError as exc:
                 stats["failed"] += 1
                 source_health.record_failure(db, "osm", str(exc))
@@ -82,20 +91,10 @@ def enrich_osm(db: Session, events: list[ThermalEvent]) -> dict:
             cache.put(db, key, {"endpoint": endpoint, "features": [f.__dict__ for f in feats]},
                       timedelta(hours=settings.osm_cache_ttl_hours))
         stats["cells"] += 1
+        stats["land_only"] += int(land_only)
         retrieved = datetime.now(UTC)
-        for f in feats:
-            ftype = classify_facility(f.tags)
-            if ftype:
-                _, created = facilities.upsert(db, facilities.SourceRecord(
-                    source_id="osm", external_id=f"{f.osm_type}/{f.osm_id}", name=f.name, facility_type=ftype,
-                    source_type=", ".join(f"{k}={f.tags[k]}" for k in ("power", "man_made", "industrial", "landuse")
-                                          if k in f.tags) or None,
-                    latitude=f.latitude, longitude=f.longitude, operator=f.tags.get("operator"),
-                    status="operating (per OSM)" if not f.tags.get("disused") else "disused",
-                    source_url=f"https://www.openstreetmap.org/{f.osm_type}/{f.osm_id}",
-                    dataset_version=f"OSM via {endpoint.split('/')[2]}", raw={"tags": f.tags, "bounds": f.bounds},
-                ))
-                stats["facilities_new"] += int(created)
+        if not land_only:
+            stats["facilities_new"] += facility_sync.upsert_osm_facilities(db, feats, endpoint)
         for ev in cell_events:
             db.execute(delete(LandContext).where(LandContext.event_id == ev.id))
             for f in feats:
@@ -108,7 +107,8 @@ def enrich_osm(db: Session, events: list[ThermalEvent]) -> dict:
                 db.execute(insert(LandContext).values(
                     event_id=ev.id, osm_type=f.osm_type, osm_id=f.osm_id, category=cat, name=f.name,
                     distance_m=round(d, 1), tags=f.tags, retrieved_at=retrieved).on_conflict_do_nothing())
-            _mark(ev, "osm", "ok", f"{len(feats)} OSM features via {endpoint.split('/')[2]}")
+            source = "local facility index + OSM land use" if land_only else "OSM facilities + land use"
+            _mark(ev, "osm", "ok", f"{source} via {endpoint.split('/')[2]} ({len(feats)} features)")
         db.commit()
     return stats
 

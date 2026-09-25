@@ -189,3 +189,70 @@ def test_health_endpoints(client):
     assert client.get("/health").json()["status"] == "ok"
     assert client.get("/api/v1/ready").json()["status"] == "ready"
     assert "thermaltrace_events_total" in client.get("/metrics").text
+
+
+# ---------------------------------------------------------------- consolidation additions
+def test_priority_search_training_export_and_facility_profile(client, db, auth_headers):
+    from app.processing.pipeline import process_new_detections
+
+    fac = _facility(db)
+    _ingest(db, _flare_site(7))
+    process_new_detections(db)
+    h = auth_headers("supervisor")
+
+    ev = client.get("/api/v1/events", headers=h, params={"sort": "priority"}).json()["items"][0]
+    assert ev["priority_score"] is not None and ev["priority_score"] > 30
+    detail = client.get(f"/api/v1/events/{ev['public_id']}", headers=h).json()
+    assert {c["name"] for c in detail["priority_components"]["components"]} >= {"thermal_intensity", "persistence"}
+    assert client.get("/api/v1/events", headers=h, params={"min_priority": 101}).status_code == 422
+
+    s = client.get("/api/v1/search", headers=h, params={"q": "Test Refin"}).json()
+    assert s["facilities"][0]["name"] == "Test Refinery"
+    s = client.get("/api/v1/search", headers=h, params={"q": "22.352, 69.853"}).json()
+    assert s["coordinates"] and s["events"][0]["public_id"] == ev["public_id"]
+    s = client.get("/api/v1/search", headers=h, params={"q": "flare"}).json()
+    assert any(c["key"] == "flare" for c in s["classifications"])
+
+    client.post(f"/api/v1/events/{ev['public_id']}/reviews", headers=h, json={"decision": "reclassify", "source_class": "flare"})
+    data = client.get("/api/v1/ml/training-dataset", headers=h).json()
+    assert data["count"] == 1
+    row = data["rows"][0]
+    assert row["analyst_label"] == "flare" and row["model_version"] == "rule-cascade-v1.0" and row["reviewer"]
+    assert row["features"]["sensor_count"] == 3.0
+    csv_resp = client.get("/api/v1/ml/training-dataset", headers=h, params={"format": "csv"})
+    assert csv_resp.status_code == 200 and "analyst_label" in csv_resp.text.splitlines()[0]
+    assert client.get("/api/v1/ml/training-dataset", headers=auth_headers("analyst")).status_code == 403
+
+    prof = client.get(f"/api/v1/facilities/{fac.id}/events", headers=h).json()["profile"]
+    assert prof["events"] == 1 and prof["persistent"] == 1 and prof["classifications"][0]["n"] == 1
+
+
+def test_alert_cooldown_suppresses_external_delivery(client, db, auth_headers, monkeypatch):
+    from datetime import UTC, datetime
+
+    from sqlalchemy import select
+
+    from app.models.workflow import AlertRule
+    from app.processing.pipeline import process_new_detections
+    from app.services import alerts
+
+    monkeypatch.setattr(alerts.settings, "smtp_host", "smtp.test.invalid")
+    monkeypatch.setattr(alerts.settings, "smtp_from", "tt@test.org")
+    sent = []
+    monkeypatch.setattr(alerts, "_send_email", lambda to, alert: sent.append(alert.title))
+    _ingest(db, _flare_site(7))
+    _ingest(db, [_row(28.0, 77.0, datetime.now(UTC).replace(microsecond=0), frp=60)])
+    process_new_detections(db)
+    h = auth_headers("analyst")
+    r = client.post("/api/v1/alert-rules", headers=h, json={"name": "any event", "source_classes": [
+        "flare", "unknown", "other", "process_heat", "wildfire", "agricultural_burn", "coal_seam_fire", "industrial_fire"],
+        "channels": ["in_app", "email"], "cooldown_minutes": 60})
+    assert r.status_code == 201, r.text
+    items = client.get("/api/v1/alerts", headers=h).json()["items"]
+    assert len(items) == 2 and len(sent) == 1  # second alert created in-app, email suppressed
+    emails = sorted(d["status"] for a in items for d in a["deliveries"] if d["channel"] == "email")
+    assert emails == ["sent", "skipped"]
+    assert any("cooldown" in (d["error"] or "") for a in items for d in a["deliveries"])
+    rule = db.execute(select(AlertRule)).scalar_one()
+    db.refresh(rule)
+    assert rule.last_notified_at is not None

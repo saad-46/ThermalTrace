@@ -59,6 +59,15 @@ def enrich_batch(db: Session, payload: dict, job: Job) -> dict:
     return res
 
 
+def facility_sync(db: Session, payload: dict, job: Job) -> dict:
+    from app.services import facility_sync as fs
+
+    res = fs.sync_tiles(db, int(payload.get("limit", 4)))
+    if res["remaining"] and (res["synced"] or res["failed"]):  # keep draining the backlog politely
+        enqueue(db, "facility_sync", payload, dedupe_key="facility_sync", priority=85, delay_s=10)
+    return res
+
+
 def import_registry(db: Session, payload: dict, job: Job) -> dict:
     return registries_import.run_import(
         db, payload["source"], path=payload.get("path"), dataset_version=payload.get("dataset_version"),
@@ -94,6 +103,7 @@ HANDLERS: dict[str, Handler] = {
     "enrich_event": enrich_event,
     "enrich_batch": enrich_batch,
     "import_registry": import_registry,
+    "facility_sync": facility_sync,
     "render_report": render_report,
     "train_model": train_model,
     "housekeeping": housekeeping,
@@ -103,5 +113,6 @@ HANDLERS: dict[str, Handler] = {
 SCHEDULE: dict[str, tuple[int, dict]] = {
     "firms_poll": (settings.firms_poll_minutes * 60, {"window": "24h"}),
     "enrich_batch": (15 * 60, {"limit": 40}),
+    "facility_sync": (60 * 60, {"limit": 4}),
     "housekeeping": (6 * 3600, {}),
 }

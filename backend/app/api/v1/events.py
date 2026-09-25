@@ -35,6 +35,7 @@ def event_filters(
     min_frp: float | None = Query(None, ge=0),
     min_confidence: float | None = Query(None, ge=0, le=1),
     min_observations: int | None = Query(None, ge=1),
+    min_priority: float | None = Query(None, ge=0, le=100, description="triage priority 0-100"),
     assigned_to: str | None = None,
     q: str | None = Query(None, max_length=100),
 ) -> dict:
@@ -45,7 +46,7 @@ def event_filters(
     return dict(bbox=parsed_bbox, since=since, until=until, classification=classification, persistence=persistence,
                 confidence_state=confidence_state, status=status, review_status=review_status, data_mode=data_mode,
                 data_quality=data_quality, sensor=sensor, facility_type=facility_type, min_frp=min_frp,
-                min_confidence=min_confidence, min_observations=min_observations, assigned_to=assigned_to, q=q)
+                min_confidence=min_confidence, min_observations=min_observations, min_priority=min_priority, assigned_to=assigned_to, q=q)
 
 
 @router.get("", response_model=PageOut[EventSummary], summary="List thermal events (filterable, paginated)")

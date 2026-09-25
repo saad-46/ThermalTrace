@@ -6,6 +6,7 @@
   process [--all]                                  cluster + analyse events
   enrich [--limit 40]                              OSM / weather / imagery / geocode for top-priority events
   import-registry --source wri_gppd|gem|cea [--path F] [--version V] [--published YYYY-MM-DD]
+  sync-facilities [--tiles 4]                      refresh the local OSM facility index (busiest 1° tiles first)
   train                                            train + activate the LightGBM model
   load-demo                                        synthetic data (DEMO_MODE=true only)
 """
@@ -52,6 +53,8 @@ def main(argv: list[str] | None = None) -> int:
     reg.add_argument("--path")
     reg.add_argument("--version")
     reg.add_argument("--published")
+    fs = sub.add_parser("sync-facilities")
+    fs.add_argument("--tiles", type=int, default=4)
     sub.add_parser("train")
     sub.add_parser("load-demo")
     args = p.parse_args(argv)
@@ -91,6 +94,10 @@ def main(argv: list[str] | None = None) -> int:
 
             _print(run_import(db, args.source, args.path, args.version,
                               date.fromisoformat(args.published) if args.published else None))
+        elif args.cmd == "sync-facilities":
+            from app.services.facility_sync import sync_tiles
+
+            _print(sync_tiles(db, args.tiles))
         elif args.cmd == "train":
             from app.ml.registry import train_and_register
 

@@ -255,3 +255,67 @@ def test_jwt_round_trip_and_tamper():
     assert claims["sub"] == str(uid) and claims["jti"] == str(sid)
     with pytest.raises(jwt.PyJWTError):
         decode_access_token(token[:-2] + ("A" if token[-1] != "A" else "B") + token[-1])
+
+
+# --- consolidation additions ---------------------------------------------------------------------
+def test_priority_components_and_tiers():
+    from app.processing.priority import compute_priority, tier_for
+
+    strong = compute_priority(frp_max=300, persistence_score=1.0, attribution_score=0.6, confidence_score=1.0, sensor_count=5)
+    weak = compute_priority(frp_max=2, persistence_score=0.0, attribution_score=None, confidence_score=0.2, sensor_count=1)
+    assert strong.score == 100 and strong.tier == "high"
+    assert weak.score < 30 and weak.tier == "low"
+    assert [c["name"] for c in strong.components] == [
+        "thermal_intensity", "persistence", "industrial_proximity", "classification_confidence", "sensor_corroboration"]
+    assert all(0 <= c["points"] <= c["max"] == 20 for c in strong.components + weak.components)
+    assert "not a risk" in strong.as_dict()["note"]
+    assert (tier_for(70), tier_for(69), tier_for(50), tier_for(30), tier_for(0)) == ("high", "elevated", "elevated", "routine", "low")
+
+
+def test_search_coordinate_parsing():
+    from app.api.v1.search import parse_coordinates
+
+    assert parse_coordinates("21.10, 72.64") == (21.10, 72.64)
+    assert parse_coordinates("21.1 72.6") == (21.1, 72.6)
+    assert parse_coordinates("-12.5,-45") == (-12.5, -45.0)
+    assert parse_coordinates("95, 72") is None
+    assert parse_coordinates("Hazira") is None
+
+
+def test_facility_tiles_cover_attribution_radius():
+    from app.services.facility_sync import tile_key, tiles_around
+
+    assert tile_key(21.1, 72.6) == "21:72"
+    assert tile_key(-0.5, -0.5) == "-1:-1"
+    assert tiles_around(21.5, 72.5) == {"21:72"}  # tile interior: one tile
+    assert tiles_around(21.95, 72.95) == {"21:72", "22:72", "21:73", "22:73"}  # corner: neighbours needed
+
+
+def test_overpass_split_queries():
+    from app.integrations.overpass import build_facility_tile_query, build_land_query
+
+    tile = build_facility_tile_query(21, 72, 22, 73)
+    land = build_land_query([(21.1, 72.6)], 1500)
+    assert tile.count("nwr") == 4 and "farmland" not in tile
+    assert land.count("nwr") == 2 and "power" not in land
+
+
+def test_alert_cooldown_window():
+    from datetime import UTC, datetime, timedelta
+
+    from app.models.workflow import AlertRule
+    from app.services.alerts import in_cooldown
+
+    now = datetime.now(UTC)
+    assert not in_cooldown(AlertRule(cooldown_minutes=0, last_notified_at=now), now)
+    assert not in_cooldown(AlertRule(cooldown_minutes=60, last_notified_at=None), now)
+    assert in_cooldown(AlertRule(cooldown_minutes=60, last_notified_at=now - timedelta(minutes=10)), now)
+    assert not in_cooldown(AlertRule(cooldown_minutes=60, last_notified_at=now - timedelta(minutes=61)), now)
+
+
+def test_smtp_user_alias(monkeypatch):
+    from app.core.config import Settings
+
+    monkeypatch.setenv("SMTP_USER", "ops-mailer")
+    monkeypatch.delenv("SMTP_USERNAME", raising=False)
+    assert Settings().smtp_username == "ops-mailer"

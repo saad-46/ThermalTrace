@@ -98,7 +98,23 @@ def facility_events(facility_id: uuid.UUID, within_m: float = Query(3000, le=100
         SELECT date_trunc('week', d.acq_datetime) AS week, count(*) AS detections, max(d.frp) AS frp_max
         FROM event_facility_links l JOIN thermal_detections d ON d.event_id = l.event_id
         WHERE l.facility_id = :id AND l.distance_m <= :w GROUP BY 1 ORDER BY 1"""), {"id": facility_id, "w": within_m}).mappings().all()
-    return {"events": [dict(r) for r in rows], "weekly": [dict(r) for r in weekly]}
+    profile = db.execute(text("""
+        SELECT count(DISTINCT e.id) AS events,
+               count(DISTINCT e.id) FILTER (WHERE e.persistence_class = 'persistent') AS persistent,
+               count(DISTINCT e.id) FILTER (WHERE e.status = 'active') AS active,
+               count(DISTINCT e.id) FILTER (WHERE e.review_status = 'analyst_confirmed') AS analyst_confirmed,
+               COALESCE(sum(e.observation_count), 0) AS detections, max(e.frp_max) AS frp_max,
+               min(e.first_detected) AS first_activity, max(e.last_detected) AS last_activity
+        FROM event_facility_links l JOIN thermal_events e ON e.id = l.event_id
+        WHERE l.facility_id = :id AND l.distance_m <= :w"""), {"id": facility_id, "w": within_m}).mappings().one()
+    classes = db.execute(text("""
+        SELECT COALESCE(e.classification, 'unprocessed') AS classification, count(*) AS n
+        FROM event_facility_links l JOIN thermal_events e ON e.id = l.event_id
+        WHERE l.facility_id = :id AND l.distance_m <= :w GROUP BY 1 ORDER BY 2 DESC"""), {"id": facility_id, "w": within_m}).mappings().all()
+    prof = dict(profile)
+    prof["classifications"] = [dict(c) for c in classes]
+    prof["note"] = "Thermal activity attributed within the radius from loaded FIRMS history; not a compliance or risk rating."
+    return {"events": [dict(r) for r in rows], "weekly": [dict(r) for r in weekly], "profile": prof, "within_m": within_m}
 
 
 @router.get("/satellite/{observation_id}/swir.png", tags=["satellite"],
