@@ -85,7 +85,7 @@ class Settings(BaseSettings):
     report_storage_dir: Path = BACKEND_DIR / "var" / "reports"
     model_dir: Path = BACKEND_DIR / "var" / "models"
     sentry_dsn: str | None = None
-    http_user_agent: str = "ThermalTrace/1.0 (+https://github.com/saad-46/thermal-trace-demo-1)"
+    http_user_agent: str = "ThermalTrace/1.0 (+https://github.com/saad-46/ThermalTrace)"
 
     # --- processing parameters (documented in docs/GIS.md) ---------------------------------------
     cluster_radius_m: float = Field(1500.0, gt=0)
