@@ -5,6 +5,10 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   return {
     plugins: [react()],
+    // MapLibre >= 5 loads its worker via new URL("./maplibre-gl-worker.mjs", import.meta.url); pre-bundling
+    // moves the module into .vite/deps and breaks that relative URL ("Worker failed to load").
+    optimizeDeps: { exclude: ["maplibre-gl"] },
+    worker: { format: "es" },
     server: {
       port: 5173,
       host: true,

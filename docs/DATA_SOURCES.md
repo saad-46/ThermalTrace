@@ -29,7 +29,17 @@ Every source is registered in the `data_sources` table. Its health (status, last
 - **Checkpoints** (`ingestion_checkpoints`) store the latest acquisition time per dataset.
 - **Retries**: up to 4 attempts with exponential backoff and jitter. `Retry-After` is honoured on HTTP 429. A 401/403 fails fast.
 
-## OSM query design
+## Local facility index (preferred path)
+
+Facilities are synced into PostGIS by **1° tile** (`services/facility_sync.py`). The busiest tiles, by event count, go first. Tiles are refreshed every 30 days, and failed tiles are retried after 6 h.
+
+Event attribution then runs locally, with `ST_DWithin` on the GiST index, in milliseconds. Once every tile within about 11 km of an event is fresh, the per-event Overpass request shrinks to a land-use-only query (2 clauses).
+
+- Measured: one tile took 24 s and indexed 2,233 OSM features. The previous per-cell approach took about 30 s per 5.5 km cell.
+- Coverage is shown on *Data sources → Local facility index*.
+- To sync manually: `python -m app.cli sync-facilities --tiles 4`.
+
+## OSM query design (fallback for tiles not yet synced)
 
 Each cell of about 5.5 km (0.05°) gets **one** Overpass request:
 

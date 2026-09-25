@@ -1,5 +1,10 @@
-import maplibregl, { type GeoJSONSource, type LngLatBoundsLike, type Map as MLMap } from "maplibre-gl";
+import * as maplibregl from "maplibre-gl";
+import type { GeoJSONSource, LngLatBoundsLike, Map as MLMap } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+// MapLibre >= 5 runs tile processing in a module worker. Let Vite bundle it (ES format, see
+// vite.config.ts) and hand MapLibre the emitted URL; otherwise production builds reference a
+// worker file that is never emitted.
+import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
 import type { EventFilters } from "../lib/hooks";
@@ -18,6 +23,8 @@ export interface LayerState {
 export const DEFAULT_LAYERS: LayerState = { events: true, facilities: true, detections: true, dispersion: true, imagery: false, heat: false, radius: true };
 /** Rule "near" threshold (2 km) and backend facility search radius (ATTRIBUTION_RADIUS_M, 10 km). */
 const RINGS_M = [2000, 10000];
+
+maplibregl.setWorkerUrl(maplibreWorkerUrl);
 
 const STYLE_LIGHT = (import.meta.env.VITE_MAP_STYLE_LIGHT as string) || "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
 const STYLE_DARK = (import.meta.env.VITE_MAP_STYLE_DARK as string) || "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";

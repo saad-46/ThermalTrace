@@ -64,7 +64,8 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details.
 - **Analyst workflow**: confirm, reclassify, reject, false positive, escalate; notes and evidence links; assignment. Every decision feeds the training dataset.
 - **Monitoring**: alert rules (for example "persistent events within 5 km of a refinery") with in-app, email and push delivery; watchlists (facilities, points, districts, polygons); persistent-source ranking.
 - **Reporting**: PDF investigation reports with source attribution.
-- **Operations**: data-source health, ingestion runs, jobs, workers, model cards, feature pipeline, audit log.
+- **Operations**: data-source health, local facility index coverage, ingestion runs, jobs, workers, model cards, feature pipeline, audit log.
+- **Triage and search**: explainable triage priority ordering the review queue (not a risk score), and global search across event IDs, districts, facilities, classifications and coordinates.
 - **Mobile**: bottom navigation, full-screen map with a bottom sheet, swipeable evidence cards, "near me", offline reads, Web Push.
 
 | | |
@@ -109,6 +110,7 @@ Every variable is documented, and tagged REQUIRED / OPTIONAL / PROVIDER, in [.en
 python -m app.cli ingest --window 7d          # FIRMS NRT, all sensors
 python -m app.cli process [--all]             # cluster + classify + alerts
 python -m app.cli enrich --limit 40           # OSM, weather, imagery, geocoding
+python -m app.cli sync-facilities --tiles 4   # local OSM facility index (busiest 1-degree tiles first)
 python -m app.cli import-registry --source gem --path tracker.xlsx --version 2026-H1 --published 2026-07-01
 python -m app.cli train                       # LightGBM on adjudicated + weak labels (model card stored)
 ```
@@ -116,8 +118,8 @@ python -m app.cli train                       # LightGBM on adjudicated + weak l
 ## Testing
 
 ```bash
-cd backend && TEST_DATABASE_URL=postgresql+psycopg://…/thermaltrace_test pytest    # 40 tests
-cd frontend && npm run typecheck && npm run build && npm run test:e2e              # Playwright acceptance
+cd backend && TEST_DATABASE_URL=postgresql+psycopg://…/thermaltrace_test pytest    # unit + ML + PostGIS integration
+cd frontend && npm run typecheck && npm test && npm run build && npm run test:e2e  # Vitest + Playwright
 ```
 
 See [docs/TESTING.md](docs/TESTING.md) for coverage and the recorded acceptance run.
@@ -134,7 +136,13 @@ See [docs/TESTING.md](docs/TESTING.md) for coverage and the recorded acceptance 
 - [Deployment](docs/DEPLOYMENT.md)
 - [Security](docs/SECURITY.md)
 - [Testing](docs/TESTING.md)
-- [Repository audit](docs/REPOSITORY_AUDIT.md)
+- [Master codebase audit](docs/MASTER_CODEBASE_AUDIT.md)
+- [Master feature matrix](docs/MASTER_FEATURE_MATRIX.md)
+- [Feature integration log](docs/FEATURE_INTEGRATION_LOG.md)
+- [API integration matrix](docs/API_INTEGRATION_MATRIX.md)
+- [Database audit](docs/DATABASE_AUDIT.md)
+- [Security audit](docs/SECURITY_AUDIT.md)
+- [Repository audit (phase 1)](docs/REPOSITORY_AUDIT.md)
 - [Bug fixes](docs/BUG_FIXES.md)
 - [Final status](docs/FINAL_STATUS.md)
 - [Feature roadmap](docs/FEATURE_ROADMAP.md)

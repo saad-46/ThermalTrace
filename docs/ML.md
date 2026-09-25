@@ -75,8 +75,21 @@ Confidence is a weighted sum. Every component is stored and displayed with its e
 
 **Data quality** is graded excellent, good, limited or poor from seven weighted factors: sensor availability, location precision (pixel footprint), facility coverage, satellite cloud, weather availability, historical depth and source freshness. Each factor stores its reason.
 
+## Triage priority (not a model output, not a risk score)
+
+The analyst queue is ordered by a 0–100 **triage priority** (`processing/priority.py`). It is the sum of five 20-point components:
+
+- thermal intensity (log FRP)
+- persistence score
+- industrial proximity (attribution score)
+- system confidence
+- sensor corroboration
+
+Tiers are high (≥ 70), elevated (≥ 50), routine (≥ 30) and low. The breakdown is stored per event and shown as "Why is this prioritised?". It answers *what to look at first*, never *how dangerous*.
+
 ## Feedback loop
 
 - Every analyst decision is stored with a snapshot of the system label and confidence at that time (`analyst_reviews`).
 - *Analytics → Analyst feedback loop* shows how many adjudicated labels exist, false positives by reason (industrial process heat, agricultural burn, sensor artefact, construction, known static source, sun glint, other), and a system-versus-analyst agreement table.
 - Retraining uses adjudicated labels at 3× weight.
+- **Export**: `GET /api/v1/ml/training-dataset?format=csv|json` (supervisor or above, audited). One row per decision: event, decision, analyst label, false-positive reason, system label and confidence at review time, model and pipeline version, reviewer, timestamp, and the 26 features as they were when the analyst decided.

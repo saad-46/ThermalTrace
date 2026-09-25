@@ -73,7 +73,11 @@ The public previews cover the full ~110 km tile. The UI states that they are con
 
 With CDSE credentials, a 5 km AOI **SWIR composite (B12/B8A/B4)** can be rendered around the event. SWIR highlights high-temperature pixels.
 
-## 7. Performance notes
+## 7. Local facility index
+
+See DATA_SOURCES.md. Facilities are synced by 1° tile. An event counts as covered when every tile within about 0.1° is fresh, because the attribution radius is 10 km. After a tile syncs, events inside it (plus a 0.1° margin) are re-attributed locally.
+
+## 8. Performance notes
 
 - **Map loading**: the map requests only the current viewport (`bbox` plus filters), at most 3,000 features, with a 250 ms debounce. Clustering happens client-side with MapLibre. Facilities load only at zoom ≥ 6.
 - **Indexes**:
