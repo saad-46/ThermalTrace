@@ -1,63 +1,65 @@
 # Testing
 
-## Backend (pytest)
+## Commands
 
 ```bash
+# backend
 cd backend
-pytest -p no:warnings                                   # unit + ML tests; integration tests skip without a DB
-TEST_DATABASE_URL=postgresql+psycopg://thermaltrace:<pw>@localhost:5432/thermaltrace_test pytest -p no:warnings
 ruff check app tests
-```
+alembic check                                     # models ↔ migrations drift
+TEST_DATABASE_URL=postgresql+psycopg://thermaltrace:<pw>@localhost:5432/thermaltrace_test pytest
+pip-audit -r requirements.txt
 
-| Suite | Count | Covers |
-|---|---|---|
-| `tests/test_units.py` | 27 | FIRMS normalisation (MODIS and VIIRS, bad rows, HTML and auth responses), geodesy, persistence classes, attribution decay, OSM taxonomy (e.g. `man_made=works` ≠ refinery; "thermal" ≠ coal), Overpass query shape, STAC de-duplication, rule cascade, confidence maths and state rules (never CONFIRMED without an imagery check), analyst override, data-quality grading, password policy, JWT tamper detection |
-| `tests/test_ml.py` | 2 | LightGBM train → save → load → predict → SHAP; refusal to train without enough labels |
-| `tests/test_integration.py` | 11 | Alembic base→head on an empty DB, idempotent ingestion, GiST index presence, clustering + persistence + attribution + classification end to end, event extension, auth flow and session revocation, no role self-assignment, viewer cannot review, error shapes, review → alert (with a recorded skipped email delivery) → PDF report, demo data refused, health/ready/metrics |
-
-The last recorded run was **40 passed**.
-
-## Web (Playwright)
-
-```bash
+# frontend
 cd frontend
-npm run typecheck && npm run build
-E2E_EMAIL=analyst@... E2E_PASSWORD=... [E2E_EVENT=TT-2026-001323] npm run test:e2e   # needs API + worker + vite running
+npm run typecheck && npm test && npm run build
+npm audit --omit=dev
+E2E_EMAIL=analyst@... E2E_PASSWORD=... [E2E_BASE_URL=http://localhost:5174] npm run test:e2e   # needs API + worker + web
 ```
 
-`e2e/acceptance.spec.ts` automates the final acceptance scenario:
+## Suites
 
-- **Desktop**: login → live map with real events → select event → evidence tabs (Evidence, Facilities, History, Satellite, Weather, Model, Provenance) → full event page → record an analyst decision → add a note → generate and download a PDF → create an alert rule from "Alert on area" → Overview, Events, Facilities, Analytics, Sources, Watchlists and Reports render. The test fails on any console error.
-- **Mobile (390×844, touch)**: map → events list → event → swipeable evidence cards → review → alerts.
-
-The last recorded run was **2 passed**. Screenshots from it are in `docs/screenshots/`.
-
-## Recorded query plans (2026-09-25, real data)
-
-```
-Viewport query (events in bbox, last 7 days):
-  Bitmap Index Scan on ix_events_geom … Execution Time: 5.5 ms
-  (enable_seqscan=off was needed to show the index on a 1,351-row table; the planner prefers a seq scan at this size)
-
-Facility attribution (facilities within 10 km of an event):
-  Index Scan using ix_facilities_geom … Index Cond: geom && _st_expand(e.geom, 10000) … Execution Time: 62 ms
-```
-
-## Manual acceptance (2026-09-25)
-
-Checked against the steps in the build brief:
-
-| # | Step | Result |
+| Suite | Tests | Covers |
 |---|---|---|
-| 1–2 | Open app; see live and historical events | ✅ 1,351 real events from 4,737 FIRMS detections (MODIS Terra/Aqua, VIIRS S-NPP/NOAA-20/NOAA-21) |
-| 3–5 | Select event; backend bundle; coordinates | ✅ |
-| 6 | Nearby facilities | ✅ OSM + WRI GPPD, distance-ranked (e.g. Hazira: AM/NS steel at 566 m) |
-| 7–8 | Historical observations; persistence | ✅ Daily observations, persistence metrics |
-| 9–11 | Classification, confidence, evidence | ✅ |
-| 12 | SHAP | ✅ Pipeline tested. Live SHAP appears once a GBM is trained (needs enough labels; see FINAL_STATUS) |
-| 13–14 | Satellite, weather | ✅ Sentinel-2 L2A scenes (Earth Search); Open-Meteo at detection time |
-| 15–16 | Review; confirm, reject, notes | ✅ |
-| 17 | Alert and watchlist | ✅ |
-| 18 | Report | ✅ PDF (≈ 68 KB, 3 pages) |
-| 19 | Mobile investigation | ✅ PWA shell |
-| 20 | No fake data in production mode | ✅ `DEMO_MODE=false`; demo loader refused (tested) |
+| `backend/tests/test_units.py` | 34 | FIRMS normalisation and error handling, geodesy, persistence classes, attribution decay, OSM taxonomy (works ≠ refinery; "thermal" ≠ coal), Overpass query shapes (bounded, split tile and land), STAC dedupe, rule cascade, confidence maths and state rules (never CONFIRMED without imagery), analyst override, data-quality grading, password policy, JWT tamper detection, **triage priority**, **coordinate search parsing**, **facility tile coverage**, **alert cooldown window**, **SMTP_USER alias**, **per-token rate limiting** |
+| `backend/tests/test_ml.py` | 2 | LightGBM train → save → load → predict → SHAP; refusal without enough labels |
+| `backend/tests/test_integration.py` | 13 | Alembic base → head on a populated DB, idempotent ingestion, GiST indexes, clustering → persistence → attribution → classification, event extension, auth and session revocation, no role self-assignment, viewer cannot review, error shapes, review → alert → PDF, demo data refused, health endpoints, **priority / search / training export / facility profile**, **cooldown suppresses external delivery (recorded)** |
+| `frontend/src/__tests__/logic.test.ts` | 9 | Formatting, query strings, taxonomy completeness, qualitative confidence ("Unavailable", never "Weak", when evidence is missing), evidence chain stages and missing-state honesty, **query-key stability** (refetch-loop regression) |
+| `frontend/src/__tests__/components.test.tsx` | 8 | PriorityPill / PriorityPanel, EvidenceChain (list semantics), PersistenceStrip (gap days), StatePill hint, Meter ARIA, SHAP chart signs, error boundary |
+| `frontend/e2e/acceptance.spec.ts` | 3 | **Desktop**: search → map → event → all tabs → review → note → PDF → alert rule with cooldown → priority queue → every screen; asserts zero console errors, no horizontal overflow, ≤ 1 list request while idle. **Tablet** (820 × 1180): icon rail, map, tables. **Mobile** (390 × 844, touch): map, search, priority queue, event, swipeable evidence, review, alerts, watchlist, more. |
+
+## Results — 2026-09-25 (final regression on `production-consolidation`)
+
+| Check | Result |
+|---|---|
+| `ruff check app tests` | clean |
+| `alembic check` | no drift |
+| pytest (unit + ML + PostGIS integration) | **49 passed**, repeated twice against a populated test DB |
+| `pip-audit` | **no known vulnerabilities** |
+| `tsc --noEmit` | clean |
+| Vitest | **17 passed** |
+| `npm run build` | success (MapLibre worker emitted as its own asset) |
+| `npm audit --omit=dev` | **0 vulnerabilities** |
+| Playwright vs dev server | **3 passed** (desktop, tablet, mobile) |
+| Playwright vs production build (`vite preview`) | **3 passed** |
+| Docker images (`docker compose build api web`) | built; the container loads lightgbm 4.6.0, fastapi 0.141.1, starlette 1.3.1 |
+| **Delete-safety test** (see below) | **passed** |
+
+## Delete-safety test (the reference directories hidden)
+
+`ThermalTrace Prototype`, `ThermalTrace Demo` and `ThermalTrace (pre-consolidation)` were renamed away. Then a **fresh clone** of `D:\Projects\ThermalTrace` was taken, and it:
+
+1. installed backend and frontend dependencies from scratch;
+2. created a brand-new database and ran migrations to `0003 (head)`;
+3. ingested **real** FIRMS NRT data (457 detections from 4 sensors) and processed **277 events, 0 failures**;
+4. passed ruff and **49** pytest tests, typecheck, **17** Vitest tests, and the production build;
+5. started the API from the fresh clone, and `scripts/smoke_test.sh` passed all 12 checks. A worker claimed and completed a job.
+
+`docker compose build api web` succeeded with the directories hidden. A repository-wide search found **no** runtime or config references to the temporary directories; the only matches are provenance comments. The directories were then restored.
+
+## Recorded query plans (real data)
+
+```
+Viewport query: Bitmap Index Scan on ix_events_geom … 5.5 ms
+Facility attribution (10 km): Index Scan using ix_facilities_geom … 62 ms
+```

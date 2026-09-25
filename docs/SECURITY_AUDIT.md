@@ -27,6 +27,8 @@ Scope: Production (`D:\Projects\ThermalTrace`), Prototype, Demo, and the donor `
 | 7 | Production | Enrichment held a DB transaction open during slow provider calls ("idle in transaction") | Low (resource) | **Fixed.** Commit before provider calls. |
 | 8 | Production | New training-dataset export exposes reviewer emails | Info | Supervisor or above only. Every export is audited (`ml.training_dataset.export`). |
 | 9 | Production | No secrets, backdoors, debug routes or wildcard CORS found in tracked files | — | Verified before each commit (`git diff --cached` scan). |
+| 10 | Production | `pip-audit`: starlette 0.41.3 (multiple advisories), **lightgbm 4.5.0 (PYSEC-2024-231, remote code execution)**, pyjwt 2.10.1, python-multipart 0.0.20, pytest 8.3.4 | High (critical for LightGBM) | **Fixed.** fastapi 0.141.1 + starlette 1.3.1, lightgbm 4.6.0, pyjwt 2.13.0, python-multipart 0.0.31, pytest 9.0.3. `pip-audit`: no known vulnerabilities. |
+| 11 | Production | `npm audit`: maplibre-gl ≤ 6.4.0 (critical), react-router 6.x (moderate) | Critical | **Fixed.** maplibre-gl 6.11.2 and react-router-dom 7.18.4. `npm audit --omit=dev`: 0 vulnerabilities. Verified end to end (see BUG_FIXES #21–23). |
 
 ## Production review checklist
 
