@@ -99,6 +99,14 @@ class Settings(BaseSettings):
     attribution_radius_m: float = Field(10000.0, gt=0)
 
     @model_validator(mode="after")
+    def _anchor_relative_paths(self) -> "Settings":
+        # A relative DATASETS_DIR (as in .env.example) means "relative to the repository", not to whichever
+        # directory a command happens to be started from.
+        if not self.datasets_dir.is_absolute():
+            self.datasets_dir = (REPO_DIR / self.datasets_dir).resolve()
+        return self
+
+    @model_validator(mode="after")
     def _guard_production(self) -> "Settings":
         if self.environment in ("staging", "production"):
             if self.secret_key.get_secret_value() == _INSECURE_DEV_SECRET or len(self.secret_key.get_secret_value()) < 32:

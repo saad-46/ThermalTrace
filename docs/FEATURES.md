@@ -81,8 +81,8 @@ Checked against the code on 2026-09-26.
 | NASA FIRMS (MODIS, VIIRS S-NPP / NOAA-20 / NOAA-21) | Implemented, live | `integrations/firms.py` |
 | FIRMS history / backfill | Implemented; needs `FIRMS_MAP_KEY` | `ingest-historical`, `firms_historical` job |
 | OpenStreetMap facilities and land use | Implemented, live | `integrations/overpass.py`, `services/facility_sync.py` |
-| Global Energy Monitor | Importer implemented; needs the downloaded tracker files | `services/registries_import.py` |
-| CEA | Importer implemented; needs a transcribed publication | same |
+| Global Energy Monitor | Implemented; Global Coal Plant Tracker (July 2026, CC BY 4.0) imported locally: 662 Indian plant locations, 245 corroborated by WRI or OSM. Other trackers need their files | `services/registries_import.py` |
+| CEA | Importer implemented; needs a station-level publication. The monthly Installed Capacity report has only capacity totals, so it cannot be imported | same |
 | WRI power plants | Implemented, live | same |
 | Sentinel-2 | Scene search, previews and NDVI / NBR change implemented; SWIR render needs Copernicus credentials | `integrations/sentinel.py`, `services/imagery.py` |
 | Land cover | Implemented (ESA WorldCover 10 m, 2021) | `services/landcover.py` |

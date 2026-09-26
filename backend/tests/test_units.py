@@ -392,3 +392,27 @@ def test_production_settings_fail_closed(monkeypatch):
         with pytest.raises(ValidationError):
             Settings(**{**good, **bad})
     assert Settings(environment="development").environment == "development"  # dev defaults still work locally
+
+
+def test_relative_datasets_dir_resolves_from_the_repository():
+    from pathlib import Path
+
+    from app.core.config import REPO_DIR, Settings
+
+    s = Settings(datasets_dir=Path("./data/datasets"))
+    assert s.datasets_dir == (REPO_DIR / "data" / "datasets").resolve()
+    absolute = Path(REPO_DIR.anchor) / "srv" / "data"
+    assert Settings(datasets_dir=absolute).datasets_dir == absolute
+
+
+def test_sentry_initialises_with_the_installed_web_stack():
+    """sentry-sdk 2.19 raised ImportError at init under Starlette 1.x, so setting SENTRY_DSN crashed the API.
+    The DSN here is a syntactically valid placeholder; nothing is sent."""
+    import sentry_sdk
+
+    sentry_sdk.init(dsn="https://public@o0.ingest.sentry.io/0", default_integrations=True, send_default_pii=False)
+    try:
+        assert sentry_sdk.get_client().is_active()
+    finally:
+        sentry_sdk.get_client().close(timeout=0)
+        sentry_sdk.init()  # back to a disabled client
