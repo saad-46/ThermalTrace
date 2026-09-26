@@ -63,7 +63,7 @@ FIRMS · Overpass · WRI/GEM/CEA · Sentinel-2 STAC · Open-Meteo · Nominatim
                  │ (retries, backoff, cache, health tracking)
      worker (bulk lane + scheduler) · worker (interactive lane)   ← Postgres SKIP LOCKED job queue
                  │
-        PostgreSQL 16 + PostGIS 3.4 (Alembic, 42 tables)
+        PostgreSQL 16 + PostGIS 3.4 (Alembic, 43 tables)
                  │
       FastAPI /api/v1 (JWT, roles, audit, rate limits)
                  │
@@ -103,6 +103,7 @@ Full status of each feature: [docs/FEATURES.md](docs/FEATURES.md).
 | Source | Used for | Credential |
 |---|---|---|
 | NASA FIRMS (MODIS, VIIRS S-NPP / NOAA-20 / NOAA-21) | Thermal detections | None for the NRT files. `FIRMS_MAP_KEY` for history/archive. |
+| GeoNames (cities500) | Offline place names for events ("Near Dhanbad, Jharkhand") | None |
 | OpenStreetMap (Overpass) | Facilities and land use; a local facility index is built in 1° tiles | None (User-Agent required) |
 | WRI Global Power Plant Database | Power plants | None |
 | Global Energy Monitor, CEA | Additional facility registries | None, but the data files must be downloaded manually |
@@ -149,7 +150,7 @@ python -m venv .venv
 .venv/Scripts/pip install -r requirements.txt     # Linux/macOS: .venv/bin/pip
 ```
 
-**5. Run the migrations** (creates all 42 tables and seeds roles and sources; no users are seeded)
+**5. Run the migrations** (creates all 43 tables and seeds roles and sources; no users are seeded)
 
 ```bash
 alembic upgrade head
@@ -183,6 +184,7 @@ npm run dev        # http://localhost:5173, proxies /api to :8000
 python -m app.cli ingest --window 7d                # FIRMS NRT, all sensors, no key needed
 python -m app.cli process                           # cluster, classify, alerts
 python -m app.cli import-registry --source wri_gppd # optional: ~1,600 Indian power plants
+python -m app.cli import-places                     # optional: GeoNames place names, so events read "Near Dhanbad, Jharkhand"
 ```
 
 The API docs are at http://localhost:8000/api/docs.
@@ -250,7 +252,7 @@ npm run build
 E2E_EMAIL=analyst@example.org E2E_PASSWORD=… npm run test:e2e
 ```
 
-Current results: backend **78 passed**, Vitest **24 passed**, Playwright **3 passed** (desktop, tablet, mobile). `pip-audit` and `npm audit` are clean. CI (`.github/workflows/ci.yml`) runs lint, the backend tests against PostGIS, typecheck, the frontend tests, the build, both audits and the image builds. Details: [docs/TESTING.md](docs/TESTING.md).
+Current results: backend **80 passed**, Vitest **25 passed**, Playwright **3 passed** (desktop, tablet, mobile). `pip-audit` and `npm audit` are clean. CI (`.github/workflows/ci.yml`) runs lint, the backend tests against PostGIS, typecheck, the frontend tests, the build, both audits and the image builds. Details: [docs/TESTING.md](docs/TESTING.md).
 
 ## Docker and deployment
 
@@ -316,4 +318,4 @@ Details, audit findings and known gaps: [docs/SECURITY.md](docs/SECURITY.md).
 
 ## Attribution
 
-NASA FIRMS · © OpenStreetMap contributors (ODbL) · WRI Global Power Plant Database (CC BY 4.0) · Copernicus Sentinel-2 data via Element84 Earth Search and Copernicus Data Space · Open-Meteo (CC BY 4.0) · Basemaps © CARTO · Sentinel-2 cloudless by EOX (CC BY-NC-SA 4.0).
+NASA FIRMS · GeoNames (CC BY 4.0) · © OpenStreetMap contributors (ODbL) · WRI Global Power Plant Database (CC BY 4.0) · Copernicus Sentinel-2 data via Element84 Earth Search and Copernicus Data Space · Open-Meteo (CC BY 4.0) · Basemaps © CARTO · Sentinel-2 cloudless by EOX (CC BY-NC-SA 4.0).

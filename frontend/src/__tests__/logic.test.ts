@@ -92,3 +92,16 @@ describe("CARTO basemap key", () => {
     expect(withCartoKey("https://tiles.basemaps.cartocdn.com/x", "")).toBe("https://tiles.basemaps.cartocdn.com/x");
   });
 });
+
+describe("location label", () => {
+  it("prefers the geocoded district, then 'near <place>', and never invents a name", async () => {
+    const { locationLabel, coordsLabel } = await import("../lib/format");
+    expect(locationLabel({ admin_district: "Surat", admin_state: "Gujarat", place_name: "Hazira" })).toBe("Surat, Gujarat");
+    expect(locationLabel({ place_name: "Dhanbad", place_admin1: "Jharkhand", place_country: "IN", place_distance_m: 1040 })).toBe("Near Dhanbad, Jharkhand · 1 km");
+    expect(locationLabel({ place_name: "Hajira", place_admin1: "Gujarat", place_distance_m: 380 })).toBe("Near Hajira, Gujarat · < 1 km");
+    expect(locationLabel({ place_name: "Alahabad", place_admin1: "Punjab", place_country: "PK", place_distance_m: 20100 })).toBe("Near Alahabad, Punjab (PK) · 20 km");
+    expect(locationLabel({ place_name: null, place_distance_m: 148000 })).toBe("");
+    expect(coordsLabel({ latitude: 23.7912, longitude: 86.4304 })).toBe("23.791, 86.430");
+    expect(coordsLabel({ latitude: 23.7912, longitude: 86.4304 }, 2)).toBe("23.79, 86.43");
+  });
+});

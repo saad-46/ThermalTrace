@@ -5,7 +5,7 @@ import { HBars, StackedBars } from "../components/charts";
 import { Async, ClassLabel, Empty, errText, PersistencePill, StatePill, useToast } from "../components/ui";
 import { api, downloadFile } from "../lib/api";
 import { useSession } from "../lib/session";
-import { fmtDistance, relTime, titleCase } from "../lib/format";
+import { fmtDistance, locationLabel, relTime, titleCase } from "../lib/format";
 import { CLASS_META, FACILITY_LABELS, FP_REASONS } from "../lib/taxonomy";
 import type { EventSummary } from "../lib/types";
 
@@ -48,7 +48,7 @@ export default function Analytics() {
           <Async q={persistent} empty={(d) => (d.length ? null : <Empty title="None identified yet" />)}>{(d) => (
             <div className="table-wrap"><table className="table"><thead><tr><th scope="col">Event</th><th scope="col">Location</th><th scope="col">Classification</th><th scope="col">Persistence</th><th scope="col" className="right">Active days</th><th scope="col" className="right">Platforms</th><th scope="col">Nearest facility</th><th scope="col">Status</th><th scope="col">Last seen</th></tr></thead>
               <tbody>{d.map((e) => (
-                <tr key={e.id}><td><Link className="mono" to={`/events/${e.public_id}`}>{e.public_id}</Link></td><td>{[e.admin_district, e.admin_state].filter(Boolean).join(", ") || "—"}</td>
+                <tr key={e.id}><td><Link className="mono" to={`/events/${e.public_id}`}>{e.public_id}</Link></td><td>{locationLabel(e) || "—"}</td>
                   <td><ClassLabel cls={e.classification} short /></td><td><PersistencePill p={e.persistence_class} /> <span className="num faint">{e.persistence_score?.toFixed(2)}</span></td>
                   <td className="right num">{e.days_active}</td><td className="right num">{e.sensor_count}</td>
                   <td>{e.nearest_facility_name ? `${e.nearest_facility_name} (${fmtDistance(e.nearest_facility_distance_m)})` : "—"}</td>

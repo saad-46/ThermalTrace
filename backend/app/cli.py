@@ -8,6 +8,7 @@
   import-registry --source wri_gppd|gem|cea [--path F] [--version V] [--published YYYY-MM-DD]
   sync-facilities [--tiles 4]                      refresh the local OSM facility index (busiest 1° tiles first)
   train                                            train a LightGBM model (stored inactive; activate it from System health)
+  import-places                                    download GeoNames places (CC BY 4.0) and name events "near <place>"
   load-demo                                        synthetic data (DEMO_MODE=true only)
 """
 import argparse
@@ -40,6 +41,7 @@ def main(argv: list[str] | None = None) -> int:
     cu.add_argument("--role", choices=ROLES, default="analyst")
     ing = sub.add_parser("ingest")
     ing.add_argument("--window", default="24h", choices=["24h", "48h", "7d"])
+    sub.add_parser("import-places")
     hist = sub.add_parser("ingest-historical")
     hist.add_argument("--source", required=True)
     hist.add_argument("--start", required=True)
@@ -113,6 +115,12 @@ def main(argv: list[str] | None = None) -> int:
             db.commit()
             _print({"model": mv.id, "active": mv.is_active, "label_provenance": mv.label_provenance, "metrics": {
                 k: mv.metrics.get(k) for k in ("macro_f1_holdout", "n_train", "n_test", "caveat")}})
+        elif args.cmd == "import-places":
+            from app.services.places import assign_nearest_places, import_places
+
+            res = import_places(db)
+            res["events_named"] = assign_nearest_places(db)
+            _print(res)
         elif args.cmd == "load-demo":
             from app.services.ingestion import load_demo_dataset
 

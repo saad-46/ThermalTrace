@@ -154,6 +154,9 @@ def process_new_detections(db: Session, reanalyse_all: bool = False, batch_size:
     clustering.refresh_event_stats(db, touched)
     aged = clustering.refresh_activity_status(db)
     db.commit()
+    from app.services.places import assign_nearest_places
+
+    assign_nearest_places(db, list(touched))
     if reanalyse_all:
         touched |= set(db.execute(text("SELECT id FROM thermal_events")).scalars())
     window = persistence.history_window_days(db)

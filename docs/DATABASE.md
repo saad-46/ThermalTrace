@@ -7,13 +7,13 @@ cd backend && alembic upgrade head      # create or upgrade
 alembic downgrade base                  # tested in CI: tests/conftest.py runs base -> head on every integration run
 ```
 
-## Tables (42)
+## Tables (43)
 
 | Domain | Tables |
 |---|---|
 | Identity | `organizations`, `users`, `roles`, `permissions`, `role_permissions`, `user_sessions`, `push_subscriptions` |
 | Thermal | `thermal_detections` (FIRMS pixels), `thermal_events` (clusters), `thermal_observations` (event × day) |
-| Facilities | `facilities`, `facility_sources`, `facility_relationships`, `event_facility_links`, `land_context` |
+| Facilities and places | `facilities`, `facility_sources`, `facility_relationships`, `event_facility_links`, `land_context`, `places` (GeoNames populated places, used to name events) |
 | Enrichment | `weather_observations`, `satellite_observations`, `landcover_observations` (ESA WorldCover shares per event), `imagery_analyses` (NDVI / NBR change per event) |
 | ML | `model_versions`, `model_predictions`, `classifications`, `classification_evidence` |
 | Workflow | `analyst_reviews`, `investigations`, `investigation_notes`, `alert_rules`, `alerts`, `alert_deliveries`, `saved_locations`, `watchlists`, `watchlist_items`, `reports`, `report_exports` |
@@ -52,6 +52,7 @@ alembic downgrade base                  # tested in CI: tests/conftest.py runs b
 | 0002 | Seed roles, permissions, data-source registry. The downgrade originally deleted every `data_sources` row and failed on any populated database (FK from `ingestion_runs`); it now removes only unreferenced seed rows. | ✅ |
 | 0003 | `thermal_events.priority_score` (indexed) + `priority_components`; `alert_rules.cooldown_minutes` + `last_notified_at`; `facility_sync_tiles`; pg_trgm extension and GIN trigram indexes on `facilities.name` and `thermal_events.admin_district` | ✅ |
 | 0004 | `landcover_observations` and `imagery_analyses` (one row per event, cascade on delete); `alert_rules.min_priority`, `min_repeat_events`, `repeat_days`, `activity_increase`; data source `esa_worldcover` | ✅ |
+| 0005 | `places` (GiST-indexed GeoNames cities500 for the region); `thermal_events.place_name`, `place_admin1`, `place_country`, `place_distance_m` (+ trigram index on `place_name`); data source `geonames` | ✅ |
 
 `alembic check` reports no drift between models and schema. The integration suite runs `downgrade base → upgrade head` on every run, and it has passed repeatedly against a populated test database.
 

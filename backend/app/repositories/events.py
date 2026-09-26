@@ -24,6 +24,7 @@ _LIST_COLS = """
   e.night_fraction, e.status, e.review_status, e.persistence_class, e.persistence_score, e.classification,
   e.classification_probability, e.confidence_score, e.confidence_state, e.data_quality,
   e.nearest_facility_distance_m, e.admin_state, e.admin_district, e.country, e.assigned_to, e.priority_score,
+  e.place_name, e.place_admin1, e.place_country, e.place_distance_m,
   f.name AS nearest_facility_name, f.facility_type AS nearest_facility_type
 """
 
@@ -70,7 +71,8 @@ def _filters(p: dict) -> tuple[str, dict]:
         clauses.append("e.assigned_to = :assigned_to")
         params["assigned_to"] = p["assigned_to"]
     if p.get("q"):
-        clauses.append("(e.public_id ILIKE :q OR e.admin_district ILIKE :q OR e.admin_state ILIKE :q OR f.name ILIKE :q)")
+        clauses.append("(e.public_id ILIKE :q OR e.admin_district ILIKE :q OR e.admin_state ILIKE :q OR f.name ILIKE :q "
+                       "OR e.place_name ILIKE :q OR e.place_admin1 ILIKE :q)")
         params["q"] = f"%{p['q']}%"
     return " AND ".join(clauses), params
 

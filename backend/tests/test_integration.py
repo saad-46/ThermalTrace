@@ -442,3 +442,33 @@ def test_processing_continues_across_batches_and_continuations_are_not_suppresse
     assert enqueue(db, "process_events", {}, dedupe_key="process_events") == running  # same key: suppressed
     cont = enqueue(db, "process_events", {}, dedupe_key=continuation_key("process_events"))
     assert cont != running and db.execute(text("SELECT status FROM jobs WHERE id = :i"), {"i": cont}).scalar() == "queued"
+
+
+def test_events_are_named_by_the_nearest_place_and_far_events_stay_unnamed(client, db, auth_headers):
+    from datetime import UTC, datetime
+
+    from sqlalchemy import text
+
+    from app.processing.pipeline import process_new_detections
+
+    def place(i, name, admin1, cc, lat, lon):
+        db.execute(text("INSERT INTO places (geonameid, name, admin1, country_code, population, latitude, longitude, geom) "
+                        "VALUES (:i, :n, :a, :c, 5000, :la, :lo, ST_SetSRID(ST_MakePoint(:lo, :la), 4326)::geography)"),
+                   {"i": i, "n": name, "a": admin1, "c": cc, "la": lat, "lo": lon})
+
+    place(1, "Dhanbad", "Jharkhand", "IN", 23.795, 86.43)
+    place(2, "Jamtara", "Jharkhand", "IN", 23.96, 86.80)
+    db.commit()
+    now = datetime.now(UTC).replace(microsecond=0)
+    _ingest(db, [_row(23.79, 86.43, now, frp=25), _row(23.791, 86.431, now, frp=30), _row(10.0, 80.0, now, frp=25), _row(10.001, 80.001, now, frp=30)])
+    process_new_detections(db)
+    h = auth_headers("analyst")
+    items = {round(e["latitude"]): e for e in client.get("/api/v1/events", headers=h).json()["items"]}
+    near, far = items[24], items[10]
+    assert near["place_name"] == "Dhanbad" and near["place_admin1"] == "Jharkhand" and near["place_country"] == "IN"
+    assert near["place_distance_m"] < 2000
+    assert far["place_name"] is None and far["place_distance_m"] > 50_000  # too far: coordinates only, never a misleading name
+    found = client.get("/api/v1/events", headers=h, params={"q": "dhanbad"}).json()
+    assert found["total"] == 1 and found["items"][0]["id"] == near["id"]  # searching a place finds the events near it
+    s = client.get("/api/v1/search", headers=h, params={"q": "Dhanb"}).json()
+    assert s["places"] and s["places"][0]["admin_district"] == "Dhanbad" and s["places"][0]["admin_state"] == "Jharkhand"

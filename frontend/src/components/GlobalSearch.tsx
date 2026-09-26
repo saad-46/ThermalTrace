@@ -3,7 +3,7 @@ import { Building2, Crosshair, MapPin, Search, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
-import { fmtDistance } from "../lib/format";
+import { fmtDistance, locationLabel } from "../lib/format";
 import { FACILITY_LABELS } from "../lib/taxonomy";
 import type { SearchResults } from "../lib/types";
 import { ClassLabel, StatePill } from "./ui";
@@ -46,7 +46,7 @@ export default function GlobalSearch({ compact }: { compact?: boolean }) {
   }
   d?.events.forEach((e) => items.push({ key: `e${e.id}`, to: `/events/${e.public_id}`, label: (
     <><span className="mono">{e.public_id}</span> <ClassLabel cls={e.classification} short />
-      <span className="faint">{[e.admin_district, e.admin_state].filter(Boolean).join(", ")}{e.distance_m != null ? ` · ${fmtDistance(e.distance_m)}` : ""}</span>
+      <span className="faint">{locationLabel(e)}{e.distance_m != null ? ` · ${fmtDistance(e.distance_m)}` : ""}</span>
       {e.confidence_state && <span style={{ marginLeft: "auto" }}><StatePill state={e.confidence_state} /></span>}</>) }));
   d?.places.forEach((p) => items.push({ key: `p${p.admin_district}${p.admin_state}`, to: `/map?lat=${p.latitude}&lon=${p.longitude}&z=9`,
     label: <><MapPin size={13} /> {[p.admin_district, p.admin_state].filter(Boolean).join(", ")} <span className="faint">{p.events} event(s)</span></> }));

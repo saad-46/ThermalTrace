@@ -4,7 +4,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { DEFAULT_FILTERS, FilterButton, TimeRange, toQuery, type FilterState } from "../components/filters";
 import { PriorityPill } from "../components/triage";
 import { Async, ClassLabel, Empty, ModePill, PersistencePill, StatePill } from "../components/ui";
-import { fmtDistance, fmtDuration, fmtNum, relTime } from "../lib/format";
+import { coordsLabel, fmtDistance, fmtDuration, fmtNum, locationLabel, relTime } from "../lib/format";
 import { useEvents } from "../lib/hooks";
 
 const SORTS: [string, string][] = [["priority", "Triage priority"], ["last_detected", "Most recent"], ["confidence", "Confidence"], ["frp", "Peak FRP"], ["persistence", "Persistence"], ["observations", "Detections"]];
@@ -71,7 +71,7 @@ export default function Events() {
                       <tr key={e.id} className="click" tabIndex={0} onClick={() => nav(`/events/${e.public_id}`)} onKeyDown={(k) => k.key === "Enter" && nav(`/events/${e.public_id}`)}>
                         <td><span className="mono">{e.public_id}</span>{e.data_mode !== "live" && <> <ModePill mode={e.data_mode} /></>}</td>
                         <td><PriorityPill score={e.priority_score} /></td>
-                        <td>{[e.admin_district, e.admin_state].filter(Boolean).join(", ") || <span className="faint mono">{e.latitude.toFixed(3)}, {e.longitude.toFixed(3)}</span>}</td>
+                        <td>{locationLabel(e) || <span className="faint">Unnamed</span>} <span className="faint mono" style={{ fontSize: 11 }}>{coordsLabel(e)}</span></td>
                         <td><ClassLabel cls={e.classification} short /></td>
                         <td className="nowrap"><PersistencePill p={e.persistence_class} /> <span className="faint">{fmtDuration(e.duration_hours)}</span></td>
                         <td><StatePill state={e.display_state} /></td>

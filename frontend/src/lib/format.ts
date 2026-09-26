@@ -1,3 +1,31 @@
+/** Where an event is, as text. Precedence: the geocoded district/state (a real administrative lookup), then the
+ *  nearest populated place ("Near Dhanbad, Jharkhand · 1 km": a distance-qualified label, not a boundary), then
+ *  nothing. Coordinates are shown alongside by `coordsLabel`. */
+export interface Locatable {
+  latitude?: number;
+  longitude?: number;
+  admin_district?: string | null;
+  admin_state?: string | null;
+  place_name?: string | null;
+  place_admin1?: string | null;
+  place_country?: string | null;
+  place_distance_m?: number | null;
+}
+
+export function locationLabel(e: Locatable): string {
+  const admin = [e.admin_district, e.admin_state].filter(Boolean).join(", ");
+  if (admin) return admin;
+  if (!e.place_name) return "";
+  const where = [e.place_name, e.place_admin1].filter(Boolean).join(", ");
+  const abroad = e.place_country && e.place_country !== "IN" ? ` (${e.place_country})` : "";
+  const km = e.place_distance_m == null ? "" : e.place_distance_m < 1000 ? " · < 1 km" : ` · ${Math.round(e.place_distance_m / 1000)} km`;
+  return `Near ${where}${abroad}${km}`;
+}
+
+export function coordsLabel(e: { latitude?: number; longitude?: number }, digits = 3): string {
+  return e.latitude == null || e.longitude == null ? "" : `${e.latitude.toFixed(digits)}, ${e.longitude.toFixed(digits)}`;
+}
+
 const MIN = 60_000;
 const HOUR = 60 * MIN;
 const DAY = 24 * HOUR;

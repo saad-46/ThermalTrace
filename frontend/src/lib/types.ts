@@ -58,6 +58,10 @@ export interface EventSummary {
   admin_state: string | null;
   admin_district: string | null;
   country: string | null;
+  place_name?: string | null;
+  place_admin1?: string | null;
+  place_country?: string | null;
+  place_distance_m?: number | null;
   assigned_to: string | null;
   priority_score: number | null;
 }

@@ -2,7 +2,7 @@ import { Bell, Eye, FileText, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { Link } from "react-router-dom";
 import { fetchImage } from "../lib/api";
-import { compass, fmtDateTime, fmtNum, relTime, titleCase } from "../lib/format";
+import { compass, coordsLabel, fmtDateTime, fmtNum, locationLabel, relTime, titleCase } from "../lib/format";
 import { actions, useAction, useReports, useSimilar, useWatchlists } from "../lib/hooks";
 import { useSession } from "../lib/session";
 import { CLASS_META, CLASS_ORDER, FP_REASONS } from "../lib/taxonomy";
@@ -314,7 +314,7 @@ export function EventHeader({ ev }: { ev: EventDetail }) {
         <span className="muted num">p {fmtNum(ev.classification_probability, 2)} · confidence {fmtNum(ev.confidence_score, 2)} · data quality {ev.data_quality ?? "—"}</span>
       </div>
       <div className="faint" style={{ fontSize: 12 }}>
-        {[ev.admin_district, ev.admin_state, ev.country].filter(Boolean).join(", ") || "Location not geocoded"} · last detected {relTime(ev.last_detected)}
+        {[locationLabel(ev), ev.country].filter(Boolean).join(", ") || "No named place nearby"} · {coordsLabel(ev, 4)} · last detected {relTime(ev.last_detected)}
       </div>
     </div>
   );

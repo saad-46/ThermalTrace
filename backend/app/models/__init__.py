@@ -21,6 +21,7 @@ from app.models.ops import (  # noqa: F401
     SystemHealth,
     WorkerHeartbeat,
 )
+from app.models.places import Place  # noqa: F401
 from app.models.thermal import ThermalDetection, ThermalEvent, ThermalObservation  # noqa: F401
 from app.models.workflow import (  # noqa: F401
     Alert,

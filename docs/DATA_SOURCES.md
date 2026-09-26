@@ -15,9 +15,21 @@ Every source is registered in the `data_sources` table. Its health (status, last
 | Copernicus Data Space | Second STAC catalogue. AOI SWIR render (B12/B8A/B4) around an event. | STAC (keyless) and Sentinel Hub Process API (OAuth) | `COPERNICUS_CLIENT_ID` / `SECRET` for SWIR | Per scene |
 | ESA WorldCover 10 m 2021 v200 | Land-cover shares (tree, shrub, grass, cropland, built-up, bare, water, wetland) in a 1.5 km square around each event | Windowed reads of the public cloud-optimised GeoTIFF tiles on AWS (3° tiles, HTTP range requests) | None (CC BY 4.0) | 2021 product. Shown with its year; land use may have changed since. |
 | Open-Meteo | Weather at the last detection hour: temperature, RH, wind, precipitation, pressure, condition | Forecast API (≤ 6 days old) or Archive API (ERA5) | None | Hourly. ERA5 arrives about 5 days late. |
+| GeoNames cities500 | Offline place names for events: nearest populated place (about 10,000 places in the region) | Downloaded once by `python -m app.cli import-places` (`download.geonames.org/export/dump/`), stored in PostGIS | None (CC BY 4.0, attribute GeoNames) | Static; refresh on demand |
 | OSM Nominatim | Admin geocoding (state, district) | Reverse geocoding at ≤ 1 req/s, cached 90 days | None | On demand |
 | EOX Sentinel-2 cloudless 2021 | Optional satellite basemap tiles | WMTS | None (CC BY-NC-SA 4.0: **non-commercial**) | 2021 mosaic. Context only. |
 | CARTO Positron / Dark Matter | Vector basemap | Style JSON | None | — |
+
+## Place names for events (GeoNames)
+
+Nominatim allows about one request per second, so it cannot name hundreds of thousands of events. `import-places` loads GeoNames populated places (500 inhabitants or more) for the region into a GiST-indexed PostGIS table, and every event gets its nearest place with one KNN query.
+
+- **What it is:** a nearest-populated-place label, shown as `Near Dhanbad, Jharkhand · 1 km`, with the coordinates beside it. It is not an administrative boundary lookup, which is why it always says "Near" and gives the distance.
+- **Precedence:** a Nominatim district/state, where the event has one, is shown instead: it is a real administrative lookup.
+- **Not named:** an event more than 50 km from any place (for example at sea) stays unnamed and shows coordinates only. Its distance is still stored.
+- **Border caveat:** a place across a border can be nearer than an Indian village below 500 inhabitants. Non-Indian places carry a country code, e.g. `Near Alahabad, Punjab (PK)`.
+- **Search:** searching a place name finds the events near it.
+- **New events** are named automatically when they are clustered.
 
 ## Raster land cover (ESA WorldCover)
 

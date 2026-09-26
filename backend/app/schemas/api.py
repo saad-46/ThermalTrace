@@ -94,6 +94,10 @@ class EventSummary(BaseModel):
     admin_state: str | None
     admin_district: str | None
     country: str | None
+    place_name: str | None = None
+    place_admin1: str | None = None
+    place_country: str | None = None
+    place_distance_m: float | None = None
     assigned_to: uuid.UUID | None
     priority_score: float | None = None
 

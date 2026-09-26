@@ -1,7 +1,7 @@
 /** Triage priority, evidence chain and persistence strip.
  * Prioritisation breakdown, stepwise evidence chain and per-day persistence view, built on the
  * event bundle — real data only. */
-import { compass, fmtDate, fmtDistance, fmtNum } from "../lib/format";
+import { compass, coordsLabel, fmtDate, fmtDistance, fmtNum, locationLabel } from "../lib/format";
 import { CLASS_META, FACILITY_LABELS, STATE_META } from "../lib/taxonomy";
 import type { EventDetail, PriorityBreakdown } from "../lib/types";
 import { Meter } from "./ui";
@@ -71,8 +71,8 @@ export function buildEvidenceChain(ev: EventDetail): Stage[] {
     { key: "detection", title: "Thermal detection", state: "ok",
       summary: `${ev.observation_count} FIRMS detection(s) · ${ev.sensor_count} platform(s)`,
       detail: `Peak FRP ${fmtNum(ev.frp_max)} MW; ${ev.sensors.join(", ")}.` },
-    { key: "location", title: "Location context", state: ev.admin_district || land.length ? "ok" : "neutral",
-      summary: [ev.admin_district, ev.admin_state].filter(Boolean).join(", ") || `${ev.latitude.toFixed(3)}, ${ev.longitude.toFixed(3)}`,
+    { key: "location", title: "Location context", state: locationLabel(ev) || land.length ? "ok" : "neutral",
+      summary: [locationLabel(ev), coordsLabel(ev)].filter(Boolean).join(" · "),
       detail: land.length ? `Mapped land use nearby: ${land.join(", ")}.` : osmChecked ? "No farmland/forest/residential mapped within 1.5 km." : "Land use not yet retrieved." },
     { key: "landcover", title: "Land cover", state: lc ? "ok" : ev.enrichment_state?.landcover?.status === "ok" ? "neutral" : "missing",
       summary: lc ? lcTop.map(([k, v]) => `${k.replace(/_/g, " ")} ${Math.round(v * 100)}%`).join(" · ") : ev.enrichment_state?.landcover?.status === "ok" ? "No data at this location" : "Not yet retrieved",

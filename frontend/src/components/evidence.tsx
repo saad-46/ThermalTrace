@@ -1,6 +1,6 @@
 import { ExternalLink } from "lucide-react";
 import { Link } from "react-router-dom";
-import { compass, fmtDate, fmtDateTime, fmtDistance, fmtNum, fmtPct, relTime, titleCase } from "../lib/format";
+import { compass, coordsLabel, fmtDate, fmtDateTime, fmtDistance, fmtNum, fmtPct, locationLabel, relTime, titleCase } from "../lib/format";
 import { CLASS_META, FACILITY_LABELS, KNOWLEDGE_LABELS, SOURCE_NAMES } from "../lib/taxonomy";
 import type { EventDetail, EventSummary, Evidence } from "../lib/types";
 import { ContributionChart, EvolutionChart } from "./charts";
@@ -23,7 +23,7 @@ export function AnswerGrid({ ev }: { ev: EventDetail }) {
   return (
     <dl className="kv">
       <dt>Where</dt>
-      <dd>{[ev.admin_district, ev.admin_state].filter(Boolean).join(", ") || <span className="faint">Not geocoded</span>}
+      <dd>{locationLabel(ev) || <span className="faint">No named place nearby</span>}
         <span className="faint mono"> {ev.latitude.toFixed(4)}, {ev.longitude.toFixed(4)}</span></dd>
       <dt>When</dt>
       <dd>{fmtDateTime(ev.first_detected)} → {fmtDateTime(ev.last_detected)}</dd>
@@ -304,7 +304,7 @@ export function EventRowMini({ e, to }: { e: EventSummary; to?: string }) {
     <Link to={to ?? `/events/${e.public_id}`} className="row" style={{ justifyContent: "space-between", padding: "7px 0", borderTop: "1px solid var(--border)", color: "var(--text)" }}>
       <span className="stack" style={{ gap: 1 }}>
         <span className="mono">{e.public_id}</span>
-        <span className="faint" style={{ fontSize: 11.5 }}>{[e.admin_district, e.admin_state].filter(Boolean).join(", ") || `${e.latitude.toFixed(2)}, ${e.longitude.toFixed(2)}`} · {relTime(e.last_detected)}</span>
+        <span className="faint" style={{ fontSize: 11.5 }}>{[locationLabel(e), coordsLabel(e, 2)].filter(Boolean).join(" · ")} · {relTime(e.last_detected)}</span>
       </span>
       <span className="stack" style={{ gap: 3, alignItems: "flex-end" }}><ClassLabel cls={e.classification} short /><StatePill state={e.display_state} /></span>
     </Link>

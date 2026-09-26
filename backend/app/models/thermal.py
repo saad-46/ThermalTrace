@@ -83,6 +83,7 @@ class ThermalEvent(Base):
         Index("ix_events_confidence", "confidence_score"),
         Index("ix_events_status", "status", "review_status"),
         Index("ix_events_district_trgm", "admin_district", postgresql_using="gin", postgresql_ops={"admin_district": "gin_trgm_ops"}),
+        Index("ix_events_place_trgm", "place_name", postgresql_using="gin", postgresql_ops={"place_name": "gin_trgm_ops"}),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
@@ -137,6 +138,11 @@ class ThermalEvent(Base):
     admin_state: Mapped[str | None] = mapped_column(String(120), index=True)
     admin_district: Mapped[str | None] = mapped_column(String(120), index=True)
     country: Mapped[str | None] = mapped_column(String(80))
+    # Nearest populated place (GeoNames, offline). place_distance_m is kept even when the place is too far to name.
+    place_name: Mapped[str | None] = mapped_column(String(200))
+    place_admin1: Mapped[str | None] = mapped_column(String(120))
+    place_country: Mapped[str | None] = mapped_column(String(2))
+    place_distance_m: Mapped[float | None] = mapped_column(Float)
 
     enrichment_state: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

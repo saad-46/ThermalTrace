@@ -30,6 +30,7 @@ Status of every capability on `main`. Statuses: **EXISTS** (built and tested), *
 | Weather + potential dispersion | EXISTS | P1 |
 | Weather in the evidence timeline | IMPLEMENTED | P2 |
 | Admin geocoding | EXISTS (health tracking fixed) | P1 |
+| Offline place names for every event ("Near Dhanbad, Jharkhand · 1 km" beside the coordinates), searchable | IMPLEMENTED | P1 |
 | Evidence bundle with knowledge types | EXISTS | P0 |
 | Evidence chain view | IMPLEMENTED | P1 |
 | Evidence confidence matrix | EXISTS | P1 |

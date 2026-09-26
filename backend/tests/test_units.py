@@ -416,3 +416,16 @@ def test_sentry_initialises_with_the_installed_web_stack():
     finally:
         sentry_sdk.get_client().close(timeout=0)
         sentry_sdk.init()  # back to a disabled client
+
+
+def test_geonames_parsing_keeps_region_places_and_names_states():
+    from app.services.places import parse_admin1, parse_cities
+
+    admin1 = parse_admin1("IN.36\tJharkhand\tJharkhand\t1444365\nPK.04\tPunjab\tPunjab\t1168\nbad line\n")
+    assert admin1 == {"IN.36": "Jharkhand", "PK.04": "Punjab"}
+    cols = lambda i, n, lat, lon, cc, a1, pop: "\t".join([str(i), n, n, "", str(lat), str(lon), "P", "PPL", cc, "", a1, "", "", "", str(pop)])  # noqa: E731
+    tsv = "\n".join([cols(1, "Dhanbad", 23.79, 86.43, "IN", "36", 1162472), cols(2, "Paris", 48.85, 2.35, "FR", "11", 2138551),
+                     cols(3, "Alahabad", 30.9, 74.1, "PK", "04", 900), cols(4, "Ghost", "x", 80, "IN", "36", 5)])
+    rows = parse_cities(tsv, admin1, (68.0, 6.5, 97.5, 35.7))
+    assert [r["name"] for r in rows] == ["Dhanbad", "Alahabad"]  # Paris is outside the region; the bad row is skipped
+    assert rows[0]["admin1"] == "Jharkhand" and rows[0]["population"] == 1162472 and rows[1]["country_code"] == "PK"

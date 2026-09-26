@@ -4,7 +4,7 @@ import { StackedBars } from "../components/charts";
 import { EventRowMini } from "../components/evidence";
 import { Async, ClassLabel, Empty, StatePill } from "../components/ui";
 import { api } from "../lib/api";
-import { relTime } from "../lib/format";
+import { coordsLabel, locationLabel, relTime } from "../lib/format";
 import { useAlerts, useEvents, useSources } from "../lib/hooks";
 import { CLASS_META, SOURCE_NAMES } from "../lib/taxonomy";
 import type { EventSummary } from "../lib/types";
@@ -63,7 +63,7 @@ export default function Overview() {
                 <table className="table"><thead><tr><th scope="col">Event</th><th scope="col">Where</th><th scope="col">Classification</th><th scope="col">Status</th><th scope="col" className="right">Active days</th></tr></thead>
                   <tbody>{d.map((e) => (
                     <tr key={e.id}><td><Link className="mono" to={`/events/${e.public_id}`}>{e.public_id}</Link></td>
-                      <td>{[e.admin_district, e.admin_state].filter(Boolean).join(", ") || "—"}</td>
+                      <td>{locationLabel(e) || "—"} <span className="faint mono" style={{ fontSize: 11 }}>{coordsLabel(e)}</span></td>
                       <td><ClassLabel cls={e.classification} short /></td><td><StatePill state={e.display_state} /></td><td className="right num">{e.days_active}</td></tr>
                   ))}</tbody></table>
               )}</Async>
