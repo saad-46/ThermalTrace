@@ -37,8 +37,13 @@ class UserOut(ORM):
     full_name: str
     role: str
     is_active: bool
+    is_demo: bool = False
     created_at: datetime
     last_login_at: datetime | None = None
+
+
+class DemoIn(BaseModel):
+    role: Literal["analyst", "admin"]
 
 
 class TokenOut(BaseModel):
@@ -100,6 +105,11 @@ class EventSummary(BaseModel):
     place_distance_m: float | None = None
     assigned_to: uuid.UUID | None
     priority_score: float | None = None
+
+
+class FeaturedEvent(EventSummary):
+    selection_reasons: list[str]
+    unavailable_evidence: list[str]
 
 
 class EventDetail(EventSummary):

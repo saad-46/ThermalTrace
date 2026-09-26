@@ -54,6 +54,8 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(100), nullable=False)
     role: Mapped[str] = mapped_column(String(32), ForeignKey("roles.name"), nullable=False, default="viewer")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # System account behind "Explore as Analyst/Admin": read-only, no usable password (services/explore.py).
+    is_demo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     created_at: Mapped[datetime] = created_at()
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

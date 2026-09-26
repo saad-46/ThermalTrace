@@ -1,4 +1,5 @@
 """Event queries. All spatial/aggregate SQL for events lives here — routers never build SQL."""
+import math
 import uuid
 from datetime import datetime
 
@@ -85,7 +86,10 @@ def _with_display(row: dict) -> dict:
 def list_events(db: Session, p: dict, sort: str, limit: int, offset: int) -> tuple[list[dict], int]:
     where, params = _filters(p)
     base = f"FROM thermal_events e LEFT JOIN facilities f ON f.id = e.nearest_facility_id WHERE {where}"
-    total = db.execute(text(f"SELECT count(*) {base}"), params).scalar_one()
+    # The facility join only matters for the count when the text filter searches facility names (it is a
+    # many-to-one join, so it never changes the number of rows); skipping it makes the full count ~4x faster.
+    count_from = base if p.get("q") else f"FROM thermal_events e WHERE {where}"
+    total = db.execute(text(f"SELECT count(*) {count_from}"), params).scalar_one()
     rows = db.execute(
         text(f"SELECT {_LIST_COLS} {base} ORDER BY {SORTS.get(sort, SORTS['last_detected'])}, e.id LIMIT :limit OFFSET :offset"),
         {**params, "limit": limit, "offset": offset},
@@ -298,20 +302,94 @@ def evidence_matrix(ev: dict) -> list[dict]:
     ]
 
 
+# Fingerprint expressions; must match the ix_events_fp_knn index (migration 0009) exactly.
+_FP_DIMS = ("intensity", "persistence", "facility_proximity", "night_share", "sensor_agreement")
+_FP_TYPE = "coalesce(e.fingerprint->>'facility_type', '')"
+_FP_CUBE = "cube(ARRAY[" + ", ".join(f"coalesce((e.fingerprint->>'{d}')::float8, 0)" for d in _FP_DIMS) + "])"
+# A different facility type adds this under the square root of the distance.
+_FP_TYPE_PENALTY = 0.3
+
+
+def _fp_float(v) -> float:
+    try:
+        return float(v) if v is not None else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def similar_events(db: Session, event_id: uuid.UUID, limit: int = 8) -> list[dict]:
-    """Fingerprint-distance search over analysed events (excluding the event itself)."""
-    rows = db.execute(text(f"""
-        WITH me AS (SELECT fingerprint fp, classification, geom FROM thermal_events WHERE id = :id)
-        SELECT {_LIST_COLS},
-          sqrt(power(coalesce((e.fingerprint->>'intensity')::float,0) - coalesce((me.fp->>'intensity')::float,0),2)
-             + power(coalesce((e.fingerprint->>'persistence')::float,0) - coalesce((me.fp->>'persistence')::float,0),2)
-             + power(coalesce((e.fingerprint->>'facility_proximity')::float,0) - coalesce((me.fp->>'facility_proximity')::float,0),2)
-             + power(coalesce((e.fingerprint->>'night_share')::float,0) - coalesce((me.fp->>'night_share')::float,0),2)
-             + power(coalesce((e.fingerprint->>'sensor_agreement')::float,0) - coalesce((me.fp->>'sensor_agreement')::float,0),2)
-             + CASE WHEN e.fingerprint->>'facility_type' IS DISTINCT FROM me.fp->>'facility_type' THEN 0.3 ELSE 0 END
-          ) AS fp_distance,
-          ST_Distance(e.geom, me.geom) AS distance_m
-        FROM thermal_events e LEFT JOIN facilities f ON f.id = e.nearest_facility_id, me
-        WHERE e.id <> :id AND e.fingerprint IS NOT NULL
-        ORDER BY fp_distance, e.last_detected DESC LIMIT :limit"""), {"id": event_id, "limit": limit}).mappings().all()
-    return [_with_display(dict(r)) for r in rows]
+    """Nearest events by thermal fingerprint (excluding the event itself).
+
+    distance = sqrt(sum of squared differences of the five numeric dimensions + 0.3 if the facility type differs).
+    The penalty is the same for every event of another type, so the nearest events are the union of the index-ordered
+    (KNN) nearest of the same type and of the other types; merging the two gives exactly the full-scan result."""
+    me = db.execute(text("SELECT fingerprint, geom FROM thermal_events WHERE id = :id"), {"id": event_id}).first()
+    if me is None or not me.fingerprint:
+        return []
+    vec = [_fp_float(me.fingerprint.get(d)) for d in _FP_DIMS]
+    ftype = me.fingerprint.get("facility_type") or ""
+    params = {"id": event_id, "t": ftype, "limit": limit, **{f"v{i}": v for i, v in enumerate(vec)}}
+    target = "cube(ARRAY[:v0, :v1, :v2, :v3, :v4]::float8[])"
+
+    def nearest(same_type: bool) -> list[dict]:
+        return [dict(r) for r in db.execute(text(f"""
+            SELECT e.id, e.last_detected, {_FP_CUBE} <-> {target} AS d5
+            FROM thermal_events e
+            WHERE e.fingerprint IS NOT NULL AND e.id <> :id AND {_FP_TYPE} {"=" if same_type else "<>"} :t
+            ORDER BY {_FP_CUBE} <-> {target}, e.last_detected DESC
+            LIMIT :limit"""), params).mappings().all()]
+
+    cands = [{**c, "fp_distance": c["d5"]} for c in nearest(True)]
+    cands += [{**c, "fp_distance": math.sqrt(c["d5"] ** 2 + _FP_TYPE_PENALTY)} for c in nearest(False)]
+    cands.sort(key=lambda c: (c["fp_distance"], -c["last_detected"].timestamp()))
+    top = cands[:limit]
+    if not top:
+        return []
+    rows = {r["id"]: dict(r) for r in db.execute(text(f"""
+        SELECT {_LIST_COLS}, ST_Distance(e.geom, (SELECT geom FROM thermal_events WHERE id = :id)) AS distance_m
+        FROM thermal_events e LEFT JOIN facilities f ON f.id = e.nearest_facility_id
+        WHERE e.id = ANY(:ids)"""), {"id": event_id, "ids": [c["id"] for c in top]}).mappings().all()}
+    return [_with_display({**rows[c["id"]], "fp_distance": c["fp_distance"]}) for c in top if c["id"] in rows]
+
+
+# Evidence a walkthrough event should have, with the weight used to rank candidates (then triage priority).
+_FEATURE_CRITERIA = (
+    ("facility", 3, "a mapped facility within 2 km", "no mapped facility within 2 km"),
+    ("classified", 2, "a specific source classification", "no specific source classification"),
+    ("confident", 2, "a confidence state above insufficient evidence", "insufficient evidence for a confident classification"),
+    ("persistent", 2, "persistent or recurring heat", "not persistent or recurring"),
+    ("landcover", 2, "ESA WorldCover land cover", "no land cover retrieved"),
+    ("imagery", 2, "a Sentinel-2 before/after analysis", "no Sentinel-2 before/after analysis"),
+)
+
+
+def featured_event(db: Session) -> dict | None:
+    """The real event that best shows the investigation workflow: ranked by how much evidence it carries (facility,
+    classification, confidence, persistence, land cover, imagery analysis), then by triage priority. Candidates are the
+    top of the priority queue plus every event with land cover or an imagery analysis. Nothing is invented: the
+    response says which evidence it has and which is unavailable."""
+    rows = db.execute(text("""
+        WITH cand AS (
+          (SELECT id FROM thermal_events ORDER BY priority_score DESC NULLS LAST, id LIMIT 300)
+          UNION (SELECT event_id FROM landcover_observations LIMIT 500)
+          UNION (SELECT event_id FROM imagery_analyses WHERE status = 'ok' LIMIT 500))
+        SELECT e.id, e.priority_score,
+          coalesce(e.nearest_facility_distance_m <= 2000, false) AS facility,
+          coalesce(e.classification NOT IN ('unknown', 'other'), false) AS classified,
+          coalesce(e.confidence_state <> 'INSUFFICIENT_EVIDENCE', false) AS confident,
+          coalesce(e.persistence_class IN ('persistent', 'recurring'), false) AS persistent,
+          EXISTS (SELECT 1 FROM landcover_observations l WHERE l.event_id = e.id) AS landcover,
+          EXISTS (SELECT 1 FROM imagery_analyses i WHERE i.event_id = e.id AND i.status = 'ok') AS imagery
+        FROM cand JOIN thermal_events e ON e.id = cand.id""")).mappings().all()
+    if not rows:
+        return None
+
+    def rank(r):
+        return (sum(w for key, w, _, _ in _FEATURE_CRITERIA if r[key]), r["priority_score"] or 0.0)
+
+    best = max(rows, key=rank)
+    summary = get_summary(db, best["id"])
+    summary["selection_reasons"] = [has for key, _, has, _ in _FEATURE_CRITERIA if best[key]]
+    summary["unavailable_evidence"] = [missing for key, _, _, missing in _FEATURE_CRITERIA if not best[key]]
+    return summary
+

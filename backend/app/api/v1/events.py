@@ -11,7 +11,7 @@ from app.gis.geo import bbox_from_string
 from app.models.auth import User
 from app.processing.pipeline import analyse_event
 from app.repositories import events as repo
-from app.schemas.api import AssignIn, EventDetail, EventSummary, NoteIn, ReviewIn
+from app.schemas.api import AssignIn, EventDetail, EventSummary, FeaturedEvent, NoteIn, ReviewIn
 from app.schemas.api import Page as PageOut
 from app.services import audit, reviews
 from app.workers.queue import enqueue
@@ -71,6 +71,12 @@ def nearest(lat: float = Query(ge=-90, le=90), lon: float = Query(ge=-180, le=18
     if row is None:
         return None
     return repo.get_summary(db, row)
+
+
+@router.get("/featured", response_model=FeaturedEvent | None,
+            summary="The real event carrying the most evidence (used by the guided tour), with what is and is not available")
+def featured(user: User = CurrentUser, db: Session = Depends(get_db)):
+    return repo.featured_event(db)
 
 
 @router.get("/{ref}", response_model=EventDetail, summary="Full investigation bundle for one event (id or public id)")

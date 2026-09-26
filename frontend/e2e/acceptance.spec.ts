@@ -60,7 +60,7 @@ test.describe("desktop analyst workflow", () => {
 
     // Map + evidence panel with every tab
     await page.goto(`/map?event=${publicId}`);
-    await expect(page.getByText("Evidence chain")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("heading", { name: "How ThermalTrace thinks" })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText("Why is this prioritised?")).toBeVisible();
     await page.waitForTimeout(2500);
     await shot(page, "03-map-event-selected");

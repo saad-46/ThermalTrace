@@ -30,7 +30,7 @@ describe("triage components", () => {
   it("EvidenceChain renders every stage with accessible list semantics", () => {
     render(<EvidenceChain ev={event()} />);
     const list = screen.getByRole("list", { name: "Evidence chain" });
-    expect(list.querySelectorAll("li")).toHaveLength(9);
+    expect(list.querySelectorAll("li")).toHaveLength(13);
     expect(screen.getByText("No scene available")).toBeTruthy();
   });
 

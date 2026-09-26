@@ -40,7 +40,7 @@ export default function DataSources() {
       <div className="page-head">
         <div><h1>Data sources</h1><div className="sub">Every provider, its health and freshness. Failures surface here — they are never masked with substitute data.</div></div>
       </div>
-      <section className="panel" style={{ marginBottom: 12 }}>
+      <section className="panel" style={{ marginBottom: 12 }} data-tour-id="sources-table">
         <Async q={sources}>{(d) => (
           <div className="table-wrap"><table className="table">
             <thead><tr><th scope="col">Source</th><th scope="col">Status</th><th scope="col">Last success</th><th scope="col">Latest record</th><th scope="col" className="right">Records</th><th scope="col" className="right">Latency</th><th scope="col" className="right">Error rate</th><th scope="col">Dataset / cadence</th></tr></thead>
@@ -62,7 +62,7 @@ export default function DataSources() {
           </table></div>
         )}</Async>
       </section>
-      <section className="panel" style={{ marginBottom: 12 }}>
+      <section className="panel" style={{ marginBottom: 12 }} data-tour-id="facility-index">
         <div className="panel-head"><h2>Local facility index</h2>
           <span className="right faint">OSM facilities synced by 1° tile (busiest first) so enrichment does not query Overpass per event</span></div>
         <Async q={index} empty={(d) => (d.coverage.total ? null : <Empty title="No tiles registered yet">Tiles are registered when the first sync job runs.</Empty>)}>{(d) => (
@@ -83,7 +83,7 @@ export default function DataSources() {
         )}</Async>
       </section>
       <div className="grid" style={{ gridTemplateColumns: "minmax(0,1.6fr) minmax(0,1fr)" }}>
-        <section className="panel">
+        <section className="panel" data-tour-id="ingestion-runs">
           <div className="panel-head"><h2>Ingestion runs</h2>
             <select className="select right" aria-label="Filter runs by source" value={runSource} onChange={(e) => setRunSource(e.target.value)}>
               <option value="">All sources</option>{["firms", "osm", "wri_gppd", "gem", "cea", "demo"].map((s) => <option key={s} value={s}>{SOURCE_NAMES[s]}</option>)}

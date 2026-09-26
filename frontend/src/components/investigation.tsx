@@ -5,7 +5,7 @@ import { fetchImage } from "../lib/api";
 import { compass, coordsLabel, fmtDateTime, fmtNum, locationLabel, relTime, titleCase } from "../lib/format";
 import { actions, useAction, useReports, useSimilar, useWatchlists } from "../lib/hooks";
 import { useSession } from "../lib/session";
-import { CLASS_META, CLASS_ORDER, FP_REASONS } from "../lib/taxonomy";
+import { CLASS_META, CLASS_ORDER, CONFIDENCE_EXPLAINER, FP_REASONS, confidenceNote } from "../lib/taxonomy";
 import type { EventDetail, Scene } from "../lib/types";
 import {
   AnswerGrid, ConfidenceBreakdown, EventRowMini, EvidenceList, EvidenceMatrix, ExtLink, FacilityList, Fingerprint, ModelPanel,
@@ -313,6 +313,7 @@ export function EventHeader({ ev }: { ev: EventDetail }) {
         <ClassLabel cls={ev.classification} />
         <span className="muted num">p {fmtNum(ev.classification_probability, 2)} · confidence {fmtNum(ev.confidence_score, 2)} · data quality {ev.data_quality ?? "—"}</span>
       </div>
+      <div className="confidence-note" title={CONFIDENCE_EXPLAINER}>{confidenceNote(ev.display_state)}</div>
       <div className="faint" style={{ fontSize: 12 }}>
         {[locationLabel(ev), ev.country].filter(Boolean).join(", ") || "No named place nearby"} · {coordsLabel(ev, 4)} · last detected {relTime(ev.last_detected)}
       </div>
@@ -335,7 +336,7 @@ export function Investigation({ ev, compact, initialTab = "Summary" }: { ev: Eve
         {tab === "Summary" && (
           <>
             <div className="section"><h4>Investigation summary</h4><AnswerGrid ev={ev} /></div>
-            <div className="section"><h4>Evidence chain</h4><EvidenceChain ev={ev} /></div>
+            <div className="section"><h4>How ThermalTrace thinks</h4><EvidenceChain ev={ev} /></div>
             <div className="section"><h4>Why is this prioritised?</h4><PriorityPanel p={ev.priority_components} /></div>
             <div className="section"><h4>Evidence confidence matrix</h4><div className="table-wrap"><EvidenceMatrix ev={ev} /></div></div>
             <div className="section"><h4>Confidence components</h4><ConfidenceBreakdown ev={ev} /></div>

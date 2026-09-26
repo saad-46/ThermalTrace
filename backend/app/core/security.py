@@ -37,9 +37,10 @@ def validate_password_strength(password: str) -> None:
         raise ValueError("Password must mix at least three of: lowercase, uppercase, digits, symbols")
 
 
-def create_access_token(user_id: uuid.UUID, role: str, session_id: uuid.UUID) -> tuple[str, datetime]:
+def create_access_token(user_id: uuid.UUID, role: str, session_id: uuid.UUID,
+                        ttl_minutes: int | None = None) -> tuple[str, datetime]:
     now = datetime.now(UTC)
-    expires = now + timedelta(minutes=settings.access_token_ttl_minutes)
+    expires = now + timedelta(minutes=ttl_minutes or settings.access_token_ttl_minutes)
     payload = {
         "sub": str(user_id),
         "role": role,

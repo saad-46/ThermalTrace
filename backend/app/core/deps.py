@@ -38,6 +38,11 @@ def get_current_user(
     user = db.get(User, user_id)
     if user is None or not user.is_active:
         raise Unauthorized("Account is disabled")
+    request.state.is_demo = bool(user.is_demo)
+    if user.is_demo:  # guided exploration sessions are read-only for every authenticated route
+        from app.services.explore import enforce_read_only
+
+        enforce_read_only(request.method, request.url.path)
     request.state.user = user
     request.state.session_id = session_id
     user_id_var.set(str(user.id))

@@ -63,7 +63,7 @@ FIRMS · Overpass · WRI/GEM/CEA · Sentinel-2 STAC · Open-Meteo · Nominatim
                  │ (retries, backoff, cache, health tracking)
      worker (bulk lane + scheduler) · worker (interactive lane)   ← Postgres SKIP LOCKED job queue
                  │
-        PostgreSQL 16 + PostGIS 3.4 (Alembic, 43 tables)
+        PostgreSQL 16 + PostGIS 3.4 (Alembic, 43 tables, migrations 0001–0009)
                  │
       FastAPI /api/v1 (JWT, roles, audit, rate limits)
                  │
@@ -197,6 +197,13 @@ docker compose up -d --build        # db → migrate → api, worker (bulk + sch
 docker compose exec api python -m app.cli create-user --email you@example.org --name "Your Name" --role admin
 ```
 
+## Guided exploration
+
+With `EXPLORE_MODE_ENABLED=true`, the login page offers **Explore as Analyst** and **Explore as Admin**: a read-only
+demo session on the real application with a guided tour of the investigation workflow or of the platform behind it.
+No credentials are involved; the server refuses every change from a demo session and masks personal data. See
+[docs/GUIDED_TOURS.md](docs/GUIDED_TOURS.md).
+
 ## Environment variables
 
 Every variable is documented and tagged REQUIRED / OPTIONAL / PROVIDER in [.env.example](.env.example). Separate templates exist for development ([.env.development.example](.env.development.example)) and production ([.env.production.example](.env.production.example)).
@@ -206,7 +213,8 @@ Every variable is documented and tagged REQUIRED / OPTIONAL / PROVIDER in [.env.
 | Runtime | `ENVIRONMENT`, `LOG_LEVEL`, `LOG_JSON`, `DEMO_MODE` | Defaults are provided |
 | Database | `DATABASE_URL` (or `POSTGRES_USER/PASSWORD/DB` for compose) | **Required** |
 | Auth | `SECRET_KEY` (≥ 32 random characters), `ACCESS_TOKEN_TTL_MINUTES` | **Required** outside development |
-| API | `CORS_ORIGINS`, `RATE_LIMIT_PER_MINUTE`, `LOGIN_RATE_LIMIT_PER_MINUTE` | Defaults are provided |
+| API | `CORS_ORIGINS`, `RATE_LIMIT_PER_MINUTE`, `LOGIN_RATE_LIMIT_PER_MINUTE`, `ALERT_MAX_EVENT_AGE_HOURS` | Defaults are provided |
+| Guided exploration | `EXPLORE_MODE_ENABLED`, `EXPLORE_SESSION_MINUTES` | Optional (off by default) |
 | FIRMS | `FIRMS_MAP_KEY`, `FIRMS_REGION_NAME`, `REGION_BBOX`, `FIRMS_POLL_MINUTES` | Optional (the key unlocks history) |
 | OSM | `OVERPASS_URLS`, `HTTP_USER_AGENT` | Defaults are provided |
 | Copernicus | `COPERNICUS_CLIENT_ID`, `COPERNICUS_CLIENT_SECRET`, `SATELLITE_MAX_CLOUD` | Optional (SWIR renders) |
@@ -252,7 +260,7 @@ npm run build
 E2E_EMAIL=analyst@example.org E2E_PASSWORD=… npm run test:e2e
 ```
 
-Current results: backend **80 passed**, Vitest **25 passed**, Playwright **3 passed** (desktop, tablet, mobile). `pip-audit` and `npm audit` are clean. CI (`.github/workflows/ci.yml`) runs lint, the backend tests against PostGIS, typecheck, the frontend tests, the build, both audits and the image builds. Details: [docs/TESTING.md](docs/TESTING.md).
+Current results: backend **93 passed**, Vitest **40 passed**, Playwright **3 passed** acceptance (desktop, tablet, mobile) and **7 passed** guided exploration. `pip-audit` and `npm audit` are clean. CI (`.github/workflows/ci.yml`) runs lint, the backend tests against PostGIS, typecheck, the frontend tests, the build, both audits and the image builds. Details: [docs/TESTING.md](docs/TESTING.md).
 
 ## Docker and deployment
 
@@ -313,6 +321,7 @@ Details, audit findings and known gaps: [docs/SECURITY.md](docs/SECURITY.md).
 | Bug fixes | [BUG_FIXES.md](docs/BUG_FIXES.md) |
 | Status and roadmap | [FINAL_STATUS.md](docs/FINAL_STATUS.md) · [FEATURE_ROADMAP.md](docs/FEATURE_ROADMAP.md) |
 | Project history | [PROJECT_HISTORY.md](docs/PROJECT_HISTORY.md) |
+| Guided exploration (demo modes) | [GUIDED_TOURS.md](docs/GUIDED_TOURS.md) |
 | Research and SIH | [RESEARCH.md](docs/RESEARCH.md) · [SIH-SUBMISSION.md](docs/SIH-SUBMISSION.md) |
 | Repository inventory | [FINAL_REPOSITORY_INVENTORY.md](docs/FINAL_REPOSITORY_INVENTORY.md) |
 

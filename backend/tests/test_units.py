@@ -429,3 +429,63 @@ def test_geonames_parsing_keeps_region_places_and_names_states():
     rows = parse_cities(tsv, admin1, (68.0, 6.5, 97.5, 35.7))
     assert [r["name"] for r in rows] == ["Dhanbad", "Alahabad"]  # Paris is outside the region; the bad row is skipped
     assert rows[0]["admin1"] == "Jharkhand" and rows[0]["population"] == 1162472 and rows[1]["country_code"] == "PK"
+
+
+def test_demo_read_only_policy_and_pii_masking():
+    from app.core.errors import Forbidden
+    from app.services.explore import enforce_read_only, mask_pii
+
+    enforce_read_only("GET", "/api/v1/events")
+    enforce_read_only("POST", "/api/v1/auth/logout")
+    for m, p in (("POST", "/api/v1/events/TT-1/reviews"), ("PATCH", "/api/v1/admin/users/x"), ("DELETE", "/api/v1/alert-rules/x"),
+                 ("PUT", "/api/v1/alert-rules/x"), ("GET", "/api/v1/satellite/abc/swir.png")):
+        with pytest.raises(Forbidden):
+            enforce_read_only(m, p)
+    masked = mask_pii({"email": "analyst@thermaltrace.local", "ip": "10.0.0.7", "detail": {"note": "mail ops.team@agency.gov.in"}, "n": 3})
+    assert masked == {"email": "a***@thermaltrace.local", "ip": "hidden in demo mode", "detail": {"note": "mail o***@agency.gov.in"}, "n": 3}
+
+
+def test_email_is_never_sent_to_reserved_or_local_domains():
+    from app.services.alerts import deliverable_address
+
+    for bad in ("analyst@thermaltrace.local", "x@thermaltrace.invalid", "a@example.org", "a@mail.example.com", "a@host.test",
+                "root@localhost", "nobody", ""):
+        assert not deliverable_address(bad), bad
+    for good in ("ops@agency.gov.in", "someone@gmail.com", "analyst@test.org"):
+        assert deliverable_address(good), good
+
+
+def test_worker_survives_a_database_outage(monkeypatch):
+    """A lost database connection must not end the worker: it backs off, reconnects and carries on."""
+    import sys
+
+    from sqlalchemy.exc import OperationalError
+
+    from app.workers import run
+
+    class FakeSession:
+        def rollback(self): ...
+        def close(self): ...
+
+    calls = {"claim": 0, "sessions": 0}
+
+    def session():
+        calls["sessions"] += 1
+        return FakeSession()
+
+    def claim(db, worker_id, kinds):
+        calls["claim"] += 1
+        if calls["claim"] == 1:
+            raise OperationalError("SELECT 1", {}, Exception("the database system is shutting down"))
+        run._stop = True
+        return None
+
+    monkeypatch.setattr(run, "_stop", False)
+    monkeypatch.setattr(run, "SessionLocal", session)
+    monkeypatch.setattr(run, "_heartbeat", lambda *a: None)
+    monkeypatch.setattr(run.queue, "recover_stale", lambda db: 0)
+    monkeypatch.setattr(run.queue, "claim", claim)
+    monkeypatch.setattr(run.time, "sleep", lambda s: None)
+    monkeypatch.setattr(sys, "argv", ["run", "--lane", "bulk"])
+    run.main()
+    assert calls["claim"] == 2 and calls["sessions"] == 2  # reconnected with a fresh session, then kept polling

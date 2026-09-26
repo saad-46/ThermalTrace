@@ -36,16 +36,16 @@ export default function SystemHealth() {
       <div className="page-head"><div><h1>System health</h1><div className="sub">Workers, queue, database, model versions and audit trail. Credentials are never displayed.</div></div></div>
       <Async q={sys}>{(s) => (
         <div className="stack" style={{ gap: 12 }}>
-          <div className="metrics">
+          <div className="metrics" data-tour-id="system-metrics">
             <div className="metric"><div className="label">Database latency</div><div className="value">{s.database.latency_ms} ms</div><div className="hint">{s.database.size} · PostGIS {s.database.postgis}</div></div>
             <div className="metric"><div className="label">Workers online</div><div className="value">{s.workers.filter((w) => Date.now() - new Date(w.last_seen_at).getTime() < 180_000).length}</div><div className="hint">of {s.workers.length} registered</div></div>
             {s.queue.map((q) => <div key={q.status} className="metric"><div className="label">Jobs {q.status}</div><div className="value">{q.n}</div></div>)}
           </div>
           <div className="grid cols-2">
-            <section className="panel"><div className="panel-head"><h2>Workers</h2></div>
+            <section className="panel" data-tour-id="system-workers"><div className="panel-head"><h2>Workers</h2></div>
               <table className="table"><thead><tr><th scope="col">Worker</th><th scope="col">Last heartbeat</th><th scope="col" className="right">Jobs</th></tr></thead>
                 <tbody>{s.workers.map((w) => <tr key={w.worker_id}><td className="mono" style={{ fontSize: 11.5 }}>{w.worker_id}{w.is_scheduler && <span className="pill" style={{ marginLeft: 6 }}>scheduler</span>}</td><td className="num">{relTime(w.last_seen_at)}</td><td className="right num">{w.jobs_done}</td></tr>)}</tbody></table></section>
-            <section className="panel"><div className="panel-head"><h2>Integration configuration</h2></div><div className="panel-body stack" style={{ gap: 5 }}>
+            <section className="panel" data-tour-id="system-config"><div className="panel-head"><h2>Integration configuration</h2></div><div className="panel-body stack" style={{ gap: 5 }}>
               {Object.entries(s.configuration).map(([k, v]) => (
                 <div key={k} className="row" style={{ alignItems: "flex-start" }}><i className={`dot ${v.configured ? "ok" : ""}`} style={{ marginTop: 5 }} />
                   <div><b>{titleCase(k)}</b> <span className="faint">{v.configured ? "configured" : "not configured"}</span>{v.note && <div className="faint" style={{ fontSize: 11.5 }}>{v.note}</div>}</div></div>
@@ -55,7 +55,7 @@ export default function SystemHealth() {
             {s.recent_failures.length ? <table className="table"><tbody>{s.recent_failures.map((f) => <tr key={f.id}><td>{f.kind}</td><td className="num">{relTime(f.finished_at)}</td><td className="mono faint" style={{ fontSize: 11 }}>{f.error}</td></tr>)}</tbody></table> : <Empty title="No failed jobs" />}</section>
         </div>
       )}</Async>
-      <section className="panel" style={{ marginTop: 12 }}>
+      <section className="panel" style={{ marginTop: 12 }} data-tour-id="model-versions">
         <div className="panel-head"><h2>Model versions</h2><div className="right"><button className="btn sm" onClick={train} title="The trained model is stored inactive; review its card before activating it">Train LightGBM on current labels</button></div></div>
         <Async q={models}>{(m) => (
           <div>{m.models.map((v) => (
@@ -74,7 +74,7 @@ export default function SystemHealth() {
               <tbody>{m.features.map((f) => <tr key={f.name}><td className="mono">{f.name}</td><td>{f.origin}</td><td className="muted">{f.description}</td></tr>)}</tbody></table></details></div>
         )}</Async>
       </section>
-      <section className="panel" style={{ marginTop: 12 }}>
+      <section className="panel" style={{ marginTop: 12 }} data-tour-id="audit-log">
         <div className="panel-head"><h2>Audit log</h2></div>
         <Async q={audit} empty={(d) => (d.length ? null : <Empty title="No audit entries" />)}>{(d) => (
           <div className="table-wrap" style={{ maxHeight: 360 }}><table className="table"><thead><tr><th scope="col">When</th><th scope="col">User</th><th scope="col">Action</th><th scope="col">Entity</th><th scope="col">IP</th></tr></thead>

@@ -36,9 +36,9 @@ export default function Events() {
   return (
     <div className="page">
       <div className="page-head">
-        <div><h1>Thermal events</h1><div className="sub">Spatio-temporal clusters of FIRMS detections, each with classification, confidence and evidence.</div></div>
+        <div><h1>Thermal events</h1><div className="sub">Spatio-temporal clusters of FIRMS detections, each with classification, confidence and evidence. Confidence reflects the supporting evidence, not the probability of a fire.</div></div>
       </div>
-      <div className="panel">
+      <div className="panel" data-tour-id="events-table">
         <div className="panel-head" style={{ flexWrap: "wrap", gap: 8 }}>
           <div className="seg" role="tablist" aria-label="Queue">
             {QUEUES.map(([k, l]) => <button key={k} role="tab" aria-selected={queue === k} className={queue === k ? "on" : ""} onClick={() => { setQueue(k); setOffset(0); }}>{l}</button>)}

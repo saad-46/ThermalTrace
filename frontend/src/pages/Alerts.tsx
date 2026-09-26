@@ -146,7 +146,7 @@ export default function Alerts() {
               ))}</tbody></table></div>
           )}</Async>
         </section>
-        <section className="panel">
+        <section className="panel" data-tour-id="alerts-rules">
           <div className="panel-head"><h2>My rules</h2></div>
           <Async q={rules} empty={(d) => (d.length ? null : <Empty title="No rules yet">Example: "persistent events within 5 km of a refinery".</Empty>)}>{(d) => (
             <div>{d.map((r) => (

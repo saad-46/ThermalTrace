@@ -188,6 +188,7 @@ def enrich_geocode(db: Session, ev: ThermalEvent) -> None:
 
 def enrich_events(db: Session, event_ids: list,
                   steps: tuple[str, ...] = ("osm", "landcover", "weather", "satellite", "geocode")) -> dict:
+    from app.processing.persistence import history_window_days
     from app.processing.pipeline import analyse_event
 
     events = list(db.execute(select(ThermalEvent).where(ThermalEvent.id.in_(event_ids))).scalars())
@@ -204,7 +205,7 @@ def enrich_events(db: Session, event_ids: list,
         if "geocode" in steps:
             enrich_geocode(db, ev)
         db.commit()
-    window = db.execute(text("SELECT (max(acq_date) - min(acq_date)) + 1 FROM thermal_detections")).scalar() or 0
+    window = history_window_days(db)
     for ev in events:
         with db.begin_nested():
             analyse_event(db, ev.id, window)

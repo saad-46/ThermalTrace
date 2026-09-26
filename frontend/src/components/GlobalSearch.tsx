@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Building2, Crosshair, MapPin, Search, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { TOUR_SEARCH_EVENT } from "../tour/events";
 import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { fmtDistance, locationLabel } from "../lib/format";
@@ -14,6 +15,12 @@ type Item = { key: string; label: React.ReactNode; to: string };
 export default function GlobalSearch({ compact }: { compact?: boolean }) {
   const nav = useNavigate();
   const [q, setQ] = useState("");
+  // The guided tour demonstrates search with a real query (see tour/TourProvider).
+  useEffect(() => {
+    const onDemo = (e: Event) => { const v = (e as CustomEvent<string>).detail; setQ(v); setOpen(!!v); };
+    window.addEventListener(TOUR_SEARCH_EVENT, onDemo);
+    return () => window.removeEventListener(TOUR_SEARCH_EVENT, onDemo);
+  }, []);
   const [debounced, setDebounced] = useState("");
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -63,7 +70,7 @@ export default function GlobalSearch({ compact }: { compact?: boolean }) {
   };
   const show = open && debounced.length >= 2;
   return (
-    <div className="gsearch" style={{ maxWidth: compact ? "100%" : 440 }}>
+    <div data-tour-id="global-search" className="gsearch" style={{ maxWidth: compact ? "100%" : 440 }}>
       <div className="gsearch-box">
         <Search size={13} className="faint" aria-hidden />
         <input ref={input} value={q} role="combobox" aria-expanded={show} aria-controls="gsearch-list" aria-label="Search events, places, facilities, coordinates"

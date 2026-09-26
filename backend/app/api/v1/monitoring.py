@@ -80,11 +80,13 @@ def create_rule(body: AlertRuleIn, request: Request, user: User = AnalystUser, d
     db.flush()
     audit.record(db, request, user.id, "alert_rule.create", "alert_rule", r.id)
     db.commit()
-    # Evaluate against current events immediately so the rule is useful now, not only on the next ingest.
+    # Evaluate the new rule (only this one: other users' rules are not re-run) against the events that can still
+    # alert, so it is useful now, not only on the next ingest.
     from app.services.alerts import evaluate_rules
 
-    recent = db.execute(text("SELECT id FROM thermal_events WHERE last_detected >= now() - interval '14 days'")).scalars().all()
-    evaluate_rules(db, list(recent))
+    recent = db.execute(text("SELECT id FROM thermal_events WHERE last_detected >= now() - make_interval(hours => :h)"),
+                        {"h": settings.alert_max_event_age_hours}).scalars().all()
+    evaluate_rules(db, list(recent), rule_ids=[r.id])
     return _rule_out(db, r)
 
 
@@ -146,14 +148,20 @@ def alert_action(alert_id: uuid.UUID, action: str, user: User = CurrentUser, db:
 
 
 # --- watchlists -------------------------------------------------------------------------------------
+# Events matching any item of watchlist :wl. One branch per item kind (UNION also de-duplicates): a single OR across
+# the kinds prevents the spatial index from being used and scanned every event for every item.
 _WL_EVENTS = """
-    SELECT DISTINCT e.id FROM thermal_events e
-    JOIN watchlist_items w ON w.watchlist_id = :wl
-    LEFT JOIN facilities wf ON wf.id = w.facility_id
-    WHERE (w.geom IS NOT NULL AND ST_DWithin(e.geom, w.geom, COALESCE(w.radius_m, 0)))
-       OR (wf.id IS NOT NULL AND ST_DWithin(e.geom, wf.geom, COALESCE(w.radius_m, 5000)))
-       OR (w.admin_district IS NOT NULL AND lower(w.admin_district) = lower(e.admin_district))
-       OR (w.event_id = e.id)
+    SELECT e.id FROM watchlist_items w JOIN thermal_events e ON ST_DWithin(e.geom, w.geom, COALESCE(w.radius_m, 0))
+    WHERE w.watchlist_id = :wl AND w.geom IS NOT NULL
+    UNION
+    SELECT e.id FROM watchlist_items w JOIN facilities wf ON wf.id = w.facility_id
+      JOIN thermal_events e ON ST_DWithin(e.geom, wf.geom, COALESCE(w.radius_m, 5000))
+    WHERE w.watchlist_id = :wl
+    UNION
+    SELECT e.id FROM watchlist_items w JOIN thermal_events e ON lower(e.admin_district) = lower(w.admin_district)
+    WHERE w.watchlist_id = :wl AND w.admin_district IS NOT NULL
+    UNION
+    SELECT w.event_id FROM watchlist_items w WHERE w.watchlist_id = :wl AND w.event_id IS NOT NULL
 """
 
 

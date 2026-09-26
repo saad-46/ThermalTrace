@@ -64,6 +64,7 @@ Status of every capability on `main`. Statuses: **EXISTS** (built and tested), *
 | Demo mode isolation | EXISTS | P0 |
 | Mobile PWA (bottom nav, sheet, cards, GPS) | EXISTS (+ search, priority queue) | P1 |
 | Tablet layout | IMPLEMENTED | P1 |
+| Guided exploration: Explore as Analyst / Admin, read-only demo sessions with guided tours (desktop, tablet, phone) | IMPLEMENTED | P1 |
 | Frontend component tests | IMPLEMENTED | P1 |
 | E2E desktop / tablet / mobile | EXISTS (+ tablet, guards) | P0 |
 | Per-token rate limiting | IMPLEMENTED | P1 |

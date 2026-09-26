@@ -79,7 +79,7 @@ export default function Analytics() {
           </div></section>
         </div>
 
-        <section className="panel"><div className="panel-head"><h2>Analyst feedback loop</h2><span className="right faint">training feedback dataset & false-positive intelligence</span>
+        <section className="panel" data-tour-id="feedback-loop"><div className="panel-head"><h2>Analyst feedback loop</h2><span className="right faint">training feedback dataset & false-positive intelligence</span>
           {can("supervisor") && <button className="btn sm" onClick={() => downloadFile("/ml/training-dataset?format=csv", "thermaltrace_training_dataset.csv").catch((e) => toast(errText(e), "error"))}>Export training dataset (CSV)</button>}
         </div><div className="panel-body">
           <Async q={feedback}>{(d) => (

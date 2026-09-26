@@ -3,6 +3,7 @@ import {
 } from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
 import GlobalSearch from "../components/GlobalSearch";
+import ExploreBanner from "../tour/ExploreBanner";
 import { DemoBanner, Freshness } from "../components/ui";
 import { useUnread } from "../lib/hooks";
 import { useSession, useTheme } from "../lib/session";
@@ -71,6 +72,7 @@ export default function DesktopShell() {
         <Freshness />
       </header>
       <main className="main" style={{ display: "flex", flexDirection: "column" }}>
+        <ExploreBanner />
         <DemoBanner />
         <div style={{ flex: 1, minHeight: 0, overflow: "auto", position: "relative" }}>
           <Outlet />

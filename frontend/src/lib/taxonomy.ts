@@ -31,6 +31,21 @@ export const STATE_META: Record<DisplayState, { label: string; tone: Tone; hint:
   ANALYST_REJECTED: { label: "Analyst rejected", tone: "rejected", hint: "Rejected or marked false positive" },
 };
 
+/** How to read a confidence state. Confidence describes the evidence behind a classification; it is never a
+ *  probability that a fire is burning, and nothing is "confirmed" by the model alone. */
+export const CONFIDENCE_EXPLAINER = "Confidence reflects the available evidence supporting this classification. It is not the probability of a fire.";
+
+export function confidenceNote(state: DisplayState | null | undefined): string {
+  switch (state ?? "INSUFFICIENT_EVIDENCE") {
+    case "INSUFFICIENT_EVIDENCE": return "Insufficient evidence — manual review required.";
+    case "ANALYST_CONFIRMED": return "Confirmed by analyst review.";
+    case "ANALYST_REJECTED": return "Rejected by analyst review.";
+    case "CONFIRMED": return "Confirmed by multi-source corroboration including an imagery check.";
+    case "UNDER_REVIEW": return "An analyst is reviewing this event.";
+    default: return "Supporting evidence, not proof. Confirmed only after imagery confirmation or analyst review.";
+  }
+}
+
 export const FACILITY_LABELS: Record<string, string> = {
   refinery: "Refinery", oil_gas: "Oil & gas", flare_site: "Flare stack", power_plant_coal: "Coal power plant",
   power_plant_gas: "Gas/oil power plant", power_plant_other: "Power plant (other/unknown fuel)", steel_plant: "Steel plant",

@@ -15,9 +15,13 @@ export interface User {
   full_name: string;
   role: Role;
   is_active: boolean;
+  /** Read-only guided exploration session ("Explore as Analyst / Admin"). */
+  is_demo?: boolean;
   created_at: string;
   last_login_at: string | null;
 }
+
+export type DemoRole = "analyst" | "admin";
 
 export interface Page<T> {
   items: T[];
@@ -287,6 +291,12 @@ export interface ImageryAnalysis {
   method: { thresholds?: { dndvi: number; dnbr: number } } & Record<string, unknown>;
   retrieved_at: string;
 }
+/** GET /events/featured: the real event carrying the most evidence, and what it has / lacks. */
+export interface FeaturedEvent extends EventSummary {
+  selection_reasons: string[];
+  unavailable_evidence: string[];
+}
+
 export interface EventDetail extends EventSummary {
   persistence_metrics: PersistenceMetrics | null;
   confidence_components: { score: number; state: string; components: ConfidenceComponent[]; missing: string[] } | null;

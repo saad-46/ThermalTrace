@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173"
     rate_limit_per_minute: int = 600  # per session token (per IP when anonymous)
     login_rate_limit_per_minute: int = 10
+    # Guided "Explore as Analyst / Admin" without credentials: read-only demo sessions (services/explore.py).
+    # Alerts are about current activity: events last detected longer ago than this never alert (e.g. a
+    # historical FIRMS backfill must not notify anyone about months-old events).
+    alert_max_event_age_hours: int = Field(72, ge=1, le=24 * 30)
+    explore_mode_enabled: bool = False
+    explore_session_minutes: int = Field(120, ge=5, le=720)
 
     # --- NASA FIRMS ------------------------------------------------------------------------
     firms_map_key: SecretStr | None = None

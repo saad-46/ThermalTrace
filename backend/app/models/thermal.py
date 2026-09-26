@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -84,6 +85,21 @@ class ThermalEvent(Base):
         Index("ix_events_status", "status", "review_status"),
         Index("ix_events_district_trgm", "admin_district", postgresql_using="gin", postgresql_ops={"admin_district": "gin_trgm_ops"}),
         Index("ix_events_place_trgm", "place_name", postgresql_using="gin", postgresql_ops={"place_name": "gin_trgm_ops"}),
+        Index("ix_events_public_id_trgm", "public_id", postgresql_using="gin", postgresql_ops={"public_id": "gin_trgm_ops"}),
+        Index("ix_events_state_trgm", "admin_state", postgresql_using="gin", postgresql_ops={"admin_state": "gin_trgm_ops"}),
+        Index("ix_events_place_admin1_trgm", "place_admin1", postgresql_using="gin", postgresql_ops={"place_admin1": "gin_trgm_ops"}),
+        # Match the ORDER BY of the priority queue and of /analytics/persistent-sources (migration 0008).
+        Index("ix_events_priority_rank", text("priority_score DESC NULLS LAST"), "id"),
+        Index("ix_events_persistence_rank", text("(persistence_class = 'persistent') DESC"), text("persistence_score DESC"),
+              text("sensor_count DESC"), text("observation_count DESC"),
+              postgresql_where=text("persistence_class IN ('persistent', 'recurring')")),
+        Index("ix_events_admin_district_lower", text("lower(admin_district)")),  # watchlist district items (0009)
+        # Similar events: KNN over the fingerprint (migration 0009; expressions match repositories/events.py).
+        Index("ix_events_fp_knn", text("coalesce(fingerprint->>'facility_type', '')"),
+              text("cube(ARRAY[coalesce((fingerprint->>'intensity')::float8, 0), coalesce((fingerprint->>'persistence')::float8, 0), "
+                   "coalesce((fingerprint->>'facility_proximity')::float8, 0), coalesce((fingerprint->>'night_share')::float8, 0), "
+                   "coalesce((fingerprint->>'sensor_agreement')::float8, 0)])"),
+              postgresql_using="gist", postgresql_where=text("fingerprint IS NOT NULL")),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()

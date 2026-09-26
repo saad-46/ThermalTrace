@@ -34,6 +34,8 @@ _MATCH_SQL = text(
              WHERE l.event_id = e.id AND (cardinality(r.facility_types) = 0 OR f.facility_type = ANY(r.facility_types))) AS fac_dist
     FROM thermal_events e, alert_rules r
     WHERE r.id = :rule_id AND e.id = ANY(:ids) AND e.classification IS NOT NULL
+      AND e.last_detected >= now() - make_interval(hours => :max_age_h)
+      AND e.data_mode <> 'demo'
       AND (r.center IS NULL OR ST_DWithin(e.geom, r.center, COALESCE(r.radius_m, 5000)))
       AND (r.watchlist_id IS NULL OR EXISTS (
             SELECT 1 FROM watchlist_items w LEFT JOIN facilities wf ON wf.id = w.facility_id
@@ -61,13 +63,17 @@ def _severity(row) -> str:
     return "info"
 
 
-def evaluate_rules(db: Session, event_ids: list) -> dict:
+def evaluate_rules(db: Session, event_ids: list, rule_ids: list | None = None) -> dict:
+    """Match events against active rules (all of them, or only `rule_ids`) and create alerts."""
     ids = [uuid.UUID(str(i)) for i in event_ids]
     if not ids:
         return {"alerts": 0}
     created = 0
-    for rule in db.execute(select(AlertRule).where(AlertRule.is_active.is_(True))).scalars():
-        for row in db.execute(_MATCH_SQL, {"rule_id": rule.id, "ids": ids}).mappings():
+    rules = select(AlertRule).where(AlertRule.is_active.is_(True))
+    if rule_ids is not None:
+        rules = rules.where(AlertRule.id.in_(rule_ids))
+    for rule in db.execute(rules).scalars():
+        for row in db.execute(_MATCH_SQL, {"rule_id": rule.id, "ids": ids, "max_age_h": settings.alert_max_event_age_hours}).mappings():
             if rule.facility_types and rule.facility_within_m is not None and (
                     row["fac_dist"] is None or row["fac_dist"] > rule.facility_within_m):
                 continue
@@ -106,6 +112,19 @@ def repeat_and_increase_ok(rule: AlertRule, facility_events: int, recent: int, p
     return True
 
 
+_RESERVED_TLDS = (".local", ".localhost", ".invalid", ".test", ".example", ".internal", ".lan", ".home.arpa")
+_RESERVED_DOMAINS = ("example.com", "example.org", "example.net")
+
+
+def deliverable_address(email: str | None) -> bool:
+    """False for addresses that can never receive mail (RFC 2606/6761 reserved names, local-only domains).
+    Sending to them only produces bounces in the sender's mailbox."""
+    domain = (email or "").rsplit("@", 1)[-1].lower().rstrip(".")
+    if not domain or "." not in domain:
+        return False
+    return not (domain.endswith(_RESERVED_TLDS) or domain in _RESERVED_DOMAINS or any(domain.endswith("." + d) for d in _RESERVED_DOMAINS))
+
+
 def in_cooldown(rule: AlertRule, now: datetime | None = None) -> bool:
     if not rule.cooldown_minutes or rule.last_notified_at is None:
         return False
@@ -130,6 +149,8 @@ def deliver(db: Session, alert: Alert, rule: AlertRule) -> None:
                 recipient = user.email
                 if not (settings.smtp_host and settings.smtp_from):
                     status, error = "skipped", "SMTP not configured"
+                elif not deliverable_address(user.email):
+                    status, error = "skipped", "undeliverable address (reserved or local domain)"
                 else:
                     _send_email(user.email, alert)
             elif channel == "push":
@@ -159,7 +180,9 @@ def _send_email(to: str, alert: Alert) -> None:
     msg["To"] = to
     msg.set_content(
         f"{alert.title}\n\nSeverity: {alert.severity}\nReason: {json.dumps(alert.reason, indent=2)}\n\n"
-        "This alert reflects an automated classification with the confidence shown; it is not a verified finding.")
+        "This alert reflects an automated classification. Confidence reflects the available evidence supporting the "
+        "classification, not the probability of a fire; it is supporting evidence, not proof. An event is confirmed only "
+        "after imagery confirmation or analyst review.")
     with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=15) as smtp:
         smtp.starttls()
         if settings.smtp_username and settings.smtp_password:

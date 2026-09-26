@@ -105,7 +105,10 @@ _RECUR_Q = text(
 
 
 def history_window_days(db: Session) -> int:
-    row = db.execute(text("SELECT min(acq_date), max(acq_date) FROM thermal_detections")).one()
+    # acq_date is the UTC date of acq_datetime; min/max of the indexed timestamp is an index lookup, whereas
+    # acq_date (unindexed) needs a full scan of every detection.
+    row = db.execute(text("SELECT (min(acq_datetime) AT TIME ZONE 'UTC')::date, (max(acq_datetime) AT TIME ZONE 'UTC')::date "
+                          "FROM thermal_detections")).one()
     if row[0] is None:
         return 0
     return (row[1] - row[0]).days + 1

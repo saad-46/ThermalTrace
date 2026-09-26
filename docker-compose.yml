@@ -25,6 +25,9 @@ services:
   db:
     image: postgis/postgis:16-3.4
     restart: unless-stopped
+    # Docker's default 64 MB /dev/shm is too small for Postgres parallel queries and parallel VACUUM at this data
+    # volume ("could not resize shared memory segment ... No space left on device").
+    shm_size: 512mb
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-thermaltrace}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-thermaltrace_dev_only}

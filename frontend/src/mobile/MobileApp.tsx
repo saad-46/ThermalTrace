@@ -1,6 +1,6 @@
 import { Bell, ChevronLeft, Eye, List, LocateFixed, Map as MapIcon, Menu } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useRef, useState, type PointerEvent as RPE, type ReactNode } from "react";
+import { lazy, Suspense, useMemo, useRef, useState, type PointerEvent as RPE, type ReactNode } from "react";
 import { Link, Navigate, NavLink, Route, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ConfidenceBreakdown, EvidenceList, EvidenceMatrix, FacilityList, Fingerprint, ModelPanel, PersistencePanel, Timeline } from "../components/evidence";
 import { DEFAULT_FILTERS, FilterPanel, TimeRange, toQuery, type FilterState } from "../components/filters";
@@ -15,6 +15,14 @@ import { coordsLabel, fmtDistance, locationLabel, relTime } from "../lib/format"
 import { actions, useAction, useAlerts, useEvent, useEvents, useUnread, useWatchlists } from "../lib/hooks";
 import { useSession, useTheme } from "../lib/session";
 import type { EventDetail, EventSummary, Page } from "../lib/types";
+import ExploreBanner from "../tour/ExploreBanner";
+
+// Desktop pages that also work in the phone shell (used by the overview and the admin views of the guided tour).
+const Overview = lazy(() => import("../pages/Overview"));
+const DataSources = lazy(() => import("../pages/DataSources"));
+const SystemHealth = lazy(() => import("../pages/SystemHealth"));
+const Analytics = lazy(() => import("../pages/Analytics"));
+const Settings = lazy(() => import("../pages/Settings"));
 
 // ------------------------------------------------------------------ shell
 function Shell({ title, back, right, children }: { title: ReactNode; back?: boolean; right?: ReactNode; children: ReactNode }) {
@@ -27,6 +35,7 @@ function Shell({ title, back, right, children }: { title: ReactNode; back?: bool
         <div style={{ fontWeight: 600, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
         {right}
       </header>
+      <ExploreBanner compact />
       <DemoBanner />
       <main className="m-main">{children}</main>
       <nav className="m-nav" aria-label="Primary">
@@ -57,7 +66,7 @@ function Sheet({ children, snap, setSnap }: { children: ReactNode; snap: number;
     setLive(null);
   };
   return (
-    <section className="sheet" style={{ height: live ?? `${SNAPS[snap] * 100}%`, transition: live != null ? "none" : undefined }} aria-label="Event details">
+    <section className="sheet" data-tour-id="map-event-sheet" style={{ height: live ?? `${SNAPS[snap] * 100}%`, transition: live != null ? "none" : undefined }} aria-label="Event details">
       <div className="grab" onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}
         role="button" tabIndex={0} aria-label="Resize panel" onKeyDown={(e) => { if (e.key === "ArrowUp") setSnap(Math.min(2, snap + 1)); if (e.key === "ArrowDown") setSnap(Math.max(0, snap - 1)); }}>
         <i />
@@ -68,9 +77,13 @@ function Sheet({ children, snap, setSnap }: { children: ReactNode; snap: number;
 }
 
 // ------------------------------------------------------------------ evidence cards (swipeable)
+const CARD_TOUR_IDS: Record<string, string> = {
+  "How ThermalTrace thinks": "card-evidence-chain", Facilities: "card-facilities", Persistence: "card-persistence", "Land cover": "card-landcover",
+  "Spectral change": "card-spectral", "Model evidence": "card-model",
+};
 function EvidenceCards({ ev }: { ev: EventDetail }) {
   const cards: [string, ReactNode][] = [
-    ["Evidence chain", <EvidenceChain ev={ev} key="ch" />],
+    ["How ThermalTrace thinks", <EvidenceChain ev={ev} key="ch" />],
     ["Evidence matrix", <div className="table-wrap" key="m"><EvidenceMatrix ev={ev} /></div>],
     ["Why prioritised", <PriorityPanel p={ev.priority_components} key="pr" />],
     ["Confidence", <ConfidenceBreakdown ev={ev} key="c" />],
@@ -86,7 +99,7 @@ function EvidenceCards({ ev }: { ev: EventDetail }) {
   return (
     <div className="cards" role="list" aria-label="Evidence cards (swipe)">
       {cards.map(([t, c]) => (
-        <div key={t} className="panel" role="listitem"><div className="panel-head"><h3>{t}</h3></div><div className="panel-body" style={{ maxHeight: 420, overflow: "auto" }}>{c}</div></div>
+        <div key={t} className="panel" role="listitem" data-tour-id={CARD_TOUR_IDS[t]}><div className="panel-head"><h3>{t}</h3></div><div className="panel-body" style={{ maxHeight: 420, overflow: "auto" }}>{c}</div></div>
       ))}
     </div>
   );
@@ -128,7 +141,7 @@ function MapScreen() {
     () => toast("Location unavailable — check permissions", "error"), { timeout: 10000 });
   return (
     <Shell title={<Freshness compact />} right={<button className="btn ghost icon" onClick={locate} aria-label="Go to my location"><LocateFixed size={18} /></button>}>
-      <div style={{ position: "absolute", inset: 0 }}>
+      <div style={{ position: "absolute", inset: 0 }} data-tour-id="map-canvas">
         <Boundary label="Map">
           <MapCanvas filters={query} layers={DEFAULT_LAYERS} theme={theme} selectedId={ev.data?.id ?? sel} focus={ev.data ?? null} flyTo={flyTo}
             onSelect={(id) => { setParams(id ? { event: id } : {}); setSnap(id ? 1 : 0); }} />
@@ -175,7 +188,7 @@ function EventsScreen() {
           <button key={k} className={`chip ${queue === k ? "on" : ""}`} onClick={() => setQueue(k)}>{l}</button>))}
         <button className={`chip ${queue === "near" ? "on" : ""}`} onClick={findNear}><LocateFixed size={12} /> Near me</button>
       </div>
-      <div className="m-list">
+      <div className="m-list" data-tour-id="events-list">
         {queue === "near"
           ? <Async q={nearby} empty={(d) => (d.items.length ? null : <Empty title="No events within 50 km" />)}>{(d) => <>{d.items.map((e) => <EventItem key={e.id} e={e} />)}</>}</Async>
           : <Async q={list} empty={(d) => (d.items.length ? null : <Empty title="No events" />)}>{(d) => <>{d.items.map((e) => <EventItem key={e.id} e={e} />)}</>}</Async>}
@@ -201,8 +214,8 @@ function EventScreen() {
     <Shell title={<span className="mono">{ref}</span>} back>
       {ev.isLoading ? <div className="page"><Skeleton lines={8} /></div> : ev.error || !ev.data ? <ErrorState error={ev.error} retry={() => ev.refetch()} /> : (
         <div>
-          <div className="section"><EventHeader ev={ev.data} /><div style={{ marginTop: 10 }}><EventActions ev={ev.data} compact /></div></div>
-          <div className="tabs">{(["evidence", "review", "timeline", "all"] as const).map((t) => <button key={t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}>{t === "all" ? "Evidence list" : t[0].toUpperCase() + t.slice(1)}</button>)}</div>
+          <div className="section"><div data-tour-id="event-header"><EventHeader ev={ev.data} /></div><div style={{ marginTop: 10 }} data-tour-id="event-actions"><EventActions ev={ev.data} compact /></div></div>
+          <div className="tabs" data-tour-id="event-tabs">{(["evidence", "review", "timeline", "all"] as const).map((t) => <button key={t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}>{t === "all" ? "Evidence list" : t[0].toUpperCase() + t.slice(1)}</button>)}</div>
           {tab === "evidence" && <div style={{ paddingTop: 10 }}><EvidenceCards ev={ev.data} /></div>}
           {tab === "review" && <div className="section"><ReviewPanel ev={ev.data} /></div>}
           {tab === "timeline" && <div className="section"><Timeline ev={ev.data} /></div>}
@@ -218,7 +231,7 @@ function AlertsScreen() {
   const act = useAction(actions.alertAction(), [["alerts"], ["alerts-unread"]]);
   return (
     <Shell title="Alerts">
-      <div className="m-list">
+      <div className="m-list" data-tour-id="alerts-list">
         <Async q={alerts} empty={(d) => (d.items.length ? null : <Empty title="No alerts">Rules are managed on desktop or under More.</Empty>)}>{(d) => <>{d.items.map((a) => (
           <div key={a.id} className="item" style={{ flexDirection: "column", gap: 4 }}>
             <Link to={`/events/${a.event_public_id}`} style={{ fontWeight: a.status === "new" ? 600 : 400, color: "var(--text)" }}>{a.title}</Link>
@@ -277,9 +290,24 @@ function MoreScreen() {
         <div className="panel panel-body row" style={{ justifyContent: "space-between" }}>
           <span>Dark theme</span><input type="checkbox" aria-label="Dark theme" checked={theme === "dark"} onChange={(e) => setTheme(e.target.checked ? "dark" : "light")} />
         </div>
+        <nav className="panel panel-body stack" aria-label="More views" style={{ gap: 6 }}>
+          <Link to="/overview">Overview</Link>
+          <Link to="/sources">Data sources</Link>
+          <Link to="/analytics">Analytics</Link>
+          {user?.role === "admin" && <Link to="/system">System health</Link>}
+          <Link to="/settings">Settings</Link>
+        </nav>
         <button className="btn" onClick={() => logout().catch((e) => toast(errText(e), "error"))}>Sign out</button>
-        <div className="faint" style={{ fontSize: 11.5 }}>Full analytics, facility registry, data sources and administration are available on a larger screen.</div>
+        <div className="faint" style={{ fontSize: 11.5 }}>The facility registry and some wide tables are easier to use on a larger screen.</div>
       </div>
+    </Shell>
+  );
+}
+
+function DesktopPage({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <Shell title={title} back>
+      <div className="m-desktop-page"><Suspense fallback={<div className="page"><Skeleton lines={6} /></div>}>{children}</Suspense></div>
     </Shell>
   );
 }
@@ -295,6 +323,11 @@ export default function MobileApp() {
       <Route path="/watchlist/:id" element={<WatchlistEventsScreen />} />
       <Route path="/watchlists" element={<Navigate to="/watchlist" replace />} />
       <Route path="/more" element={<MoreScreen />} />
+      <Route path="/overview" element={<DesktopPage title="Overview"><Overview /></DesktopPage>} />
+      <Route path="/sources" element={<DesktopPage title="Data sources"><DataSources /></DesktopPage>} />
+      <Route path="/system" element={<DesktopPage title="System health"><SystemHealth /></DesktopPage>} />
+      <Route path="/analytics" element={<DesktopPage title="Analytics"><Analytics /></DesktopPage>} />
+      <Route path="/settings" element={<DesktopPage title="Settings"><Settings /></DesktopPage>} />
       <Route path="*" element={<Navigate to="/map" replace />} />
     </Routes>
   );

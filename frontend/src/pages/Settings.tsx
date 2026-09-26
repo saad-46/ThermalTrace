@@ -20,7 +20,7 @@ function Users() {
     try { await patch(`/admin/users/${id}`, body); qc.invalidateQueries({ queryKey: ["users"] }); } catch (e) { toast(errText(e), "error"); }
   };
   return (
-    <section className="panel" style={{ marginTop: 12 }}>
+    <section className="panel" style={{ marginTop: 12 }} data-tour-id="users-roles">
       <div className="panel-head"><h2>Users & roles</h2></div>
       <div className="section row wrap" style={{ alignItems: "flex-end" }}>
         <div className="field"><label htmlFor="u-email">Email</label><input id="u-email" className="input" type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></div>

@@ -31,6 +31,12 @@
 - **Test isolation**: `tests/conftest.py` blanks every provider credential (FIRMS, Copernicus, SMTP, VAPID, Sentry) before the app loads settings, so a developer's local `.env` can never make the test suite send email or call keyed APIs. A test enforces this.
 - **Fail-closed images**: the API image defaults to `ENVIRONMENT=production` and refuses to start with development secrets, the development database password, or localhost-only CORS. CI checks that the image refuses to start with defaults.
 
+## Guided exploration (demo sessions)
+
+`EXPLORE_MODE_ENABLED` adds credential-free, read-only demo sessions. Every non-GET request from them is refused
+server-side, quota-consuming reads are refused, personal data is masked, sessions are short-lived and audited, and demo
+accounts have no usable password. Details: `GUIDED_TOURS.md`. Keep it off unless a public demo is intended.
+
 ## Known gaps
 
 - Tokens are stored in `localStorage`. This is standard for a bearer-token SPA plus PWA, but it is exposed to XSS. The mitigations are React's escaping, no `dangerouslySetInnerHTML` of user input (map popups escape names), and a strict CSP recommended at the edge.

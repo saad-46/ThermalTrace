@@ -345,6 +345,10 @@ table.table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .chain-summary { font-weight: 500; }
 .chain-step.missing .chain-summary { color: var(--text-2); font-weight: 400; }
 .chain-detail { font-size: 11.5px; color: var(--text-2); }
+.chain-state { margin-left: 6px; font-size: 10px; letter-spacing: 0.03em; text-transform: none; padding: 0 5px; border-radius: 3px; border: 1px solid var(--border); color: var(--text-2); }
+.chain-state.ok { border-color: var(--ok); color: var(--ok); }
+.chain-contribution { font-size: 11.5px; color: var(--text-2); margin-top: 2px; }
+.chain-meta { font-size: 11px; color: var(--text-3); margin-top: 1px; overflow-wrap: anywhere; }
 
 /* ---------- persistence strip ---------- */
 .strip { display: flex; gap: 3px; flex-wrap: wrap; }
@@ -378,3 +382,65 @@ table.table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .lc-legend li { display: flex; align-items: center; gap: 6px; }
 .lc-legend .swatch { width: 9px; height: 9px; border-radius: 2px; flex: none; border: 1px solid var(--border); }
 .lc-legend .num { margin-left: auto; color: var(--text-2); }
+
+/* ---------------------------------------------------------------- guided exploration (demo mode) */
+.auth-stack { width: 100%; max-width: 560px; align-items: center; gap: 12px; }
+.explore-panel { max-width: 560px; display: flex; flex-direction: column; gap: 10px; }
+.explore-panel h2 { font-size: 15px; margin: 0; }
+.explore-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.explore-option { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+.explore-option h3 { font-size: 13.5px; margin: 0; }
+.explore-option p { margin: 0; font-size: 12.5px; color: var(--text-2); flex: 1; }
+.explore-option .btn { justify-content: center; min-height: 36px; }
+
+.banner.explore { background: var(--info-soft); color: var(--text); flex-wrap: wrap; row-gap: 4px; }
+.banner.explore .explore-tag { color: var(--info); letter-spacing: 0.02em; text-transform: uppercase; font-size: 11.5px; }
+.banner.explore .explore-text { color: var(--text-2); }
+.banner.explore.compact { padding: 5px 10px; font-size: 12px; }
+.banner.explore.compact .btn { min-height: 32px; }
+
+.tour-spotlight { position: fixed; z-index: 1000; pointer-events: none; border-radius: var(--radius);
+  box-shadow: 0 0 0 2px var(--info), 0 0 0 9999px rgba(10, 14, 20, 0.38); }
+.tour-spotlight.animate { transition: top 160ms ease, left 160ms ease, width 160ms ease, height 160ms ease; }
+.tour-card { position: fixed; z-index: 1001; width: min(360px, calc(100vw - 24px)); background: var(--surface); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: var(--radius); box-shadow: var(--shadow-pop); padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 8px; max-height: calc(100vh - 24px); overflow: auto; }
+.tour-card h2 { font-size: 15px; margin: 0; }
+.tour-card h2:focus { outline: none; }
+.tour-card h2:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.tour-card p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--text-2); }
+.tour-center { top: 50%; left: 50%; transform: translate(-50%, -50%); }
+.tour-progress { font-size: 11.5px; color: var(--text-3); }
+.tour-why { font-size: 12.5px; line-height: 1.45; background: var(--surface-2); border-left: 2px solid var(--info); padding: 6px 8px; border-radius: var(--radius-sm); }
+.tour-limit { font-size: 12.5px; line-height: 1.45; color: var(--text-2); border-left: 2px solid var(--warn); padding: 2px 8px; }
+.tour-note { font-size: 12px; color: var(--warn) !important; }
+.tour-more summary { cursor: pointer; font-size: 12.5px; color: var(--info); }
+.tour-more p, .tour-more dl { margin: 6px 0 0; font-size: 12.5px; }
+.tour-more dt { font-weight: 600; font-size: 12.5px; }
+.tour-more dd { margin: 0 0 6px; color: var(--text-2); font-size: 12.5px; }
+.tour-actions { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+.tour-actions .spacer { flex: 1; }
+.tour-flow { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; font-size: 12.5px; }
+.tour-flow li { padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; }
+.tour-flow li + li::before { content: "\2192"; margin: 0 6px 0 -2px; color: var(--text-3); }
+.tour-loading { position: fixed; z-index: 1001; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--surface);
+  border: 1px solid var(--border); border-radius: 999px; padding: 6px 12px; font-size: 12px; box-shadow: var(--shadow); }
+/* Keep spotlighted elements clear of sticky headers when scrolled into view. */
+[data-tour-active] { scroll-margin-top: 72px; scroll-margin-bottom: 16px; }
+
+@media (max-width: 767px) {
+  /* Phones: explanation as a bottom sheet, thumb-sized buttons, target kept visible above it. */
+  .tour-card.tour-sheet { top: auto; left: 0; right: 0; bottom: 0; transform: none; width: 100%; max-height: 46vh;
+    border-radius: 12px 12px 0 0; padding: 14px 16px calc(14px + env(safe-area-inset-bottom)); }
+  .tour-card.tour-sheet .btn { min-height: 40px; padding: 0 14px; }
+  .tour-card.tour-sheet.at-top { top: 0; bottom: auto; border-radius: 0 0 12px 12px; padding-top: calc(14px + env(safe-area-inset-top)); }
+  [data-tour-active] { scroll-margin-top: 96px; }
+  .m-desktop-page { overflow-x: hidden; }
+  .m-desktop-page .page { padding: 12px; }
+  .m-desktop-page .grid { grid-template-columns: minmax(0, 1fr) !important; }
+  .m-desktop-page .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .m-desktop-page .table { display: block; overflow-x: auto; }
+  .m-desktop-page .page-head { flex-wrap: wrap; }
+}
+@media (prefers-reduced-motion: reduce) { .tour-spotlight.animate { transition: none; } }
+.confidence-note { font-size: 12px; color: var(--text-2); }

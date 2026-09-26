@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 
 from geoalchemy2 import Geography
-from sqlalchemy import Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -125,7 +125,7 @@ class LandContext(Base):
         UUID(as_uuid=True), ForeignKey("thermal_events.id", ondelete="CASCADE"), nullable=False, index=True
     )
     osm_type: Mapped[str] = mapped_column(String(10), nullable=False)
-    osm_id: Mapped[int] = mapped_column(nullable=False)
+    osm_id: Mapped[int] = mapped_column(BigInteger, nullable=False)  # OSM ids exceed 2^31
     category: Mapped[str] = mapped_column(String(40), nullable=False)  # farmland / forest / residential / ...
     name: Mapped[str | None] = mapped_column(Text)
     distance_m: Mapped[float] = mapped_column(Float, nullable=False)

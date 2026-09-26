@@ -70,7 +70,7 @@ export default function LiveMap() {
 
   return (
     <div className="workspace">
-      <div className="map-wrap">
+      <div className="map-wrap" data-tour-id="map-canvas">
         <Boundary label="Map">
           <MapCanvas filters={query} layers={layers} theme={theme} selectedId={ev.data?.id ?? selected} focus={ev.data ?? null}
             onSelect={select} onViewport={setVp} replayUntil={replayUntil} flyTo={flyTo} />
@@ -102,7 +102,7 @@ export default function LiveMap() {
         </div>
       </div>
 
-      <aside className="side" aria-label="Event context">
+      <aside className="side" aria-label="Event context" data-tour-id={selected ? "map-event-panel" : undefined}>
         {selected ? (
           ev.isLoading ? <div className="panel-body"><Skeleton lines={8} /></div>
           : ev.error ? <ErrorState error={ev.error} retry={() => ev.refetch()} />

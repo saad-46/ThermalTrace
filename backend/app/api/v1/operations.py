@@ -309,6 +309,10 @@ def training_dataset(fmt: str = Query("json", alias="format", pattern="^(json|cs
     from app.processing.features import FEATURE_NAMES
 
     rows = [dict(r) for r in db.execute(_TRAINING_SQL).mappings()]
+    if user.is_demo:
+        from app.services.explore import mask_pii
+
+        rows = mask_pii(rows)
     audit.record(db, request, user.id, "ml.training_dataset.export", detail={"rows": len(rows), "format": fmt})
     db.commit()
     label_rule = ("confirm/reclassify → analyst_label is a positive label for that class; reject/false_positive → the "
@@ -337,7 +341,12 @@ def audit_log(action: str | None = None, page: Page = Depends(pagination), admin
     rows = db.execute(text(f"""SELECT a.*, u.email FROM audit_logs a LEFT JOIN users u ON u.id = a.user_id {where}
                                ORDER BY a.id DESC LIMIT :limit OFFSET :offset"""),
                       {"action": f"{action}%", "limit": page.limit, "offset": page.offset}).mappings().all()
-    return [dict(r) for r in rows]
+    out = [dict(r) for r in rows]
+    if admin.is_demo:
+        from app.services.explore import mask_pii
+
+        out = mask_pii(out)
+    return out
 
 
 @router.get("/admin/system", tags=["admin"], summary="Workers, queue depth, DB size, recent failures")

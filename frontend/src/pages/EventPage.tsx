@@ -7,9 +7,9 @@ import { EvidenceChain, PriorityPanel } from "../components/triage";
 import { ErrorState, Skeleton } from "../components/ui";
 import { useEvent } from "../lib/hooks";
 
-function P({ title, children, flush }: { title: string; children: React.ReactNode; flush?: boolean }) {
+function P({ title, children, flush, tourId }: { title: string; children: React.ReactNode; flush?: boolean; tourId?: string }) {
   return (
-    <section className="panel"><div className="panel-head"><h2>{title}</h2></div><div className={`panel-body ${flush ? "flush" : ""}`}>{children}</div></section>
+    <section className="panel" data-tour-id={tourId}><div className="panel-head"><h2>{title}</h2></div><div className={`panel-body ${flush ? "flush" : ""}`}>{children}</div></section>
   );
 }
 
@@ -25,14 +25,14 @@ export default function EventPage() {
         <Link to="/events" className="btn ghost sm"><ArrowLeft size={13} /> Events</Link>
         <Link to={`/map?event=${ev.public_id}`} className="btn ghost sm"><MapIcon size={13} /> Show on map</Link>
       </div>
-      <div className="page-head" style={{ alignItems: "flex-start" }}>
+      <div className="page-head" style={{ alignItems: "flex-start" }} data-tour-id="event-header">
         <EventHeader ev={ev} />
-        <div className="actions"><EventActions ev={ev} /></div>
+        <div className="actions" data-tour-id="event-actions"><EventActions ev={ev} /></div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.35fr) minmax(0, 1fr)", gap: 12, alignItems: "start" }}>
         <div className="stack" style={{ gap: 12 }}>
-          <P title="Investigation summary"><AnswerGrid ev={ev} /></P>
-          <P title="Evidence chain"><EvidenceChain ev={ev} /></P>
+          <P title="Investigation summary" tourId="investigation-summary"><AnswerGrid ev={ev} /></P>
+          <P title="How ThermalTrace thinks" tourId="evidence-chain"><EvidenceChain ev={ev} /></P>
           <P title="Evidence confidence matrix" flush><div className="table-wrap"><EvidenceMatrix ev={ev} /></div></P>
           <P title="Evidence bundle">
             {(["observed", "derived", "external", "model"] as const).map((k) => {
@@ -41,16 +41,16 @@ export default function EventPage() {
             })}
           </P>
           <P title="Nearby facilities" flush><div className="table-wrap"><FacilityList ev={ev} /></div></P>
-          <P title="Land cover (ESA WorldCover)"><LandCoverPanel ev={ev} /></P>
-          <P title="Persistence & evolution"><PersistencePanel ev={ev} /></P>
+          <P title="Land cover (ESA WorldCover)" tourId="landcover-panel"><LandCoverPanel ev={ev} /></P>
+          <P title="Persistence & evolution" tourId="persistence-panel"><PersistencePanel ev={ev} /></P>
           <P title="Data provenance" flush><Provenance ev={ev} /></P>
         </div>
         <div className="stack" style={{ gap: 12 }}>
-          <P title="Analyst review"><ReviewPanel ev={ev} /></P>
+          <P title="Analyst review" tourId="review-panel"><ReviewPanel ev={ev} /></P>
           <P title="Confidence components"><ConfidenceBreakdown ev={ev} /></P>
           <P title="Why is this prioritised?"><PriorityPanel p={ev.priority_components} /></P>
-          <P title="Model evidence"><ModelPanel ev={ev} /></P>
-          <P title="Spectral change (NDVI / NBR)"><SpectralChangePanel ev={ev} /></P>
+          <P title="Model evidence" tourId="model-panel"><ModelPanel ev={ev} /></P>
+          <P title="Spectral change (NDVI / NBR)" tourId="spectral-panel"><SpectralChangePanel ev={ev} /></P>
           <P title="Satellite imagery"><SatellitePanel ev={ev} /></P>
           <P title="Weather at last detection"><WeatherPanel ev={ev} /></P>
           <P title="Thermal fingerprint"><Fingerprint ev={ev} /></P>

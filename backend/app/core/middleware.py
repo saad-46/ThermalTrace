@@ -68,7 +68,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         client = request.client.host if request.client else "unknown"
         path = request.url.path
-        if path.startswith("/api/v1/auth/login"):
+        if path.startswith("/api/v1/auth/login") or (path == "/api/v1/auth/demo" and request.method == "POST"):
             ok = _limiter.hit(f"login:{client}", settings.login_rate_limit_per_minute)
         elif path.startswith("/api/"):
             # Authenticated traffic is limited per session token, not per IP: analysts behind one

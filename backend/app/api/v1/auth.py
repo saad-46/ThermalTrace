@@ -9,7 +9,7 @@ from app.core.errors import Conflict, NotFound, Unauthorized
 from app.core.security import create_access_token, hash_password, validate_password_strength, verify_password
 from app.db.session import get_db
 from app.models.auth import User, UserSession
-from app.schemas.api import LoginIn, TokenOut, UserCreate, UserOut, UserUpdate
+from app.schemas.api import DemoIn, LoginIn, TokenOut, UserCreate, UserOut, UserUpdate
 from app.schemas.api import Page as PageOut
 from app.services import audit
 
@@ -20,7 +20,7 @@ router = APIRouter(tags=["auth"])
 def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
     user = db.execute(select(User).where(User.email == body.email.lower())).scalar_one_or_none()
     ok = verify_password(body.password, user.password_hash if user else None)
-    if not ok or user is None or not user.is_active:
+    if not ok or user is None or not user.is_active or user.is_demo:  # demo accounts never log in with a password
         audit.record(db, request, user.id if user else None, "auth.login_failed", "user", None, {"email": body.email.lower()})
         db.commit()
         raise Unauthorized("Invalid email or password")
@@ -33,6 +33,34 @@ def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
     session.expires_at = expires
     user.last_login_at = datetime.now(UTC)
     audit.record(db, request, user.id, "auth.login", "user", user.id)
+    db.commit()
+    return TokenOut(access_token=token, expires_at=expires, user=UserOut.model_validate(user))
+
+
+@router.get("/auth/demo", summary="Whether guided exploration (read-only demo sessions) is available")
+def demo_config():
+    from app.core.config import settings
+    from app.services.explore import DEMO_ACCOUNTS
+
+    return {"enabled": settings.explore_mode_enabled, "roles": list(DEMO_ACCOUNTS) if settings.explore_mode_enabled else []}
+
+
+@router.post("/auth/demo", response_model=TokenOut, summary="Start a read-only guided exploration session (no credentials)")
+def demo_session(body: DemoIn, request: Request, db: Session = Depends(get_db)):
+    from app.core.config import settings
+    from app.services import explore
+
+    explore.ensure_enabled()
+    user = explore.demo_user(db, body.role)
+    expires = explore.session_expiry()
+    session = UserSession(user_id=user.id, expires_at=expires, user_agent=(request.headers.get("user-agent") or "")[:400],
+                          ip=request.client.host if request.client else None)
+    db.add(session)
+    db.flush()
+    token, expires = create_access_token(user.id, user.role, session.id, ttl_minutes=settings.explore_session_minutes)
+    session.expires_at = expires
+    user.last_login_at = datetime.now(UTC)
+    audit.record(db, request, user.id, "auth.demo_session", "user", user.id, {"role": body.role})
     db.commit()
     return TokenOut(access_token=token, expires_at=expires, user=UserOut.model_validate(user))
 
@@ -53,7 +81,8 @@ def me(user: User = CurrentUser):
 
 @router.get("/users/directory", summary="Minimal user directory for assignment pickers")
 def directory(user: User = CurrentUser, db: Session = Depends(get_db)):
-    rows = db.execute(select(User.id, User.full_name, User.role).where(User.is_active.is_(True), User.role != "viewer")
+    rows = db.execute(select(User.id, User.full_name, User.role).where(User.is_active.is_(True), User.role != "viewer",
+                                                                     User.is_demo.is_(False))
                       .order_by(User.full_name)).all()
     return [{"id": r.id, "full_name": r.full_name, "role": r.role} for r in rows]
 
@@ -62,6 +91,10 @@ def directory(user: User = CurrentUser, db: Session = Depends(get_db)):
 def list_users(page: Page = Depends(pagination), admin: User = AdminUser, db: Session = Depends(get_db)):
     total = db.execute(select(func.count(User.id))).scalar_one()
     items = db.execute(select(User).order_by(User.created_at.desc()).limit(page.limit).offset(page.offset)).scalars().all()
+    if admin.is_demo:
+        from app.services.explore import mask_pii
+
+        items = [mask_pii(UserOut.model_validate(u).model_dump()) for u in items]
     return {"items": items, "total": total, "limit": page.limit, "offset": page.offset}
 
 

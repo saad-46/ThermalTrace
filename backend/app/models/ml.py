@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, Float, ForeignKey, Index, String, Text
+from sqlalchemy import Boolean, Float, ForeignKey, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -69,7 +69,10 @@ class Classification(Base):
     """The system's adjudicated classification (models + confidence engine). One current row per event."""
 
     __tablename__ = "classifications"
-    __table_args__ = (Index("ix_classifications_event_current", "event_id", "is_current"),)
+    __table_args__ = (
+        Index("ix_classifications_event_current", "event_id", "is_current"),
+        Index("ix_classifications_current_model", "primary_model_id", postgresql_where=text("is_current")),
+    )
 
     id: Mapped[uuid.UUID] = uuid_pk()
     event_id: Mapped[uuid.UUID] = mapped_column(

@@ -6,6 +6,9 @@ import { SessionProvider, useIsMobile, useSession } from "./lib/session";
 import { Skeleton, ToastProvider } from "./components/ui";
 import DesktopShell from "./pages/DesktopShell";
 import Login from "./pages/Login";
+import { TourProvider } from "./tour/TourProvider";
+
+const TourOverlay = lazy(() => import("./tour/TourOverlay"));
 
 const Overview = lazy(() => import("./pages/Overview"));
 const LiveMap = lazy(() => import("./pages/LiveMap"));
@@ -33,13 +36,16 @@ const qc = new QueryClient({
 });
 
 function Gate() {
-  const { user, loading } = useSession();
+  const { user, loading, isDemo } = useSession();
   const mobile = useIsMobile();
   if (loading) return <div className="auth"><div style={{ width: 240 }}><Skeleton lines={3} /></div></div>;
   if (!user) return <Login />;
   const fallback = <div className="page"><Skeleton lines={6} /></div>;
-  if (mobile) return <Suspense fallback={fallback}><MobileApp /></Suspense>;
+  const tour = isDemo ? <Suspense fallback={null}><TourOverlay /></Suspense> : null;
+  if (mobile) return <><Suspense fallback={fallback}><MobileApp /></Suspense>{tour}</>;
   return (
+    <>
+    {tour}
     <Routes>
       <Route element={<DesktopShell />}>
         <Route index element={<Navigate to="/map" replace />} />
@@ -59,6 +65,7 @@ function Gate() {
         <Route path="*" element={<div className="page"><h1>Not found</h1><p className="muted">This page does not exist.</p></div>} />
       </Route>
     </Routes>
+    </>
   );
 }
 
@@ -68,7 +75,9 @@ export default function App() {
       <BrowserRouter>
         <SessionProvider>
           <ToastProvider>
-            <Gate />
+            <TourProvider>
+              <Gate />
+            </TourProvider>
           </ToastProvider>
         </SessionProvider>
       </BrowserRouter>

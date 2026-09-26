@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { api, auth, post } from "./api";
-import type { Role, User } from "./types";
+import type { DemoRole, Role, User } from "./types";
 
 const RANK: Record<Role, number> = { viewer: 0, analyst: 1, supervisor: 2, admin: 3 };
 
@@ -11,6 +11,10 @@ interface SessionCtx {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   can: (min: Role) => boolean;
+  /** True for read-only guided exploration sessions. */
+  isDemo: boolean;
+  /** Start a read-only demo session for a role (no credentials; the server decides whether this is enabled). */
+  startDemo: (role: DemoRole) => Promise<void>;
 }
 
 const Ctx = createContext<SessionCtx | null>(null);
@@ -41,6 +45,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       can(min) {
         const u = token ? me.data : null;
         return !!u && RANK[u.role] >= RANK[min];
+      },
+      isDemo: !!(token && me.data?.is_demo),
+      async startDemo(role) {
+        if (auth.token) {
+          // Switching roles: end the current demo session first so no demo privileges linger.
+          try { await post("/auth/logout"); } catch { /* already expired */ }
+        }
+        const res = await post<{ access_token: string; user: User }>("/auth/demo", { role });
+        qc.clear();
+        auth.set(res.access_token);
+        qc.setQueryData(["me", res.access_token], res.user);
       },
     }),
     [token, me.data, me.isLoading, qc],

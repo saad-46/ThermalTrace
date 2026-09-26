@@ -13,6 +13,7 @@ import traceback
 from datetime import UTC, datetime
 
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import DBAPIError
 
 from app.core.config import settings
 from app.core.logging import configure_logging, job_id_var
@@ -78,24 +79,43 @@ def main() -> None:
     queue.recover_stale(db)
     logger.info("worker %s up (scheduler=%s, lane=%s)", worker_id, args.scheduler, args.lane)
     last_beat = 0.0
+    backoff = 2.0
     while not _stop:
-        now = time.monotonic()
-        if args.scheduler:
-            for kind, (interval, payload, priority) in SCHEDULE.items():
-                if now - last_enqueued.get(kind, -1e9) >= interval:
-                    queue.enqueue(db, kind, payload, dedupe_key=f"sched:{kind}", priority=priority)
-                    last_enqueued[kind] = now
-        if now - last_beat > 30:
-            _heartbeat(db, worker_id, started, done, args.scheduler)
-            last_beat = now
-        job = queue.claim(db, worker_id, kinds)
-        if job is None:
-            if args.once:
-                break
-            time.sleep(2)
-            continue
-        run_one(db, job)
-        done += 1
+        try:
+            now = time.monotonic()
+            if args.scheduler:
+                for kind, (interval, payload, priority) in SCHEDULE.items():
+                    if now - last_enqueued.get(kind, -1e9) >= interval:
+                        queue.enqueue(db, kind, payload, dedupe_key=f"sched:{kind}", priority=priority)
+                        last_enqueued[kind] = now
+            if now - last_beat > 30:
+                _heartbeat(db, worker_id, started, done, args.scheduler)
+                last_beat = now
+            job = queue.claim(db, worker_id, kinds)
+            if job is None:
+                if args.once:
+                    break
+                time.sleep(2)
+                continue
+            run_one(db, job)
+            done += 1
+            backoff = 2.0
+        except DBAPIError as exc:
+            # Database restarted or unreachable: keep the worker alive, reconnect with backoff. A job interrupted
+            # mid-run is requeued by recover_stale once it is older than its stale threshold.
+            logger.warning("database unavailable (%s); retrying in %.0fs", type(exc.orig).__name__ if exc.orig else exc, backoff)
+            try:
+                db.rollback()
+                db.close()
+            except DBAPIError:
+                pass
+            time.sleep(backoff)
+            backoff = min(backoff * 2, 60.0)
+            db = SessionLocal()
+            try:
+                queue.recover_stale(db)
+            except DBAPIError:
+                db.rollback()
     db.close()
     logger.info("worker %s stopped after %d jobs", worker_id, done)
 

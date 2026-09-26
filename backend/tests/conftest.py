@@ -16,6 +16,8 @@ PROVIDER_CREDENTIALS = (
 )
 for _name in PROVIDER_CREDENTIALS:
     os.environ[_name] = ""
+# Behaviour switches a local .env may turn on; tests that need them enable them explicitly.
+os.environ["EXPLORE_MODE_ENABLED"] = "false"
 
 if TEST_DB:
     # Must be set before app modules create the engine.

@@ -38,7 +38,7 @@ export default function Overview() {
         <div className="actions"><Link className="btn primary" to="/map">Open live map</Link></div>
       </div>
       <Async q={summary} lines={2}>{(s) => (
-        <div className="metrics" style={{ marginBottom: 12 }}>
+        <div className="metrics" style={{ marginBottom: 12 }} data-tour-id="overview-metrics">
           <div className="metric"><div className="label">Events (7 d)</div><div className="value">{s.totals.events.toLocaleString()}</div><div className="hint">{s.totals.detections.toLocaleString()} detections</div></div>
           <div className="metric"><div className="label">Active now</div><div className="value">{s.totals.active.toLocaleString()}</div><div className="hint">seen within 5 days</div></div>
           <div className="metric"><div className="label">Persistent</div><div className="value">{s.totals.persistent}</div><div className="hint">sustained sources</div></div>
@@ -48,7 +48,7 @@ export default function Overview() {
       )}</Async>
       <div className="grid" style={{ gridTemplateColumns: "minmax(0, 1.6fr) minmax(0, 1fr)" }}>
         <div className="stack" style={{ gap: 12 }}>
-          <section className="panel">
+          <section className="panel" data-tour-id="overview-trends">
             <div className="panel-head"><h2>Detections per day by classification</h2><span className="right faint">14 days</span></div>
             <div className="panel-body">
               <Async q={trends} empty={() => (buckets.length ? null : <Empty title="No detections in range" />)}>
@@ -85,7 +85,7 @@ export default function Overview() {
               )}</Async>
             </div>
           </section>
-          <section className="panel">
+          <section className="panel" data-tour-id="overview-sources">
             <div className="panel-head"><h2>Source health</h2><span className="right"><Link to="/sources">Details</Link></span></div>
             <div className="panel-body">
               <Async q={sources}>{(d) => (

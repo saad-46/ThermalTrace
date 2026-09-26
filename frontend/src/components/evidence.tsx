@@ -1,7 +1,7 @@
 import { ExternalLink } from "lucide-react";
 import { Link } from "react-router-dom";
 import { compass, coordsLabel, fmtDate, fmtDateTime, fmtDistance, fmtNum, fmtPct, locationLabel, relTime, titleCase } from "../lib/format";
-import { CLASS_META, FACILITY_LABELS, KNOWLEDGE_LABELS, SOURCE_NAMES } from "../lib/taxonomy";
+import { CLASS_META, CONFIDENCE_EXPLAINER, FACILITY_LABELS, KNOWLEDGE_LABELS, SOURCE_NAMES, confidenceNote } from "../lib/taxonomy";
 import type { EventDetail, EventSummary, Evidence } from "../lib/types";
 import { ContributionChart, EvolutionChart } from "./charts";
 import { PersistenceStrip } from "./triage";
@@ -38,7 +38,8 @@ export function AnswerGrid({ ev }: { ev: EventDetail }) {
       <dt>Weather</dt>
       <dd>{ev.weather[0] ? `${ev.weather[0].condition ?? "—"}, wind ${fmtNum(ev.weather[0].wind_speed_ms)} m/s from ${compass(ev.weather[0].wind_direction_deg)}` : <span className="faint">Not available</span>}</dd>
       <dt>Confidence</dt>
-      <dd><StatePill state={ev.display_state} /> <span className="num">{fmtNum(ev.confidence_score, 2)}</span></dd>
+      <dd><StatePill state={ev.display_state} /> <span className="num">{fmtNum(ev.confidence_score, 2)}</span>
+        <div className="faint" style={{ fontSize: 11.5 }}>{confidenceNote(ev.display_state)}</div></dd>
       <dt>Missing</dt>
       <dd>{missing.length ? missing.join(", ") : <span className="faint">Nothing flagged</span>}</dd>
       <dt>Analyst</dt>
@@ -81,7 +82,7 @@ export function ConfidenceBreakdown({ ev }: { ev: EventDetail }) {
         <span className="num" style={{ fontWeight: 600 }}>{c.score.toFixed(2)}</span>
       </div>
       <div className="faint" style={{ fontSize: 11.5 }}>
-        Thresholds: &lt;0.40 insufficient · &lt;0.55 low · &lt;0.72 moderate · ≥0.72 high. "Confirmed" additionally requires multi-sensor, context and an imagery check.
+        {CONFIDENCE_EXPLAINER} Thresholds: &lt;0.40 insufficient · &lt;0.55 low · &lt;0.72 moderate · ≥0.72 high. "Confirmed" additionally requires multi-sensor, context and an imagery check, or an analyst decision.
       </div>
     </div>
   );

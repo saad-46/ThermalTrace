@@ -53,6 +53,10 @@ alembic downgrade base                  # tested in CI: tests/conftest.py runs b
 | 0003 | `thermal_events.priority_score` (indexed) + `priority_components`; `alert_rules.cooldown_minutes` + `last_notified_at`; `facility_sync_tiles`; pg_trgm extension and GIN trigram indexes on `facilities.name` and `thermal_events.admin_district` | ✅ |
 | 0004 | `landcover_observations` and `imagery_analyses` (one row per event, cascade on delete); `alert_rules.min_priority`, `min_repeat_events`, `repeat_days`, `activity_increase`; data source `esa_worldcover` | ✅ |
 | 0005 | `places` (GiST-indexed GeoNames cities500 for the region); `thermal_events.place_name`, `place_admin1`, `place_country`, `place_distance_m` (+ trigram index on `place_name`); data source `geonames` | ✅ |
+| 0006 | `users.is_demo` (system accounts behind guided exploration; downgrade deactivates them first) | ✅ |
+| 0007 | `land_context.osm_id` INTEGER → BIGINT (OpenStreetMap ids passed 2^31; downgrade removes rows that no longer fit) | ✅ |
+| 0008 | Indexes for the slow read paths at full-year scale: current classifications per model, persistent-source ranking, priority queue order (`priority_score DESC NULLS LAST, id`), trigram search on event id, state and region | ✅ |
+| 0009 | `cube` + `btree_gist` extensions; GiST KNN index over the five numeric fingerprint dimensions keyed by facility type (similar events), `lower(admin_district)` (watchlist district items) | ✅ |
 
 `alembic check` reports no drift between models and schema. The integration suite runs `downgrade base → upgrade head` on every run, and it has passed repeatedly against a populated test database.
 

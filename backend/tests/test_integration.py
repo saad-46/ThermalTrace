@@ -472,3 +472,208 @@ def test_events_are_named_by_the_nearest_place_and_far_events_stay_unnamed(clien
     assert found["total"] == 1 and found["items"][0]["id"] == near["id"]  # searching a place finds the events near it
     s = client.get("/api/v1/search", headers=h, params={"q": "Dhanb"}).json()
     assert s["places"] and s["places"][0]["admin_district"] == "Dhanbad" and s["places"][0]["admin_state"] == "Jharkhand"
+
+
+def _explore(client, monkeypatch, role="analyst"):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "explore_mode_enabled", True)
+    r = client.post("/api/v1/auth/demo", json={"role": role})
+    assert r.status_code == 200, r.text
+    return {"Authorization": f"Bearer {r.json()['access_token']}"}, r.json()
+
+
+def test_explore_mode_is_off_unless_enabled(client):
+    assert client.get("/api/v1/auth/demo").json() == {"enabled": False, "roles": []}
+    r = client.post("/api/v1/auth/demo", json={"role": "admin"})
+    assert r.status_code == 404  # indistinguishable from a route that does not exist
+
+
+def test_explore_sessions_are_read_only_and_audited(client, db, monkeypatch):
+    from sqlalchemy import text
+
+    from app.processing.pipeline import process_new_detections
+
+    _facility(db)
+    _ingest(db, _flare_site(3))
+    process_new_detections(db)
+    h, body = _explore(client, monkeypatch, "analyst")
+    assert body["user"]["is_demo"] is True and body["user"]["role"] == "analyst"
+    assert client.get("/api/v1/auth/me", headers=h).json()["is_demo"] is True
+    pid = client.get("/api/v1/events", headers=h).json()["items"][0]["public_id"]
+    assert client.get(f"/api/v1/events/{pid}", headers=h).status_code == 200  # reads work
+    for method, path, payload in (("post", f"/api/v1/events/{pid}/reviews", {"decision": "confirm"}),
+                                  ("post", f"/api/v1/events/{pid}/notes", {"body": "x"}),
+                                  ("post", "/api/v1/reports", {"event_id": pid}),
+                                  ("post", "/api/v1/alert-rules", {"name": "x", "min_priority": 1}),
+                                  ("post", "/api/v1/watchlists", {"name": "x"})):
+        r = getattr(client, method)(path, headers=h, json=payload)
+        assert r.status_code == 403 and r.json()["error"]["code"] == "demo_read_only", (path, r.text)
+    assert db.execute(text("SELECT count(*) FROM analyst_reviews")).scalar() == 0
+    assert db.execute(text("SELECT count(*) FROM audit_logs WHERE action = 'auth.demo_session'")).scalar() == 1
+    assert client.post("/api/v1/auth/logout", headers=h).status_code == 204  # the only write allowed
+    assert client.get("/api/v1/auth/me", headers=h).status_code == 401  # and it really ends the session
+
+
+def test_explore_admin_sees_admin_views_with_personal_data_masked_and_cannot_mutate(client, db, monkeypatch, make_user):
+    make_user("analyst", email="real.person@agency.gov.in")
+    h, _ = _explore(client, monkeypatch, "admin")
+    users = client.get("/api/v1/admin/users", headers=h).json()["items"]
+    emails = {u["email"] for u in users}
+    assert "real.person@agency.gov.in" not in emails and "r***@agency.gov.in" in emails
+    audit_rows = client.get("/api/v1/admin/audit", headers=h).json()
+    assert audit_rows and all(r["ip"] in (None, "hidden in demo mode") for r in audit_rows)
+    assert client.get("/api/v1/admin/system", headers=h).status_code == 200
+    real = next(u for u in users if u["email"].startswith("r***"))
+    for method, path, payload in (("patch", f"/api/v1/admin/users/{real['id']}", {"role": "admin"}),
+                                  ("post", "/api/v1/admin/users", {"email": "x@y.org", "full_name": "x", "role": "admin", "password": "Str0ng-Test-Pass!"}),
+                                  ("post", "/api/v1/ingestion/trigger", {"kind": "firms_poll", "payload": {}}),
+                                  ("post", "/api/v1/models/rule-cascade-v1.1/activate", None)):
+        r = getattr(client, method)(path, headers=h, json=payload)
+        assert r.status_code == 403 and r.json()["error"]["code"] == "demo_read_only", (path, r.text)
+    assert client.get("/api/v1/satellite/00000000-0000-0000-0000-000000000000/swir.png", headers=h).json()["error"]["code"] == "demo_quota_protected"
+
+
+def test_demo_accounts_cannot_log_in_with_a_password_and_are_not_assignable(client, db, monkeypatch, auth_headers):
+    from sqlalchemy import text
+
+    _explore(client, monkeypatch, "admin")
+    email = db.execute(text("SELECT email FROM users WHERE is_demo")).scalar_one()
+    assert email.endswith(".invalid")
+    r = client.post("/api/v1/auth/login", json={"email": email, "password": "anything-at-all"})
+    assert r.status_code == 401
+    names = [u["full_name"] for u in client.get("/api/v1/users/directory", headers=auth_headers("supervisor")).json()]
+    assert "Demo Administrator" not in names
+    # a real login still works alongside demo mode
+    assert client.get("/api/v1/auth/me", headers=auth_headers("analyst")).json()["is_demo"] is False
+
+
+def test_old_or_backfilled_events_never_alert(client, db, auth_headers, monkeypatch):
+    """A historical backfill must not notify anyone about months-old events; recent events still alert."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.processing.pipeline import process_new_detections
+    from app.services import alerts
+
+    sent = []
+    monkeypatch.setattr(alerts.settings, "smtp_host", "smtp.test.invalid")
+    monkeypatch.setattr(alerts.settings, "smtp_from", "tt@test.org")
+    monkeypatch.setattr(alerts, "_send_email", lambda to, alert: sent.append(alert.title))
+    old = datetime.now(UTC).replace(microsecond=0) - timedelta(days=120)
+    _ingest(db, [_row(28.0, 77.0, old, frp=60), _row(28.001, 77.001, old + timedelta(hours=1), frp=70)])
+    process_new_detections(db)
+    h = auth_headers("analyst")
+    r = client.post("/api/v1/alert-rules", headers=h, json={"name": "anything", "min_priority": 0, "channels": ["in_app", "email"]})
+    assert r.status_code == 201 and r.json()["alert_count"] == 0 and sent == []
+    _ingest(db, [_row(22.0, 70.0, datetime.now(UTC).replace(microsecond=0), frp=60)])
+    res = process_new_detections(db)
+    assert alerts.evaluate_rules(db, res["event_ids"])["alerts"] == 1 and len(sent) == 1
+
+
+def test_land_context_accepts_current_openstreetmap_ids(db):
+    """OSM ids passed 2^31; a 32-bit column made land-use enrichment fail with 'integer out of range'."""
+    from datetime import UTC, datetime
+
+    from sqlalchemy import text
+
+    from app.models.facilities import LandContext
+    from app.processing.pipeline import process_new_detections
+
+    _ingest(db, [_row(22.0, 70.0, datetime.now(UTC).replace(microsecond=0), frp=30)])
+    process_new_detections(db)
+    ev_id = db.execute(text("SELECT id FROM thermal_events")).scalar_one()
+    db.add(LandContext(event_id=ev_id, osm_type="way", osm_id=3_000_000_123, category="farmland", distance_m=120.0,
+                       tags={}, retrieved_at=datetime.now(UTC)))
+    db.commit()
+    assert db.execute(text("SELECT osm_id FROM land_context")).scalar_one() == 3_000_000_123
+
+
+def test_featured_event_is_the_real_event_with_most_evidence(client, db, auth_headers):
+    from app.processing.pipeline import process_new_detections
+
+    h = auth_headers("analyst")
+    assert client.get("/api/v1/events/featured", headers=h).json() is None  # empty database: nothing invented
+    _facility(db)
+    _ingest(db, _flare_site(7))
+    _ingest(db, [_row(28.0, 77.0, datetime.now(UTC) - timedelta(days=1), frp=3, dn="D")])
+    process_new_detections(db)
+    # Even if the weak, isolated event were at the top of the queue, the evidence-rich one is featured.
+    db.execute(text("UPDATE thermal_events SET priority_score = CASE WHEN observation_count = 1 THEN 99 ELSE 10 END"))
+    db.commit()
+    f = client.get("/api/v1/events/featured", headers=h).json()
+    assert f["observation_count"] == 21
+    assert "a mapped facility within 2 km" in f["selection_reasons"]
+    assert "persistent or recurring heat" in f["selection_reasons"]
+    assert "no Sentinel-2 before/after analysis" in f["unavailable_evidence"]  # stated, not invented
+
+
+def test_similar_events_equal_a_full_fingerprint_scan(db):
+    import json
+    import math
+
+    from app.processing.pipeline import process_new_detections
+    from app.repositories.events import similar_events
+
+    now = datetime.now(UTC) - timedelta(days=1)
+    _ingest(db, [_row(10 + 2 * i, 75.0, now, frp=5 + i) for i in range(8)])
+    process_new_detections(db)
+    ids = [r[0] for r in db.execute(text("SELECT id FROM thermal_events ORDER BY latitude"))]
+    types = ["refinery", "refinery", "refinery", None, "mine", "refinery", None, "mine"]
+    fps = [{"intensity": 0.1 * i, "persistence": 0.5, "facility_proximity": 0.2 * (i % 3), "night_share": 1.0,
+            "sensor_agreement": 0.3, "facility_type": t} for i, t in enumerate(types)]
+    for i, fp in zip(ids, fps, strict=True):
+        db.execute(text("UPDATE thermal_events SET fingerprint = CAST(:fp AS jsonb) WHERE id = :id"), {"fp": json.dumps(fp), "id": i})
+    db.commit()
+
+    def dist(a, b):
+        d = sum((a[k] - b[k]) ** 2 for k in ("intensity", "persistence", "facility_proximity", "night_share", "sensor_agreement"))
+        return math.sqrt(d + (0.3 if a["facility_type"] != b["facility_type"] else 0))
+
+    for me in range(len(ids)):
+        for limit in (1, 3, 6):
+            expected = sorted((dist(fps[j], fps[me]), j) for j in range(len(ids)) if j != me)[:limit]
+            got = similar_events(db, ids[me], limit)
+            assert [r["fp_distance"] for r in got] == pytest.approx([d for d, _ in expected])
+
+
+def test_creating_a_rule_evaluates_only_that_rule(client, db, auth_headers, make_user):
+    from app.processing.pipeline import process_new_detections
+
+    _facility(db)
+    _ingest(db, _flare_site(7))
+    process_new_detections(db)
+    h = auth_headers("analyst")
+    first = client.post("/api/v1/alert-rules", headers=h, json={"name": "first", "min_priority": 0}).json()
+    assert first["alert_count"] == 1
+    db.execute(text("DELETE FROM alerts WHERE rule_id = :r"), {"r": first["id"]})
+    db.commit()
+    other, pw = make_user("analyst", email="other@test.org")
+    tok = client.post("/api/v1/auth/login", json={"email": other.email, "password": pw}).json()["access_token"]
+    second = client.post("/api/v1/alert-rules", headers={"Authorization": f"Bearer {tok}"},
+                         json={"name": "second", "min_priority": 0}).json()
+    assert second["alert_count"] == 1
+    # Another user's rule is not re-run (and cannot notify anyone) because a new rule was created.
+    assert db.execute(text("SELECT count(*) FROM alerts WHERE rule_id = :r"), {"r": first["id"]}).scalar() == 0
+
+
+def test_watchlist_matches_every_item_kind_once(client, db, auth_headers):
+    from app.processing.pipeline import process_new_detections
+
+    fac = _facility(db)
+    _ingest(db, _flare_site(7))
+    _ingest(db, [_row(28.0, 77.0, datetime.now(UTC) - timedelta(days=1), frp=3, dn="D")])
+    process_new_detections(db)
+    weak = db.execute(text("SELECT id, public_id FROM thermal_events WHERE observation_count = 1")).one()
+    db.execute(text("UPDATE thermal_events SET admin_district = 'Firozpur' WHERE id = :i"), {"i": weak.id})
+    db.commit()
+    h = auth_headers("analyst")
+    wl = client.post("/api/v1/watchlists", headers=h, json={"name": "all kinds"}).json()
+
+    def add_and_count(item: dict) -> int:
+        assert client.post(f"/api/v1/watchlists/{wl['id']}/items", headers=h, json=item).status_code == 201
+        return client.get(f"/api/v1/watchlists/{wl['id']}", headers=h).json()["summary"]["events"]
+
+    assert add_and_count({"kind": "location", "label": "site", "latitude": 22.35, "longitude": 69.85, "radius_m": 5000}) == 1
+    assert add_and_count({"kind": "district", "label": "Firozpur", "admin_district": "firozpur"}) == 2  # case-insensitive
+    assert add_and_count({"kind": "facility", "label": "refinery", "facility_id": str(fac.id)}) == 2  # same event, counted once
+    assert add_and_count({"kind": "event", "label": weak.public_id, "event_id": str(weak.id)}) == 2

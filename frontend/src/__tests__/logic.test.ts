@@ -57,7 +57,15 @@ describe("qualitative confidence decomposition", () => {
 describe("evidence chain", () => {
   it("builds all stages from real bundle fields and flags missing ones", () => {
     const chain = buildEvidenceChain(event());
-    expect(chain.map((s) => s.key)).toEqual(["detection", "location", "landcover", "facility", "persistence", "satellite", "weather", "classification", "confidence"]);
+    expect(chain.map((s) => s.key)).toEqual(["detection", "clustering", "location", "facility", "landcover", "persistence", "satellite",
+      "weather", "classification", "confidence", "explainability", "review", "status"]);
+    // Every stage names its source and what it contributes; none presents confidence as a probability of fire.
+    for (const s of chain) {
+      expect(s.source.length).toBeGreaterThan(0);
+      expect(s.contribution.length).toBeGreaterThan(0);
+    }
+    expect(chain.find((s) => s.key === "confidence")!.contribution).toContain("not the probability of a fire");
+    expect(chain.find((s) => s.key === "status")!.contribution).toBe("Confirmed only after imagery confirmation or analyst review.");
     expect(chain.find((s) => s.key === "facility")!.summary).toContain("ArcelorMittal");
     expect(chain.find((s) => s.key === "satellite")!.state).toBe("missing");
     expect(chain.find((s) => s.key === "satellite")!.summary).toBe("No scene available");
@@ -68,6 +76,12 @@ describe("evidence chain", () => {
     const f = buildEvidenceChain(ev).find((s) => s.key === "facility")!;
     expect(f.state).toBe("missing");
     expect(f.summary).toBe("Not yet retrieved");
+  });
+
+  it("an unreviewed event says so instead of implying confirmation", () => {
+    const chain = buildEvidenceChain(event({ reviews: [] }));
+    expect(chain.find((s) => s.key === "review")!.summary).toBe("Not reviewed yet");
+    expect(chain.find((s) => s.key === "review")!.state).toBe("missing");
   });
 });
 

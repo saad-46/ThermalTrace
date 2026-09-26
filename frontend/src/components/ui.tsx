@@ -3,13 +3,13 @@ import { Component, createContext, useCallback, useContext, useState, type Error
 import { ApiError } from "../lib/api";
 import { relTime } from "../lib/format";
 import { useStatus } from "../lib/hooks";
-import { CLASS_META, PERSISTENCE_META, STATE_META } from "../lib/taxonomy";
+import { CLASS_META, PERSISTENCE_META, STATE_META, confidenceNote } from "../lib/taxonomy";
 import type { DataMode, DisplayState, PersistenceClass, SourceClass } from "../lib/types";
 
 export function StatePill({ state, title }: { state: DisplayState | null | undefined; title?: string }) {
   const meta = STATE_META[state ?? "INSUFFICIENT_EVIDENCE"];
   return (
-    <span className={`pill ${meta.tone}`} title={title ?? meta.hint}>
+    <span className={`pill ${meta.tone}`} title={title ?? `${meta.hint}. ${confidenceNote(state)}`}>
       {meta.label}
     </span>
   );

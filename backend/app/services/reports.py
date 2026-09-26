@@ -98,8 +98,9 @@ def build_pdf(ev: dict, author: str | None) -> bytes:
     story.append(P(f"Generated {_fmt_dt(datetime.now(UTC))}" + (f" by {author}" if author else "") +
                    f". Data mode: {ev['data_mode'].upper()}.", small))
     story.append(P("This report summarises automated analysis of satellite thermal detections and third-party context. "
-                   "Classifications are model outputs with the confidence shown; they are not verified findings unless an "
-                   "analyst assessment below states otherwise.", small))
+                   "Classifications are automated assessments. Confidence reflects the available evidence supporting the "
+                   "classification; it is not the probability of a fire, and supporting evidence is not proof. An event is "
+                   "confirmed only after imagery confirmation or analyst review (see the analyst assessment below).", small))
     story.append(Spacer(1, 4))
 
     cls = CLASS_LABELS.get(ev["classification"], ev["classification"] or "–")
