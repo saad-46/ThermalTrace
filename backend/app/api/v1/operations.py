@@ -17,7 +17,7 @@ from app.models.ops import DataSource, IngestionError, IngestionRun, Job
 from app.processing.features import FEATURES
 from app.schemas.api import IngestionTriggerIn, JobOut
 from app.schemas.api import Page as PageOut
-from app.services import audit
+from app.services import audit, source_health
 from app.services.source_health import configuration_state
 from app.workers.queue import enqueue
 
@@ -162,9 +162,13 @@ def sources(user: User = CurrentUser, db: Session = Depends(get_db)):
             status_ = "enabled" if settings.demo_mode else "disabled"
         elif state.get("configured") is False and s.status in ("unknown",):
             status_ = "not_configured"
+        eff = source_health.effective_state(s.id, s.status, s.access, s.last_success_at is not None, cfg)
+        req = source_health.REQUIREMENTS.get(s.id, {})
         out.append({**{c.key: getattr(s, c.key) for c in DataSource.__table__.columns}, "status": status_,
                     "error_rate": round(err_rate, 3) if err_rate is not None else None,
-                    "configuration": state, "last_run": runs.get(s.id)})
+                    "configuration": state, "last_run": runs.get(s.id),
+                    "state": eff["state"], "state_reason": eff["reason"], "requirement": eff["requirement"],
+                    "requirement_env": req.get("env"), "requirement_how": req.get("how")})
     return out
 
 

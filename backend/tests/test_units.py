@@ -491,14 +491,49 @@ def test_worker_survives_a_database_outage(monkeypatch):
     assert calls["claim"] == 2 and calls["sessions"] == 2  # reconnected with a fresh session, then kept polling
 
 
-def test_public_source_states_never_overstate_availability():
-    from app.api.v1.public import source_state
+def test_source_states_never_overstate_availability():
+    from app.services.source_health import effective_state
 
-    assert source_state("healthy", True, True) == "active"
-    assert source_state("degraded", True, True) == "degraded"
-    assert source_state("down", True, True) == "unavailable"
-    assert source_state("unknown", False, False) == "not_configured"
-    assert source_state("unknown", True, False) == "standby"  # configured but never succeeded: not called active
+    cfg = {"cdse": {"configured": False}, "cea": {"configured": True}, "osm": {"configured": True}}
+    st = lambda *a: effective_state(*a, cfg=cfg)["state"]  # noqa: E731
+    assert st("osm", "healthy", "api", True) == "active"
+    assert st("osm", "degraded", "api", True) == "degraded"
+    assert st("osm", "down", "api", True) == "unavailable"
+    assert st("cdse", "unknown", "oauth", False) == "credentials_required"
+    assert st("cea", "unknown", "file_import", False) == "import_required"
+    # configured but never exercised: not called active until a real request succeeds
+    assert st("cdse", "unknown", "oauth", False) != "active"
+    assert effective_state("cdse", "unknown", "oauth", False, cfg={"cdse": {"configured": True}})["state"] == "not_used"
+    eff = effective_state("cdse", "unknown", "oauth", False, cfg=cfg)
+    assert eff["requirement"] == "Copernicus Data Space OAuth client" and "COPERNICUS" not in eff["requirement"]
+
+
+def test_source_probe_records_real_outcomes_only(monkeypatch):
+    from app.integrations import sentinel
+    from app.integrations.http import ProviderAuthError
+    from app.workers import tasks
+
+    calls = []
+
+    class DB:
+        def commit(self): ...
+
+    monkeypatch.setattr("app.services.source_health.record_success", lambda db, sid, *a, **k: calls.append(("ok", sid)))
+    monkeypatch.setattr("app.services.source_health.record_failure", lambda db, sid, err: calls.append(("fail", sid, err)))
+
+    monkeypatch.setattr(sentinel.SatellitePreviewService, "swir_available", staticmethod(lambda: False))
+    assert tasks.source_probe(DB(), {}, None) == {"cdse": "not configured"} and calls == []  # nothing marked healthy
+
+    monkeypatch.setattr(sentinel.SatellitePreviewService, "swir_available", staticmethod(lambda: True))
+    monkeypatch.setattr(sentinel, "verify_cdse_credentials", lambda: 123.0)
+    assert tasks.source_probe(DB(), {}, None) == {"cdse": "ok"} and calls[-1] == ("ok", "cdse")
+
+    def reject():
+        raise ProviderAuthError("cdse", "invalid_client")
+    monkeypatch.setattr(sentinel, "verify_cdse_credentials", reject)
+    assert tasks.source_probe(DB(), {}, None)["cdse"] == "failed (auth)" and calls[-1][0] == "fail"
+    assert "source_probe" in tasks.SCHEDULE
+
 
 
 def test_public_landing_serves_the_previous_snapshot_while_refreshing(monkeypatch):

@@ -51,3 +51,56 @@ def configuration_state() -> dict[str, dict]:
         "push": {"configured": bool(settings.vapid_public_key and settings.vapid_private_key)},
         "demo": {"configured": settings.demo_mode},
     }
+
+
+# What a source needs beyond network access. `label` is safe to show publicly; `env` and `how` only to signed-in users.
+REQUIREMENTS: dict[str, dict] = {
+    "cdse": {"type": "credentials", "label": "Copernicus Data Space OAuth client",
+             "env": ["COPERNICUS_CLIENT_ID", "COPERNICUS_CLIENT_SECRET"],
+             "how": "Register at dataspace.copernicus.eu, then create an OAuth client under User settings (Sentinel Hub dashboard)."},
+    "firms": {"type": "credentials", "label": "NASA FIRMS MAP_KEY (historical and area API; NRT files work without it)",
+              "env": ["FIRMS_MAP_KEY"], "optional": True,
+              "how": "Request a free MAP_KEY at firms.modaps.eosdis.nasa.gov/api/map_key/."},
+    "cea": {"type": "file", "label": "CEA station list with coordinates",
+            "how": "Transcribe a named CEA publication into data/datasets/cea_template.csv, then run "
+                   "python -m app.cli import-registry --source cea --path <file> --version <publication> --published <date>."},
+    "gem": {"type": "file", "label": "Global Energy Monitor tracker file",
+            "how": "Download a GEM tracker release and run python -m app.cli import-registry --source gem --path <file>."},
+    "wri_gppd": {"type": "file", "label": "WRI Global Power Plant Database CSV",
+                 "how": "python -m app.cli import-registry --source wri_gppd (downloads the CC BY 4.0 CSV)."},
+}
+
+STATE_REASONS = {
+    "active": "Connected",
+    "degraded": "Recent requests are failing",
+    "unavailable": "Not responding",
+    "credentials_required": "Credentials required",
+    "import_required": "Data file import required",
+    "not_used": "Configured, not used yet",
+}
+
+
+def effective_state(source_id: str, status: str | None, access: str | None, ever_succeeded: bool,
+                    cfg: dict | None = None) -> dict:
+    """The single definition of a source's displayed state, derived from recorded health and configuration.
+    A source is `active` only after a real request to it succeeded; nothing is assumed."""
+    cfg = cfg if cfg is not None else configuration_state()
+    req = REQUIREMENTS.get(source_id, {})
+    configured = cfg.get(source_id, {}).get("configured")
+    if status == "healthy":
+        state = "active"
+    elif status == "degraded":
+        state = "degraded"
+    elif status in ("down", "failed", "error"):
+        state = "unavailable"
+    elif req.get("type") == "credentials" and configured is False and not req.get("optional"):
+        state = "credentials_required"
+    elif access == "file_import" and not ever_succeeded:
+        state = "import_required"
+    elif ever_succeeded:
+        state = "active"
+    else:
+        state = "not_used"
+    return {"state": state, "reason": STATE_REASONS[state], "requirement": req.get("label"),
+            "requirement_type": req.get("type")}
+

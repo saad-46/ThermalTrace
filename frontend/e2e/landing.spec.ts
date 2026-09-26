@@ -7,7 +7,7 @@ import { expect as baseExpect, test, type Page } from "@playwright/test";
 
 const expect = baseExpect.configure({ timeout: 25_000 });
 const IGNORED_CONSOLE = /tiles|basemaps|fonts|Failed to load resource|WebGL/i;
-const VIEWPORTS = [["desktop", 1440, 900], ["tablet", 768, 1024], ["mobile-360", 360, 800], ["mobile-390", 390, 844], ["mobile-430", 430, 932]] as const;
+const VIEWPORTS = [["desktop-1920", 1920, 1080], ["desktop", 1440, 900], ["laptop-1280", 1280, 800], ["tablet-1024", 1024, 768], ["tablet", 768, 1024], ["mobile-360", 360, 800], ["mobile-390", 390, 844], ["mobile-430", 430, 932]] as const;
 
 async function fresh(page: Page) {
   await page.goto("/");
@@ -44,8 +44,34 @@ test.describe("landing page", () => {
         const d = await pub.json();
         await expect(snapshot).toContainText(d.counts.detections.toLocaleString("en-US"));
         await expect(snapshot).toContainText(d.counts.facilities.toLocaleString("en-US"));
-        await expect(snapshot).toContainText(`${d.sources_active} of ${d.sources_total} sources active`);
         await expect(page.getByRole("img", { name: /thermal event activity over the last 30 days/ })).toBeVisible();
+        // Flames sit on real busiest cells (never more than there are cells); the brand mark is the same flame.
+        const flames = await page.locator(".lp-flames .tt-flame").count();
+        expect(flames).toBeGreaterThan(0);
+        expect(flames).toBeLessThanOrEqual(Math.min(3, d.activity.cells.length));
+        await expect(page.locator(".lp-nav .brand-mark")).toBeVisible();
+
+        // Source health: the disclosure lists exactly the backend's sources and states, and explains inactive ones.
+        const btn = page.locator(".lp-health-btn");
+        await expect(btn).toContainText(`${d.sources_active} / ${d.sources_total} sources active`);
+        await btn.click();
+        const pop = page.getByRole("region", { name: "Data source health" });
+        await expect(pop.getByRole("listitem")).toHaveCount(d.sources_total);
+        for (const src of d.sources) {
+          const row = pop.getByRole("listitem").filter({ hasText: src.name });
+          await expect(row).toContainText(({ active: "Active", degraded: "Degraded", unavailable: "Unavailable",
+            credentials_required: "Credentials required", import_required: "Import required", not_used: "Not currently used" } as Record<string, string>)[src.state]);
+          if (src.state !== "active") await expect(row).toContainText(src.requirement ? `Needs ${src.requirement}` : src.reason);
+        }
+        const box = (await pop.boundingBox())!;
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThanOrEqual(width + 1);
+        await page.keyboard.press("Escape");
+        await expect(pop).toHaveCount(0);
+
+        // The Copernicus card carries the India outline and the backend's state for that source.
+        const cdse = d.sources.find((x: { id: string }) => x.id === "cdse");
+        if (cdse) await expect(page.locator(`.lp-source.st-${cdse.state} .tt-india`)).toBeVisible();
       } else {
         await expect(snapshot).toContainText("Live statistics unavailable");
       }

@@ -457,13 +457,19 @@ export interface DataSource {
   error_rate: number | null;
   configuration: { configured?: boolean; note?: string | null; mode?: string };
   last_run: { status: string; started_at: string; completed_at: string | null; records_inserted: number; error_detail: string | null } | null;
+  /** Backend-derived state (services/source_health.effective_state) and what an inactive source needs. */
+  state?: PublicSourceState;
+  state_reason?: string;
+  requirement?: string | null;
+  requirement_env?: string[] | null;
+  requirement_how?: string | null;
 }
 
 /** GET /public/landing: safe public aggregates for the landing page (no identifiers or personal data). */
-export type PublicSourceState = "active" | "degraded" | "unavailable" | "not_configured" | "standby";
+export type PublicSourceState = "active" | "degraded" | "unavailable" | "credentials_required" | "import_required" | "not_used";
 export interface PublicLanding {
   counts: { detections: number; events: number; events_recent: number; facilities: number };
-  sources: { id: string; name: string; kind: string; state: PublicSourceState; last_success_at: string | null }[];
+  sources: { id: string; name: string; kind: string; state: PublicSourceState; reason: string; requirement: string | null; last_success_at: string | null }[];
   sources_active: number;
   sources_total: number;
   latest_detection: string | null;

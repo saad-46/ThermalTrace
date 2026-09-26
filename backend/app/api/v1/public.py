@@ -19,7 +19,7 @@ from app.core.config import settings
 from app.core.errors import NotFound
 from app.db.session import get_db
 from app.ml.rule_cascade import MODEL_ID as RULE_MODEL_ID
-from app.services.source_health import configuration_state
+from app.services.source_health import configuration_state, effective_state
 
 router = APIRouter(prefix="/public", tags=["public"])
 logger = logging.getLogger(__name__)
@@ -43,8 +43,10 @@ class PublicSource(BaseModel):
     id: str
     name: str
     kind: str
-    # active | degraded | unavailable | not_configured | standby (configured, no successful run recorded yet)
+    # active | degraded | unavailable | credentials_required | import_required | not_used
     state: str
+    reason: str
+    requirement: str | None = None
     last_success_at: datetime | None
 
 
@@ -68,18 +70,6 @@ class PublicLanding(BaseModel):
     cache_seconds: int
 
 
-def source_state(status: str | None, configured: bool | None, ever_succeeded: bool) -> str:
-    if status == "healthy":
-        return "active"
-    if status == "degraded":
-        return "degraded"
-    if status in ("down", "failed", "error"):
-        return "unavailable"
-    if configured is False:
-        return "not_configured"
-    return "active" if ever_succeeded else "standby"
-
-
 def _compute(db: Session) -> dict:
     c = db.execute(text("""
         SELECT (SELECT count(*) FROM thermal_detections WHERE data_mode <> 'demo') AS detections,
@@ -92,12 +82,12 @@ def _compute(db: Session) -> dict:
                   AS firms_last_sync,
                (SELECT max(last_seen_at) FROM worker_heartbeats) AS worker_seen"""), {"days": ACTIVITY_DAYS}).mappings().one()
     cfg = configuration_state()
-    sources = [
-        {"id": r.id, "name": r.name, "kind": r.kind, "last_success_at": r.last_success_at,
-         "state": source_state(r.status, cfg.get(r.id, {}).get("configured"), r.last_success_at is not None)}
-        for r in db.execute(text("SELECT id, name, kind, status, last_success_at FROM data_sources "
-                                 "WHERE id <> 'demo' ORDER BY kind, id")).all()
-    ]
+    sources = []
+    for r in db.execute(text("SELECT id, name, kind, access, status, last_success_at FROM data_sources "
+                             "WHERE id <> 'demo' ORDER BY kind, id")).all():
+        eff = effective_state(r.id, r.status, r.access, r.last_success_at is not None, cfg)
+        sources.append({"id": r.id, "name": r.name, "kind": r.kind, "last_success_at": r.last_success_at,
+                        "state": eff["state"], "reason": eff["reason"], "requirement": eff["requirement"]})
     cells = db.execute(text("""
         SELECT (floor(latitude / :d) + 0.5) * :d AS lat, (floor(longitude / :d) + 0.5) * :d AS lon, count(*) AS n
         FROM thermal_events

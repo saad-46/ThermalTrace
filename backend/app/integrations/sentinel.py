@@ -135,6 +135,16 @@ class _CdseToken:
             return cls._token
 
 
+def verify_cdse_credentials() -> float:
+    """Request a fresh OAuth token to prove the configured credentials work; returns latency in ms.
+    Costs no Sentinel Hub processing units."""
+    with _CdseToken._lock:
+        _CdseToken._token, _CdseToken._expires = None, 0.0
+    t0 = time.perf_counter()
+    _CdseToken.get()
+    return (time.perf_counter() - t0) * 1000
+
+
 SWIR_EVALSCRIPT = """//VERSION=3
 function setup(){return {input:["B12","B8A","B04","dataMask"],output:{bands:4}};}
 function evaluatePixel(s){return [2.5*s.B12, 2.5*s.B8A, 2.5*s.B04, s.dataMask];}"""

@@ -3,10 +3,12 @@
  *  (password login, server-enforced read-only demo sessions). */
 import { useQuery } from "@tanstack/react-query";
 import {
-  Activity, ArrowRight, BellRing, BrainCircuit, CircleDot, Crosshair, Eye, Factory, Flame, Gauge, GitMerge, Layers, Leaf,
-  Lock, Map as MapIcon, Satellite, ScrollText, Settings2, ShieldCheck, UserCheck, Waves,
+  Activity, ArrowRight, BellRing, BrainCircuit, ChevronDown, CircleCheck, CircleDashed, CircleDot, CircleX, CloudSun, Crosshair,
+  Eye, Factory, FileUp, Flame, Gauge, GitMerge, KeyRound, Layers, Leaf, Lock, Map as MapIcon, MapPin, Satellite, ScrollText,
+  Settings2, ShieldCheck, TriangleAlert, UserCheck, Waves,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Flame as FlameMark, IndiaOutline } from "../components/brand";
 import { errText } from "../components/ui";
 import { api } from "../lib/api";
 import { relTime } from "../lib/format";
@@ -14,6 +16,17 @@ import { useMedia, useSession } from "../lib/session";
 import type { DemoRole, PublicLanding, PublicSourceState } from "../lib/types";
 
 const NUM = new Intl.NumberFormat("en-US");
+const FLAME_CELLS = 3;
+
+/** The busiest cells in distinct areas (at least 3 degrees apart), so adjacent hot cells do not stack flames. */
+export function flameCells(cells: [number, number, number][]): [number, number, number][] {
+  const out: [number, number, number][] = [];
+  for (const c of cells) { // cells arrive sorted by count, busiest first
+    if (out.every((o) => Math.hypot(o[0] - c[0], o[1] - c[1]) >= 3)) out.push(c);
+    if (out.length === FLAME_CELLS) break;
+  }
+  return out;
+}
 
 // ---------------------------------------------------------------------------------------------- motion helpers
 export function prefersReducedMotion(): boolean {
@@ -157,7 +170,7 @@ export function ActivityMap({ data, loading }: { data: PublicLanding | undefined
       </figcaption>
       {view ? (
         <svg ref={svgRef} viewBox={`0 0 ${view.W} ${view.H}`} className="lp-map-svg" role="img"
-          aria-label={`Map of thermal event activity over the last ${days} days: ${NUM.format(total)} events in ${cells.length} one-degree grid cells. Larger, brighter circles mean more events.`}>
+          aria-label={`Map of thermal event activity over the last ${days} days: ${NUM.format(total)} events in ${cells.length} one-degree grid cells. Larger, brighter circles mean more events; the busiest cells in ${flameCells(cells).length} distinct areas are marked with a flame.`}>
           <defs>
             <radialGradient id="lp-heat">
               <stop offset="0%" stopColor="#ffd08a" stopOpacity="0.95" />
@@ -174,14 +187,23 @@ export function ActivityMap({ data, loading }: { data: PublicLanding | undefined
             {view.parallels.filter((p) => view.y(p) > labelSize * 1.6 && view.y(p) < view.H - labelSize * 2 && (labelSize < 14 || p % 10 === 0)).map((p) => <text key={`tp${p}`} x={labelSize * 0.4} y={view.y(p) - labelSize * 0.4}>{p}°N</text>)}
           </g>
           <g>
-            {[...cells].reverse().map(([lat, lon, cnt], i) => {
+            {[...cells].reverse().map(([lat, lon, cnt]) => {
               const r = 3 + 13 * Math.sqrt(cnt / view.max);
-              const hot = i >= cells.length - 5; // the five busiest cells pulse
               return (
                 <g key={`${lat},${lon}`} transform={`translate(${view.x(lon)} ${view.y(lat)})`}>
-                  <circle r={r * 1.9} fill="url(#lp-heat)" opacity={0.25 + 0.55 * Math.sqrt(cnt / view.max)} />
+                  <circle r={Math.min(r * 1.9, 20)} fill="url(#lp-heat)" opacity={0.25 + 0.5 * Math.sqrt(cnt / view.max)} />
                   <circle r={Math.max(1.4, r * 0.28)} className="lp-core" />
-                  {hot && <circle r={r} className="lp-pulse" />}
+                </g>
+              );
+            })}
+          </g>
+          <g className="lp-flames" aria-hidden>
+            {/* The busiest cells (live data, largest first) are marked with a flame; its base sits on the cell centre. */}
+            {flameCells(cells).map(([lat, lon, cnt]) => {
+              const s = labelSize * 2 + 10 * Math.sqrt(cnt / view.max);
+              return (
+                <g key={`f${lat},${lon}`} transform={`translate(${view.x(lon) - s / 2} ${view.y(lat) - s * 0.95})`}>
+                  <g className="lp-flame"><FlameMark size={s} /></g>
                 </g>
               );
             })}
@@ -192,7 +214,7 @@ export function ActivityMap({ data, loading }: { data: PublicLanding | undefined
           {loading ? <span className="spinner" /> : <><Crosshair size={16} aria-hidden /> Live activity is unavailable right now. No placeholder data is shown.</>}
         </div>
       )}
-      <div className="lp-map-foot">Aggregated NASA FIRMS events on a 1° grid. Circles show where activity was detected, not what caused it.</div>
+      <div className="lp-map-foot">Aggregated NASA FIRMS events on a 1° grid; flames mark the busiest areas. Circles show where activity was detected, not what caused it.</div>
     </figure>
   );
 }
@@ -301,6 +323,49 @@ export function LiveStatus({ data, error }: { data: PublicLanding | undefined; e
   );
 }
 
+/** "N / M sources active", expandable to every source's backend state and what an inactive one needs. */
+export function SourceHealth({ data }: { data: PublicLanding }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    popRef.current?.scrollIntoView?.({ block: "nearest", behavior: prefersReducedMotion() ? "auto" : "smooth" });
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    const onDown = (e: PointerEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pointerdown", onDown);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("pointerdown", onDown); };
+  }, [open]);
+  const order = (s: PublicLanding["sources"][number]) => (s.state === "active" ? 0 : 1);
+  const sorted = [...data.sources].sort((a, b) => order(a) - order(b));
+  return (
+    <div className="lp-health" ref={ref}>
+      <button type="button" className="lp-health-btn" aria-expanded={open} aria-controls="source-health" onClick={() => setOpen((o) => !o)}>
+        <span className="num">{data.sources_active} / {data.sources_total}</span> sources active
+        <ChevronDown size={14} aria-hidden className={open ? "open" : ""} />
+      </button>
+      {open && (
+        <div id="source-health" ref={popRef} className="lp-health-pop glass" role="region" aria-label="Data source health">
+          <div className="lp-health-head">
+            <span>Data sources <span className="lp-health-when">as of {relTime(data.generated_at)}</span></span>
+            <button type="button" className="lp-health-close" onClick={() => setOpen(false)} aria-label="Close data source health">×</button>
+          </div>
+          <ul>
+            {sorted.map((s) => (
+              <li key={s.id} className={`st-${s.state}`}>
+                <span className="lp-health-name">{s.name}</span>
+                <StateBadge state={s.state} />
+                {s.state !== "active" && <span className="lp-health-why">{s.requirement ? `Needs ${s.requirement}` : s.reason}</span>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Snapshot({ data, loading, error }: { data: PublicLanding | undefined; loading: boolean; error: boolean }) {
   const cards: { icon: ReactNode; label: string; value: (d: PublicLanding) => number; note: (d: PublicLanding) => string }[] = [
     { icon: <Satellite size={17} />, label: "Thermal detections", value: (d) => d.counts.detections, note: () => "NASA FIRMS pixels ingested" },
@@ -326,12 +391,12 @@ export function Snapshot({ data, loading, error }: { data: PublicLanding | undef
             ))}
           </div>
           {data && (
-            <div className="lp-system" role="status">
+            <div className="lp-system">
               <span className={`lp-sys ${data.workers_online ? "ok" : "warn"}`}>
                 {data.workers_online ? <ShieldCheck size={14} aria-hidden /> : <Gauge size={14} aria-hidden />}
                 Processing {data.workers_online ? "online" : "paused or offline"}
               </span>
-              <span>{data.sources_active} of {data.sources_total} sources active</span>
+              <SourceHealth data={data} />
               <span>FIRMS synced {relTime(data.firms_last_sync)}</span>
               <span>Classifier of record: <code>{data.classifier}</code></span>
               <span className="faint">Figures refresh every {Math.round(data.cache_seconds / 60)} min</span>
@@ -433,21 +498,32 @@ const SOURCE_ROLE: Record<string, string> = {
   osm: "Industrial sites and land use",
   wri_gppd: "Global power-plant database",
   gem: "Coal plants, mines and steel trackers",
-  cea: "Indian power-plant registry (file import)",
+  cea: "Indian power-station registry (file import)",
   esa_worldcover: "10 m land cover, 2021",
-  earth_search: "Sentinel-2 L2A scenes, NDVI/NBR",
-  cdse: "Copernicus rendering (credentials)",
+  earth_search: "Sentinel-2 L2A scene search and NDVI/NBR change",
+  cdse: "Sentinel-2 SWIR composites for visual review of an event",
   open_meteo: "Weather at detection time",
   geonames: "Place names",
   nominatim: "Reverse geocoding",
 };
 
-const STATE_LABEL: Record<PublicSourceState, string> = {
-  active: "Active",
-  degraded: "Degraded",
-  unavailable: "Temporarily unavailable",
-  not_configured: "Available when configured",
-  standby: "Optional · not yet used",
+export const SOURCE_STATE: Record<PublicSourceState, { label: string; icon: ReactNode }> = {
+  active: { label: "Active", icon: <CircleCheck size={13} aria-hidden /> },
+  degraded: { label: "Degraded", icon: <TriangleAlert size={13} aria-hidden /> },
+  unavailable: { label: "Unavailable", icon: <CircleX size={13} aria-hidden /> },
+  credentials_required: { label: "Credentials required", icon: <KeyRound size={13} aria-hidden /> },
+  import_required: { label: "Import required", icon: <FileUp size={13} aria-hidden /> },
+  not_used: { label: "Not currently used", icon: <CircleDashed size={13} aria-hidden /> },
+};
+
+function StateBadge({ state }: { state: PublicSourceState }) {
+  const m = SOURCE_STATE[state];
+  return <span className={`lp-state ${state}`}>{m.icon}{m.label}</span>;
+}
+
+const KIND_ICON: Record<string, ReactNode> = {
+  detections: <Flame size={17} />, facilities: <Factory size={17} />, imagery: <Satellite size={17} />,
+  landcover: <Leaf size={17} />, weather: <CloudSun size={17} />, geocoding: <MapPin size={17} />,
 };
 
 export function Sources({ data, error }: { data: PublicLanding | undefined; error: boolean }) {
@@ -459,10 +535,22 @@ export function Sources({ data, error }: { data: PublicLanding | undefined; erro
       {data && (
         <ul className="lp-sources">
           {data.sources.map((s) => (
-            <li key={s.id} className="lp-source glass">
-              <div className="lp-source-name">{s.name}</div>
-              <div className="lp-source-role">{SOURCE_ROLE[s.id] ?? s.kind}</div>
-              <span className={`lp-state ${s.state}`}><span className="lp-state-dot" aria-hidden />{STATE_LABEL[s.state]}</span>
+            <li key={s.id} className={`lp-source glass st-${s.state}`}>
+              <div className="lp-source-head">
+                <span className={`lp-source-icon${s.id === "cdse" ? " india" : ""}`} aria-hidden>
+                  {s.id === "cdse" ? <IndiaOutline size={24} /> : KIND_ICON[s.kind] ?? <Layers size={17} />}
+                </span>
+                <div className="lp-source-title">
+                  <div className="lp-source-name">{s.name}</div>
+                  <div className="lp-source-role">{SOURCE_ROLE[s.id] ?? s.kind}</div>
+                </div>
+              </div>
+              <div className="lp-source-foot">
+                <StateBadge state={s.state} />
+                {s.state === "active"
+                  ? s.last_success_at && <span className="lp-source-meta">verified {relTime(s.last_success_at)}</span>
+                  : s.requirement && <span className="lp-source-meta">Needs {s.requirement}</span>}
+              </div>
             </li>
           ))}
         </ul>

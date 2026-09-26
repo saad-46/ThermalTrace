@@ -32,7 +32,9 @@ def enqueue(db: Session, kind: str, payload: dict | None = None, *, dedupe_key: 
 
 # Lanes keep user-facing work (reports, on-demand enrichment) from queueing behind bulk jobs.
 LANES: dict[str, tuple[str, ...]] = {
-    "interactive": ("render_report", "enrich_event", "imagery_analysis", "process_events", "import_registry", "train_model"),
+    # source_probe is a ~1 s credential check: kept out of the bulk backlog so source health stays current.
+    "interactive": ("render_report", "enrich_event", "imagery_analysis", "process_events", "import_registry", "train_model",
+                    "source_probe"),
     "bulk": ("firms_poll", "firms_historical", "load_demo", "enrich_batch", "landcover_backfill", "facility_sync", "housekeeping",
              "process_events"),
 }

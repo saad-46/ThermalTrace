@@ -7,7 +7,7 @@ import { api, post } from "../lib/api";
 import { fmtDate, fmtDateTime, fmtNum, relTime, titleCase } from "../lib/format";
 import { useJobs, useSources } from "../lib/hooks";
 import { useSession } from "../lib/session";
-import { SOURCE_NAMES } from "../lib/taxonomy";
+import { SOURCE_NAMES, SOURCE_STATE_LABEL } from "../lib/taxonomy";
 
 interface FacilityIndex {
   coverage: { total: number; fresh: number; failed: number; events: number; events_covered: number; last_synced: string | null };
@@ -49,7 +49,17 @@ export default function DataSources() {
                 <td><div style={{ fontWeight: 500 }}><ExtLink href={s.homepage.startsWith("http") ? s.homepage : "#"}>{SOURCE_NAMES[s.id] ?? s.name}</ExtLink></div>
                   <div className="faint" style={{ fontSize: 11.5 }}>{s.kind} · {s.access.replace("_", " ")} · {s.license}</div>
                   {s.configuration?.note && <div className="faint" style={{ fontSize: 11.5 }}>{s.configuration.note}</div>}</td>
-                <td><span className="row"><i className={`dot ${s.status === "healthy" || s.status === "enabled" ? "ok" : s.status === "degraded" ? "warn" : s.status === "down" ? "bad" : ""}`} />{titleCase(s.status)}</span>
+                <td>{s.state && s.id !== "demo" ? (
+                    <span className="row"><i className={`dot ${s.state === "active" ? "ok" : s.state === "unavailable" ? "bad" : s.state === "not_used" ? "" : "warn"}`} />{SOURCE_STATE_LABEL[s.state] ?? titleCase(s.state)}</span>
+                  ) : (
+                    <span className="row"><i className={`dot ${s.status === "healthy" || s.status === "enabled" ? "ok" : ""}`} />{titleCase(s.status)}</span>
+                  )}
+                  {s.state && s.state !== "active" && s.requirement && (
+                    <div className="faint" style={{ fontSize: 11, maxWidth: 260 }}>
+                      Needs {s.requirement}{s.requirement_env?.length ? <> (<code>{s.requirement_env.join(", ")}</code>)</> : null}.
+                      {s.requirement_how ? ` ${s.requirement_how}` : ""}
+                    </div>
+                  )}
                   {s.last_error && s.status !== "healthy" && <div className="faint" style={{ fontSize: 11, maxWidth: 220 }} title={s.last_error}>{s.last_error.slice(0, 90)}</div>}</td>
                 <td className="num">{relTime(s.last_success_at)}</td>
                 <td className="num">{s.last_record_at ? fmtDateTime(s.last_record_at) : "—"}</td>

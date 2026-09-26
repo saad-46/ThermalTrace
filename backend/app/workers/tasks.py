@@ -132,6 +132,29 @@ def housekeeping(db: Session, payload: dict, job: Job) -> dict:
     return {"cache_purged": purged}
 
 
+def source_probe(db: Session, payload: dict, job: Job) -> dict:
+    """Verify providers that no scheduled job exercises (their status would otherwise stay unknown forever).
+    Copernicus Data Space is only used on demand for SWIR renders: prove its OAuth credentials with a fresh token
+    request, which costs no processing units. Unconfigured providers are skipped, never marked healthy."""
+    from app.integrations.http import ProviderError
+    from app.integrations.sentinel import SatellitePreviewService, verify_cdse_credentials
+    from app.services import source_health
+
+    out: dict = {}
+    if SatellitePreviewService.swir_available():
+        try:
+            latency = verify_cdse_credentials()
+            source_health.record_success(db, "cdse", latency)
+            out["cdse"] = "ok"
+        except ProviderError as exc:
+            source_health.record_failure(db, "cdse", f"{exc.kind}: {exc}")
+            out["cdse"] = f"failed ({exc.kind})"
+    else:
+        out["cdse"] = "not configured"
+    db.commit()
+    return out
+
+
 HANDLERS: dict[str, Handler] = {
     "firms_poll": firms_poll,
     "firms_historical": firms_historical,
@@ -146,6 +169,7 @@ HANDLERS: dict[str, Handler] = {
     "render_report": render_report,
     "train_model": train_model,
     "housekeeping": housekeeping,
+    "source_probe": source_probe,
 }
 
 # Recurring schedule: kind -> (interval seconds, payload, queue priority; lower runs first).
@@ -156,4 +180,5 @@ SCHEDULE: dict[str, tuple[int, dict, int]] = {
     "enrich_batch": (15 * 60, {"limit": 40}, 60),
     "landcover_backfill": (20 * 60, {"limit": 25}, 70),
     "housekeeping": (6 * 3600, {}, 90),
+    "source_probe": (6 * 3600, {}, 85),
 }

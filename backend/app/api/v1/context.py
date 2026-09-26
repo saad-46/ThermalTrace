@@ -19,6 +19,7 @@ from app.models.auth import PushSubscription, User
 from app.models.enrichment import SatelliteObservation
 from app.schemas.api import FacilityOut, PushSubscriptionIn
 from app.schemas.api import Page as PageOut
+from app.services import source_health
 
 router = APIRouter()
 
@@ -129,7 +130,11 @@ def swir(observation_id: uuid.UUID, user: User = CurrentUser, db: Session = Depe
     try:
         png = SatellitePreviewService().render_swir(ev.latitude, ev.longitude, obs.acquired_at)
     except ProviderError as exc:
+        source_health.record_failure(db, "cdse", f"{exc.kind}: {exc}")
+        db.commit()
         raise SourceUnavailable(f"Copernicus processing unavailable: {exc.kind}") from None
+    source_health.record_success(db, "cdse")
+    db.commit()
     return Response(png, media_type="image/png", headers={"cache-control": "private, max-age=86400"})
 
 

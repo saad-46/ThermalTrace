@@ -84,3 +84,13 @@ export const FP_REASONS: Record<string, string> = {
 export const KNOWLEDGE_LABELS: Record<string, string> = {
   observed: "Observed", derived: "Derived", external: "External context", model: "Model output",
 };
+
+/** Labels for the backend source states (services/source_health.effective_state). Shown with an icon or text, never colour alone. */
+export const SOURCE_STATE_LABEL: Record<string, string> = {
+  active: "Active",
+  degraded: "Degraded",
+  unavailable: "Unavailable",
+  credentials_required: "Credentials required",
+  import_required: "Import required",
+  not_used: "Not currently used",
+};

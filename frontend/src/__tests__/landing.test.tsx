@@ -16,14 +16,15 @@ vi.mock("../lib/api", () => ({
   api: (path: string) => (path === "/public/landing" ? landingResponse() : Promise.resolve({ enabled: true, roles: ["analyst", "admin"] })),
 }));
 
-const { default: Landing, CountUp } = await import("../pages/Landing");
+const { default: Landing, CountUp, flameCells } = await import("../pages/Landing");
 
 const LIVE: PublicLanding = {
   counts: { detections: 123457, events: 45679, events_recent: 812, facilities: 3021 },
   sources: [
-    { id: "firms", name: "NASA FIRMS", kind: "thermal", state: "active", last_success_at: "2026-09-27T00:00:00Z" },
-    { id: "cdse", name: "Copernicus Data Space Ecosystem", kind: "imagery", state: "not_configured", last_success_at: null },
-    { id: "osm", name: "OpenStreetMap (Overpass)", kind: "context", state: "unavailable", last_success_at: null },
+    { id: "firms", name: "NASA FIRMS", kind: "detections", state: "active", reason: "Connected", requirement: null, last_success_at: "2026-09-27T00:00:00Z" },
+    { id: "cdse", name: "Copernicus Data Space Ecosystem", kind: "imagery", state: "credentials_required", reason: "Credentials required",
+      requirement: "Copernicus Data Space OAuth client", last_success_at: null },
+    { id: "osm", name: "OpenStreetMap (Overpass)", kind: "facilities", state: "unavailable", reason: "Not responding", requirement: null, last_success_at: null },
   ],
   sources_active: 1,
   sources_total: 3,
@@ -98,12 +99,37 @@ describe("landing page", () => {
     expect(await screen.findAllByText("123,457")).toBeTruthy();
     expect(screen.getAllByText("45,679").length).toBeGreaterThan(0);
     expect(screen.getAllByText("3,021").length).toBeGreaterThan(0);
-    expect(screen.getByText("1 of 3 sources active")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /1 \/ 3 sources active/ })).toBeTruthy();
     expect(screen.getByText(/Processing paused or offline/)).toBeTruthy(); // not claimed operational
-    expect(screen.getByText("Available when configured")).toBeTruthy();
-    expect(screen.getByText("Temporarily unavailable")).toBeTruthy();
+    expect(screen.getAllByText("Credentials required").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Unavailable").length).toBeGreaterThan(0);
+    expect(screen.getByText("Needs Copernicus Data Space OAuth client")).toBeTruthy();
     expect(screen.getByRole("img", { name: /49 events in 2 one-degree grid cells/ })).toBeTruthy();
     expect(screen.getByText("rule-cascade-v1.1")).toBeTruthy();
+  });
+
+  it("source health opens a list of every backend state and what inactive sources need", async () => {
+    landingResponse = () => Promise.resolve(LIVE);
+    renderLanding();
+    const btn = await screen.findByRole("button", { name: /1 \/ 3 sources active/ });
+    expect(btn.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(btn);
+    expect(btn.getAttribute("aria-expanded")).toBe("true");
+    const region = screen.getByRole("region", { name: "Data source health" });
+    expect(within(region).getAllByRole("listitem")).toHaveLength(3);
+    expect(within(region).getByText("NASA FIRMS").closest("li")!.textContent).toContain("Active");
+    expect(within(region).getByText("Needs Copernicus Data Space OAuth client")).toBeTruthy();
+    expect(within(region).getByText("Not responding")).toBeTruthy(); // the reason, not a generic error
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("region", { name: "Data source health" })).toBeNull();
+  });
+
+  it("marks the busiest live cells with a flame and shows India on the Copernicus card", async () => {
+    landingResponse = () => Promise.resolve(LIVE);
+    const { container } = renderLanding();
+    await screen.findByRole("img", { name: /marked with a flame/ });
+    expect(container.querySelectorAll(".lp-flames .tt-flame")).toHaveLength(2); // only 2 live cells: never invented
+    expect(container.querySelector(".lp-source.st-credentials_required .tt-india")).toBeTruthy();
   });
 
   it("says statistics are unavailable instead of inventing them", async () => {
@@ -121,6 +147,14 @@ describe("landing page", () => {
     expect(SOURCE).not.toMatch(/\d+(\.\d+)?%\s*(confidence|accura)/i);
     for (const claim of [/xgboost/i, /calibrated probab/i, /real-time imagery/i, /drift monitoring/i, /100% accurate/i, /proves? a fire/i])
       expect(SOURCE).not.toMatch(claim);
+  });
+
+  it("flames mark the busiest distinct areas and never more cells than exist", () => {
+    // busiest first; the second cell is adjacent to the first, so it does not get its own flame
+    const cells: [number, number, number][] = [[8.5, 77.5, 90], [8.5, 78.5, 80], [31.5, 74.5, 60], [23.5, 86.5, 50], [26.5, 94.5, 40]];
+    expect(flameCells(cells).map((c) => c[2])).toEqual([90, 60, 50]);
+    expect(flameCells([[20.5, 80.5, 5]])).toHaveLength(1);
+    expect(flameCells([])).toEqual([]);
   });
 
   it("respects reduced motion: figures appear immediately without a count-up", () => {

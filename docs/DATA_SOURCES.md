@@ -20,6 +20,31 @@ Every source is registered in the `data_sources` table. Its health (status, last
 | EOX Sentinel-2 cloudless 2021 | Optional satellite basemap tiles | WMTS | None (CC BY-NC-SA 4.0: **non-commercial**) | 2021 mosaic. Context only. |
 | CARTO Positron / Dark Matter | Vector basemap | Style JSON | None | — |
 
+## Source states (one definition, shown everywhere)
+
+`services/source_health.effective_state` turns the recorded health and configuration of a source into the state shown
+on the landing page, the source-health list and the Data sources page. A source is **Active** only after a real request
+to it succeeded; nothing is assumed from configuration alone.
+
+| State | Meaning |
+|---|---|
+| Active | The last request succeeded |
+| Degraded | Recent requests failed after a recent success |
+| Unavailable | Requests are failing |
+| Credentials required | The provider needs credentials that are not configured (`requirement` names them) |
+| Import required | A file-import source with no successful import yet |
+| Not currently used | Configured, but nothing has exercised it yet |
+
+Providers that no scheduled job exercises are verified by the `source_probe` job (every 6 h, interactive lane): for
+Copernicus Data Space it requests a fresh OAuth token, which proves the credentials without using processing units.
+SWIR renders also record Copernicus health. Unconfigured providers are skipped, never marked healthy.
+
+| Source | What it needs | Where |
+|---|---|---|
+| Copernicus Data Space (SWIR composites) | `COPERNICUS_CLIENT_ID`, `COPERNICUS_CLIENT_SECRET` | Register at dataspace.copernicus.eu, create an OAuth client under User settings |
+| NASA FIRMS historical / area API | `FIRMS_MAP_KEY` (NRT files work without it) | firms.modaps.eosdis.nasa.gov/api/map_key/ |
+| CEA | A station list with coordinates transcribed from a named CEA publication (`data/datasets/cea_template.csv`) | `python -m app.cli import-registry --source cea ...`; the monthly *Installed Capacity* report and `IC_allocation_*.xlsx` hold only totals and cannot be imported as facilities |
+
 ## Place names for events (GeoNames)
 
 Nominatim allows about one request per second, so it cannot name hundreds of thousands of events. `import-places` loads GeoNames populated places (500 inhabitants or more) for the region into a GiST-indexed PostGIS table, and every event gets its nearest place with one KNN query.

@@ -711,3 +711,22 @@ def test_public_landing_exposes_only_safe_live_aggregates(client, db, make_user,
     public.clear_cache()
     monkeypatch.setattr(settings, "public_landing_enabled", False)
     assert client.get("/api/v1/public/landing").status_code == 404
+
+
+def test_source_states_come_from_the_backend_and_say_what_is_missing(client, auth_headers):
+    from app.api.v1 import public
+
+    # conftest blanks provider credentials: Copernicus must say so, never claim to be active
+    rows = {s["id"]: s for s in client.get("/api/v1/sources", headers=auth_headers("analyst")).json()}
+    assert rows["cdse"]["state"] == "credentials_required"
+    assert rows["cdse"]["requirement_env"] == ["COPERNICUS_CLIENT_ID", "COPERNICUS_CLIENT_SECRET"]
+    assert rows["cea"]["state"] == "import_required" and "import-registry --source cea" in rows["cea"]["requirement_how"]
+
+    public.clear_cache()
+    d = client.get("/api/v1/public/landing").json()
+    states = {s["id"]: s for s in d["sources"]}
+    assert states["cdse"]["state"] == "credentials_required"
+    assert states["cdse"]["requirement"] == "Copernicus Data Space OAuth client"
+    assert "COPERNICUS_CLIENT" not in str(d)  # configuration names stay with signed-in users
+    assert d["sources_active"] == sum(1 for s in d["sources"] if s["state"] == "active")
+    public.clear_cache()
