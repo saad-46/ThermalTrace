@@ -8,6 +8,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 libexp
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
+# Images default to production so a deployment that forgets ENVIRONMENT fails closed (the API refuses to start
+# without a real SECRET_KEY, database password and CORS origins). docker-compose sets development explicitly.
+ENV ENVIRONMENT=production
 COPY . .
 RUN mkdir -p /app/var && chown -R app:app /app/var
 USER app

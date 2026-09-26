@@ -206,6 +206,14 @@ def trigger(body: IngestionTriggerIn, request: Request, user: User = SupervisorU
             raise AppError("Historical FIRMS ingestion needs FIRMS_MAP_KEY", code="provider_not_configured")
         if not {"source", "start"} <= body.payload.keys():
             raise AppError("payload requires source and start (YYYY-MM-DD)", code="invalid_payload")
+        from app.integrations.firms import AREA_SOURCES
+        from app.services.ingestion import MAX_BACKFILL_DAYS
+
+        if body.payload["source"] not in AREA_SOURCES:
+            raise AppError(f"source must be one of {', '.join(AREA_SOURCES)}", code="invalid_source")
+        days = body.payload.get("days", 1)
+        if not isinstance(days, int) or not 1 <= days <= MAX_BACKFILL_DAYS:
+            raise AppError(f"days must be an integer between 1 and {MAX_BACKFILL_DAYS}", code="invalid_days")
     job_id = enqueue(db, body.kind, body.payload, dedupe_key=f"manual:{body.kind}:{sorted(body.payload.items())}",
                      priority=15, created_by=user.id)
     audit.record(db, request, user.id, "job.trigger", "job", job_id, {"kind": body.kind})

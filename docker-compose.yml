@@ -1,4 +1,6 @@
 # Local development stack. Production deployment: see docs/DEPLOYMENT.md.
+# Backend services read every setting from .env (env_file); the `environment` block below takes
+# precedence and only pins values that must differ inside the stack (e.g. the database host).
 name: thermaltrace
 
 x-backend-env: &backend-env
@@ -40,6 +42,9 @@ services:
   migrate:
     build: ./backend
     command: ["alembic", "upgrade", "head"]
+    env_file: &backend-env-file
+      - path: .env
+        required: false
     environment: *backend-env
     depends_on:
       db: { condition: service_healthy }
@@ -47,6 +52,7 @@ services:
   api:
     build: ./backend
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
+    env_file: *backend-env-file
     environment: *backend-env
     ports:
       - "${API_PORT:-8000}:8000"
@@ -63,6 +69,7 @@ services:
   worker:
     build: ./backend
     command: ["python", "-m", "app.workers.run", "--scheduler", "--lane", "bulk"]
+    env_file: *backend-env-file
     environment: *backend-env
     volumes:
       - reports:/app/var
@@ -73,6 +80,7 @@ services:
   worker-interactive:
     build: ./backend
     command: ["python", "-m", "app.workers.run", "--lane", "interactive"]
+    env_file: *backend-env-file
     environment: *backend-env
     volumes:
       - reports:/app/var
@@ -84,6 +92,9 @@ services:
       context: ./frontend
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+        VITE_MAP_STYLE_LIGHT: ${VITE_MAP_STYLE_LIGHT:-}
+        VITE_MAP_STYLE_DARK: ${VITE_MAP_STYLE_DARK:-}
+        VITE_CARTO_API_KEY: ${VITE_CARTO_API_KEY:-}
     ports:
       - "5173:80"
     depends_on:

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import REPO_DIR, settings
 from app.core.errors import AppError
-from app.integrations.firms import DATASETS, FetchResult, FIRMSClient, parse_row
+from app.integrations.firms import AREA_SOURCES, DATASETS, FetchResult, FIRMSClient, date_chunks, parse_row
 from app.integrations.http import ProviderError
 from app.models.ops import IngestionCheckpoint, IngestionError, IngestionRun
 from app.models.thermal import ThermalDetection
@@ -123,29 +123,52 @@ def ingest_firms_nrt(db: Session, datasets: list[str] | None = None, window: str
     return summary
 
 
-def ingest_firms_historical(db: Session, source: str, start: str, days: int, bbox: tuple | None = None, job_id=None) -> dict:
-    """Keyed Area API backfill. Raises ProviderError subclasses if no key / rejected."""
-    client = FIRMSClient()
-    started = time.perf_counter()
+MAX_BACKFILL_DAYS = 400
+
+
+def ingest_firms_historical(db: Session, source: str, start: str, days: int, bbox: tuple | None = None, job_id=None,
+                            client: FIRMSClient | None = None) -> dict:
+    """Keyed Area API backfill over any number of days, fetched in API-sized windows (<= 5 days each).
+
+    Each window is its own ingestion run and is committed before the next, so an interruption keeps
+    everything already loaded; re-running is safe because detections are deduplicated by natural key.
+    A provider failure stops the backfill, records the failed window, and re-raises.
+    """
+    if source not in AREA_SOURCES:
+        raise AppError(f"Unknown FIRMS source {source!r}; use one of {', '.join(AREA_SOURCES)}", code="invalid_source")
+    if not 1 <= days <= MAX_BACKFILL_DAYS:
+        raise AppError(f"days must be between 1 and {MAX_BACKFILL_DAYS}", code="invalid_days")
+    client = client or FIRMSClient()
     bbox = bbox or settings.region_bbox
-    run = start_run(db, "firms", "historical", source, {"start": start, "days": days, "bbox": list(bbox)}, job_id)
-    try:
-        result = client.get_historical_detections(source, bbox, datetime.fromisoformat(start).date(), days)
-    except ProviderError as exc:
-        finish_run(run, "failed", started, str(exc))
-        source_health.record_failure(db, "firms", str(exc))
+    windows = date_chunks(datetime.fromisoformat(start).date(), days)
+    totals = {"windows": len(windows), "windows_done": 0, "inserted": 0, "duplicates": 0, "rejected": 0}
+    for win_start, n in windows:
+        started = time.perf_counter()
+        run = start_run(db, "firms", "historical", source,
+                        {"start": win_start.isoformat(), "days": n, "bbox": list(bbox)}, job_id)
+        try:
+            result = client.get_historical_detections(source, bbox, win_start, n)
+        except ProviderError as exc:
+            finish_run(run, "failed", started, str(exc))
+            source_health.record_failure(db, "firms", str(exc))
+            db.commit()
+            logger.error("firms backfill %s stopped at %s: %s (%s)", source, win_start, exc, totals)
+            raise
+        age = datetime.now(UTC) - max((d.acq_datetime for d in result.detections), default=datetime.now(UTC))
+        mode = "historical" if age > timedelta(days=7) or source.endswith("_SP") else "live"
+        inserted, dupes = persist_detections(db, result, run, mode)
+        _record_errors(db, run, "parse", result.rejected)
+        run.records_fetched = len(result.detections) + len(result.rejected)
+        run.records_inserted, run.records_duplicate, run.records_rejected = inserted, dupes, len(result.rejected)
+        finish_run(run, "partial" if result.rejected else "success", started)
+        source_health.record_success(db, "firms", result.latency_ms, inserted)
         db.commit()
-        raise
-    age = datetime.now(UTC) - max((d.acq_datetime for d in result.detections), default=datetime.now(UTC))
-    mode = "historical" if age > timedelta(days=7) or source.endswith("_SP") else "live"
-    inserted, dupes = persist_detections(db, result, run, mode)
-    _record_errors(db, run, "parse", result.rejected)
-    run.records_fetched = len(result.detections) + len(result.rejected)
-    run.records_inserted, run.records_duplicate, run.records_rejected = inserted, dupes, len(result.rejected)
-    finish_run(run, "partial" if result.rejected else "success", started)
-    source_health.record_success(db, "firms", result.latency_ms, inserted)
-    db.commit()
-    return {"status": run.status, "inserted": inserted, "duplicates": dupes, "mode": mode}
+        totals["windows_done"] += 1
+        totals["inserted"] += inserted
+        totals["duplicates"] += dupes
+        totals["rejected"] += len(result.rejected)
+        logger.info("firms backfill %s %s +%dd: %d new", source, win_start, n, inserted)
+    return {"status": "success", "source": source, "start": start, "days": days, **totals}
 
 
 def load_demo_dataset(db: Session, job_id=None) -> dict:

@@ -42,6 +42,24 @@ DATASETS: dict[str, FirmsDataset] = {
 }
 # Archive (standard processing) sources available through the keyed Area API.
 HISTORICAL_SOURCES = ("MODIS_SP", "VIIRS_SNPP_SP", "VIIRS_NOAA20_SP")
+# Sources the keyed Area API accepts for backfill: the archive plus the NRT stream (recent months).
+AREA_SOURCES = HISTORICAL_SOURCES + tuple(DATASETS)
+# The Area and Country APIs accept a DAY_RANGE of 1-5; 6 or more returns HTTP 400 (verified 2026-09-26).
+MAX_DAY_RANGE = 5
+
+
+def date_chunks(start: date, days: int, step: int = MAX_DAY_RANGE) -> list[tuple[date, int]]:
+    """Split [start, start + days) into consecutive windows the API accepts: [(start, n), ...]."""
+    from datetime import timedelta
+
+    if days < 1:
+        raise ValueError("days must be at least 1")
+    out, cursor, left = [], start, days
+    while left > 0:
+        n = min(step, left)
+        out.append((cursor, n))
+        cursor, left = cursor + timedelta(days=n), left - n
+    return out
 
 _SATELLITE_NAMES = {"T": "Terra", "A": "Aqua", "Terra": "Terra", "Aqua": "Aqua", "N": "S-NPP", "1": "NOAA-20",
                     "N20": "NOAA-20", "N21": "NOAA-21", "2": "NOAA-21"}
@@ -203,7 +221,7 @@ class FIRMSClient:
         self, source: str, bbox: tuple[float, float, float, float], day_range: int = 1, start: date | None = None
     ) -> FetchResult:
         key = self._require_key()
-        day_range = max(1, min(day_range, 10))
+        day_range = max(1, min(day_range, MAX_DAY_RANGE))
         bbox_s = ",".join(f"{c:g}" for c in bbox)
         url = f"{self.base_url}/api/area/csv/{key}/{source}/{bbox_s}/{day_range}"
         if start:
@@ -217,7 +235,7 @@ class FIRMSClient:
 
     def get_detections_by_country(self, source: str, iso3: str, day_range: int = 1, start: date | None = None) -> FetchResult:
         key = self._require_key()
-        url = f"{self.base_url}/api/country/csv/{key}/{source}/{iso3}/{max(1, min(day_range, 10))}"
+        url = f"{self.base_url}/api/country/csv/{key}/{source}/{iso3}/{max(1, min(day_range, MAX_DAY_RANGE))}"
         if start:
             url += f"/{start.isoformat()}"
         res = request(PROVIDER, "GET", url, timeout=90, redact=key)

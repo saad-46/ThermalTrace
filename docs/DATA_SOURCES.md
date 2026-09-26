@@ -35,6 +35,13 @@ Every source is registered in the `data_sources` table. Its health (status, last
 - **Finding:** dNDVI ≤ −0.10 and dNBR ≥ 0.10 → *vegetation loss consistent with burning*; one of the two → *partial change*; neither → *no change above threshold*.
 - **Honesty rules:** missing scenes are stored as `unavailable` with the reason, never as "no change". A change is described as consistent with burning, not as proof; no change does not rule out a fire.
 
+## FIRMS history (keyed Area API)
+
+- `FIRMS_MAP_KEY` is free (email registration at https://firms.modaps.eosdis.nasa.gov/api/map_key/). Limit: 5,000 transactions per 10 minutes per key.
+- The Area API accepts a day range of **1–5 days** per request; 6 or more returns HTTP 400 (verified 2026-09-26). Backfills of any length are split into 5-day windows (`integrations/firms.date_chunks`). Each window is its own ingestion run and is committed before the next, so an interrupted backfill keeps what it loaded and can simply be re-run (detections deduplicate).
+- Archive coverage reported by the key's `data_availability` call on 2026-09-26: `MODIS_SP` 2000-11-01 → 2026-06-30, `VIIRS_SNPP_SP` 2012-01-20 → 2026-06-30, `VIIRS_NOAA20_SP` 2018-04-01 → 2026-06-30. The NRT sources cover the months after the archive ends (e.g. `VIIRS_NOAA21_NRT` from 2024-01-17).
+- Command: `python -m app.cli ingest-historical --source VIIRS_SNPP_SP --start 2025-09-26 --days 278` (up to 400 days per call). The same job is available as `firms_historical` via `POST /api/v1/ingestion/trigger` (supervisor+), validated before it is queued.
+
 ## FIRMS details
 
 - **Normalisation** (`integrations/firms.py`):

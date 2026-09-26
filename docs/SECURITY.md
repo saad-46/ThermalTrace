@@ -28,6 +28,8 @@
 - **Secrets**: none in the repository. `.env*` files are git-ignored (only `*.example` files are tracked). No users are seeded: accounts are created with `python -m app.cli create-user`, which reads the password from `THERMALTRACE_PASSWORD` or a prompt. Keep any local password notes outside the repository. E2E tests read `E2E_EMAIL` / `E2E_PASSWORD` from the environment.
 - **Containers**: the API image runs as a non-root user (uid 10001).
 - **Supply chain**: CI runs `pip-audit` and `npm audit` in report mode.
+- **Test isolation**: `tests/conftest.py` blanks every provider credential (FIRMS, Copernicus, SMTP, VAPID, Sentry) before the app loads settings, so a developer's local `.env` can never make the test suite send email or call keyed APIs. A test enforces this.
+- **Fail-closed images**: the API image defaults to `ENVIRONMENT=production` and refuses to start with development secrets, the development database password, or localhost-only CORS. CI checks that the image refuses to start with defaults.
 
 ## Known gaps
 

@@ -20,6 +20,8 @@ Optional one-off job:
 docker compose exec api python -m app.cli import-registry --source wri_gppd   # adds ~1,600 Indian power plants
 ```
 
+Every backend container reads the whole `.env` (`env_file`); the compose `environment` block only pins values that must differ inside the stack, such as the database host. The web image receives `VITE_API_BASE_URL`, `VITE_MAP_STYLE_LIGHT`, `VITE_MAP_STYLE_DARK` and `VITE_CARTO_API_KEY` as build arguments.
+
 ## Local without Docker for the app (Docker only for PostGIS)
 
 ```bash
@@ -43,6 +45,17 @@ cd ../frontend && npm install && npm run dev             # terminal 4 (proxies /
 | Worker (interactive) | 1..n containers: `python -m app.workers.run --lane interactive` | Reports and on-demand enrichment. |
 | Report storage | A volume mounted at `/app/var` shared by the API and workers | Or swap `REPORT_STORAGE_DIR` for object storage (roadmap). |
 | Web | Vercel / Netlify / any static host, or `frontend/Dockerfile` (nginx) | Build with `VITE_API_BASE_URL=https://api.example.org`. SPA fallback to `index.html`. |
+
+## Fail-closed defaults
+
+The API image sets `ENVIRONMENT=production`. Outside development the API refuses to start unless:
+
+- `SECRET_KEY` is set, is not the development value, and has at least 32 characters;
+- `DATABASE_URL` does not use the development password;
+- `CORS_ORIGINS` lists at least one non-localhost origin;
+- `DEMO_MODE` is off (production only).
+
+docker-compose sets `ENVIRONMENT=development` explicitly for local use.
 
 ## Checklist
 

@@ -48,4 +48,7 @@ jobs:
       - run: docker build -t thermaltrace-api backend && docker build -t thermaltrace-web frontend
       # A build can succeed while a native library is missing at import time (e.g. GDAL inside rasterio).
       - name: Import check inside the API image
-        run: docker run --rm thermaltrace-api python -c "import rasterio, lightgbm, shap, app.main, app.workers.tasks"
+        run: docker run --rm -e ENVIRONMENT=test thermaltrace-api python -c "import rasterio, lightgbm, shap, app.main, app.workers.tasks"
+      # The image defaults to production and must refuse to start without real secrets (fail closed).
+      - name: Image refuses to start with development defaults
+        run: "! docker run --rm thermaltrace-api python -c 'import app.main'"

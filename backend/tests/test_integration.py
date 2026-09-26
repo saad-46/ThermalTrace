@@ -357,3 +357,63 @@ def test_model_activation_is_an_audited_admin_decision(client, db, auth_headers)
     assert actions == ["model.activate", "model.deactivate"]
     db.execute(text("DELETE FROM model_versions WHERE id = 'lgbm-test'"))
     db.commit()
+
+
+def test_firms_backfill_is_chunked_and_keeps_progress_on_failure(db):
+    """12 days -> three API windows; a provider failure in window 3 keeps windows 1-2 and records the failure."""
+    from datetime import UTC, date, datetime
+
+    import pytest
+    from sqlalchemy import text
+
+    from app.integrations.firms import FetchResult, parse_row
+    from app.integrations.http import ProviderServerError
+    from app.services.ingestion import ingest_firms_historical
+
+    calls = []
+
+    def detection(source, start):
+        row = {"latitude": "23.7", "longitude": "86.4", "acq_date": start.isoformat(), "acq_time": "0800",
+               "satellite": "N", "instrument": "VIIRS", "confidence": "n", "frp": "12.5", "bright_ti4": "330",
+               "bright_ti5": "295", "scan": "0.4", "track": "0.4", "daynight": "D", "version": "2.0NRT"}
+        return FetchResult([parse_row(row, source)], [], "test", 1.0, datetime.now(UTC))
+
+    class FailingThirdWindow:
+        def get_historical_detections(self, source, bbox, start, n):
+            calls.append((start, n))
+            if len(calls) == 3:
+                raise ProviderServerError("firms", "HTTP 503")
+            return detection(source, start)
+
+    with pytest.raises(ProviderServerError):
+        ingest_firms_historical(db, "VIIRS_SNPP_SP", "2025-07-01", 12, client=FailingThirdWindow())
+    assert calls == [(date(2025, 7, 1), 5), (date(2025, 7, 6), 5), (date(2025, 7, 11), 2)]
+    assert db.execute(text("SELECT count(*) FROM thermal_detections WHERE data_mode = 'historical'")).scalar() == 2
+    runs = [r[0] for r in db.execute(text("SELECT status FROM ingestion_runs WHERE mode = 'historical' ORDER BY started_at"))]
+    assert runs == ["success", "success", "failed"]
+
+    # Re-running is safe: the two completed windows deduplicate, the third now succeeds.
+    class AllWindowsOk:
+        def get_historical_detections(self, source, bbox, start, n):
+            return detection(source, start)
+
+    res = ingest_firms_historical(db, "VIIRS_SNPP_SP", "2025-07-01", 12, client=AllWindowsOk())
+    assert res["windows_done"] == 3 and res["inserted"] == 1 and res["duplicates"] == 2
+
+
+def test_firms_backfill_trigger_validates_before_queueing(client, auth_headers, monkeypatch):
+    from pydantic import SecretStr
+
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "firms_map_key", SecretStr("x" * 32))
+    h = auth_headers("supervisor")
+    bad_src = client.post("/api/v1/ingestion/trigger", headers=h, json={"kind": "firms_historical",
+                          "payload": {"source": "NOPE", "start": "2025-07-01", "days": 10}})
+    assert bad_src.status_code == 400 and bad_src.json()["error"]["code"] == "invalid_source"
+    bad_days = client.post("/api/v1/ingestion/trigger", headers=h, json={"kind": "firms_historical",
+                           "payload": {"source": "VIIRS_SNPP_SP", "start": "2025-07-01", "days": 5000}})
+    assert bad_days.json()["error"]["code"] == "invalid_days"
+    ok = client.post("/api/v1/ingestion/trigger", headers=h, json={"kind": "firms_historical",
+                     "payload": {"source": "VIIRS_SNPP_SP", "start": "2025-07-01", "days": 365}})
+    assert ok.status_code == 202

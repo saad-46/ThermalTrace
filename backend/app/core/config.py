@@ -14,6 +14,12 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 REPO_DIR = BACKEND_DIR.parent
 
 _INSECURE_DEV_SECRET = "dev-only-insecure-secret-change-me"
+_DEV_DB_PASSWORD = "thermaltrace_dev_only"
+
+
+def _is_local_origin(origin: str) -> bool:
+    host = origin.split("://", 1)[-1].split("/", 1)[0].split(":", 1)[0].lower()
+    return host in ("localhost", "127.0.0.1", "[::1]", "::1") or host.endswith(".localhost")
 
 
 class Settings(BaseSettings):
@@ -28,7 +34,7 @@ class Settings(BaseSettings):
     demo_mode: bool = False
 
     # --- database --------------------------------------------------------------------------
-    database_url: str = "postgresql+psycopg://thermaltrace:thermaltrace_dev_only@localhost:5432/thermaltrace"
+    database_url: str = f"postgresql+psycopg://thermaltrace:{_DEV_DB_PASSWORD}@localhost:5432/thermaltrace"
     db_pool_size: int = 10
     db_max_overflow: int = 10
 
@@ -99,6 +105,10 @@ class Settings(BaseSettings):
                 raise ValueError("SECRET_KEY must be set to a random value of at least 32 characters outside development")
             if self.demo_mode and self.environment == "production":
                 raise ValueError("DEMO_MODE cannot be enabled in production")
+            if _DEV_DB_PASSWORD in self.database_url:
+                raise ValueError("DATABASE_URL still uses the development password; set a real one outside development")
+            if not self.cors_origin_list or all(_is_local_origin(o) for o in self.cors_origin_list):
+                raise ValueError("CORS_ORIGINS must list the public web origin(s) outside development")
         return self
 
     @property

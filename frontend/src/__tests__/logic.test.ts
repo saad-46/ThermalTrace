@@ -80,3 +80,15 @@ describe("query-key stability", () => {
     expect(sinceFromDays(null, t)).toBeUndefined();
   });
 });
+
+describe("CARTO basemap key", () => {
+  it("adds the key only to CARTO requests, once", async () => {
+    const { withCartoKey } = await import("../components/MapCanvas");
+    expect(withCartoKey("https://tiles-a.basemaps.cartocdn.com/vectortiles/carto.streets/v1/3/5/3.mvt", "k1"))
+      .toBe("https://tiles-a.basemaps.cartocdn.com/vectortiles/carto.streets/v1/3/5/3.mvt?key=k1");
+    expect(withCartoKey("https://basemaps.cartocdn.com/gl/positron-gl-style/style.json?key=k0", "k1")).toContain("key=k0");
+    expect(withCartoKey("https://tiles.maps.eox.at/wmts/1.0.0/x.jpg", "k1")).toBe("https://tiles.maps.eox.at/wmts/1.0.0/x.jpg");
+    expect(withCartoKey("https://evil-basemaps.cartocdn.com.example.org/x", "k1")).not.toContain("key=");
+    expect(withCartoKey("https://tiles.basemaps.cartocdn.com/x", "")).toBe("https://tiles.basemaps.cartocdn.com/x");
+  });
+});

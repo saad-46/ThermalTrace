@@ -27,6 +27,19 @@ const RINGS_M = [2000, 10000];
 maplibregl.setWorkerUrl(maplibreWorkerUrl);
 
 const STYLE_LIGHT = (import.meta.env.VITE_MAP_STYLE_LIGHT as string) || "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
+const CARTO_KEY = (import.meta.env.VITE_CARTO_API_KEY as string | undefined) ?? "";
+
+/** CARTO basemaps take the API key as a `key` query parameter. The style JSON does not forward it to the
+ *  tiles, sprites and glyphs it references, so it is added to every request to a CARTO host. */
+export function withCartoKey(url: string, key: string = CARTO_KEY): string {
+  if (!key) return url;
+  let u: URL;
+  try { u = new URL(url); } catch { return url; }
+  if (!/(^|\.)basemaps\.cartocdn\.com$/.test(u.hostname) || u.searchParams.has("key")) return url;
+  u.searchParams.set("key", key);
+  return u.toString();
+}
+
 const STYLE_DARK = (import.meta.env.VITE_MAP_STYLE_DARK as string) || "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
 const INDIA: LngLatBoundsLike = [[68, 6.5], [97.5, 35.7]];
 const EMPTY: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
@@ -117,6 +130,7 @@ export default function MapCanvas({ filters, layers, theme, selectedId, focus, o
       style: theme === "dark" ? STYLE_DARK : STYLE_LIGHT,
       ...view,
       attributionControl: { compact: true },
+      transformRequest: (url) => ({ url: withCartoKey(url) }),
       dragRotate: false,
       pitchWithRotate: false,
     });

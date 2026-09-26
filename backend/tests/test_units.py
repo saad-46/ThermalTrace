@@ -353,3 +353,42 @@ def test_env_templates_have_no_inline_comments_on_blank_values():
     for template in templates:
         polluted = [k for k, v in dotenv_values(template).items() if v and v.lstrip().startswith("#")]
         assert polluted == [], f"{template.name}: {polluted}"
+
+
+def test_firms_backfill_windows_respect_the_5_day_api_limit():
+    from app.integrations.firms import MAX_DAY_RANGE, date_chunks
+
+    assert MAX_DAY_RANGE == 5
+    w = date_chunks(date(2025, 7, 1), 12)
+    assert w == [(date(2025, 7, 1), 5), (date(2025, 7, 6), 5), (date(2025, 7, 11), 2)]
+    year = date_chunks(date(2025, 7, 1), 365)
+    assert len(year) == 73 and sum(n for _, n in year) == 365 and all(1 <= n <= 5 for _, n in year)
+    assert year[-1][0] + timedelta(days=year[-1][1] - 1) == date(2026, 6, 30)
+    with pytest.raises(ValueError):
+        date_chunks(date(2025, 7, 1), 0)
+
+
+def test_tests_never_see_real_provider_credentials():
+    """conftest blanks provider credentials, so a developer's local .env can never make tests send email,
+    push notifications or keyed API calls."""
+    from app.core.config import Settings
+
+    s = Settings()
+    assert not s.smtp_host and not s.smtp_password and not s.firms_key and not s.copernicus_client_secret
+    assert not s.vapid_private_key and not s.sentry_dsn
+
+
+def test_production_settings_fail_closed(monkeypatch):
+    """Outside development the API refuses the dev secret, the dev database password and localhost-only CORS."""
+    from pydantic import ValidationError
+
+    from app.core.config import Settings
+
+    good = {"environment": "production", "secret_key": "s" * 48,
+            "database_url": "postgresql+psycopg://tt:real-password@db.internal:5432/tt", "cors_origins": "https://thermaltrace.example.org"}
+    assert Settings(**good).environment == "production"
+    for bad in ({"secret_key": "short"}, {"database_url": "postgresql+psycopg://thermaltrace:thermaltrace_dev_only@db:5432/tt"},
+                {"cors_origins": "http://localhost:5173"}, {"cors_origins": "http://127.0.0.1:5173,http://app.localhost"}):
+        with pytest.raises(ValidationError):
+            Settings(**{**good, **bad})
+    assert Settings(environment="development").environment == "development"  # dev defaults still work locally

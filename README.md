@@ -211,7 +211,7 @@ Every variable is documented and tagged REQUIRED / OPTIONAL / PROVIDER in [.env.
 | Registries | `DATASETS_DIR` | Optional |
 | Delivery | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Optional (email and push) |
 | Observability | `SENTRY_DSN` | Optional |
-| Web (build time) | `VITE_API_BASE_URL`, `VITE_MAP_STYLE_LIGHT`, `VITE_MAP_STYLE_DARK` | Optional |
+| Web (build time) | `VITE_API_BASE_URL`, `VITE_MAP_STYLE_LIGHT`, `VITE_MAP_STYLE_DARK`, `VITE_CARTO_API_KEY` (CARTO basemaps key; public by design) | Optional |
 
 Without optional credentials, the integration reports `not_configured` or `skipped`. It never falls back to fake data. See [docs/DEPLOYMENT.md#credentials](docs/DEPLOYMENT.md#credentials).
 
@@ -250,7 +250,7 @@ npm run build
 E2E_EMAIL=analyst@example.org E2E_PASSWORD=… npm run test:e2e
 ```
 
-Current results: backend **70 passed**, Vitest **23 passed**, Playwright **3 passed** (desktop, tablet, mobile). `pip-audit` and `npm audit` are clean. CI (`.github/workflows/ci.yml`) runs lint, the backend tests against PostGIS, typecheck, the frontend tests, the build, both audits and the image builds. Details: [docs/TESTING.md](docs/TESTING.md).
+Current results: backend **75 passed**, Vitest **24 passed**, Playwright **3 passed** (desktop, tablet, mobile). `pip-audit` and `npm audit` are clean. CI (`.github/workflows/ci.yml`) runs lint, the backend tests against PostGIS, typecheck, the frontend tests, the build, both audits and the image builds. Details: [docs/TESTING.md](docs/TESTING.md).
 
 ## Docker and deployment
 

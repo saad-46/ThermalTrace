@@ -2,7 +2,7 @@
 
   create-user --email E --name N --role admin     (password read from THERMALTRACE_PASSWORD env or prompt)
   ingest [--window 24h|48h|7d]                     keyless FIRMS NRT poll, all sensors
-  ingest-historical --source VIIRS_SNPP_SP --start 2026-01-01 --days 10   (needs FIRMS_MAP_KEY)
+  ingest-historical --source VIIRS_SNPP_SP --start 2025-07-01 --days 365  (needs FIRMS_MAP_KEY; fetched in 5-day windows)
   process [--all]                                  cluster + analyse events
   enrich [--limit 40]                              OSM / weather / imagery / geocode for top-priority events
   import-registry --source wri_gppd|gem|cea [--path F] [--version V] [--published YYYY-MM-DD]

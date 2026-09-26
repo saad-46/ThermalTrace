@@ -6,6 +6,17 @@ import os
 import pytest
 
 TEST_DB = os.environ.get("TEST_DATABASE_URL")
+
+# Tests must never reach real providers with a developer's credentials. Settings also read the local
+# .env file, but environment variables take precedence, so these blanks always win. Tests that need a
+# provider configured monkeypatch the setting and stub the network call.
+PROVIDER_CREDENTIALS = (
+    "FIRMS_MAP_KEY", "COPERNICUS_CLIENT_ID", "COPERNICUS_CLIENT_SECRET", "SMTP_HOST", "SMTP_USERNAME", "SMTP_USER",
+    "SMTP_PASSWORD", "SMTP_FROM", "VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY", "VAPID_SUBJECT", "SENTRY_DSN",
+)
+for _name in PROVIDER_CREDENTIALS:
+    os.environ[_name] = ""
+
 if TEST_DB:
     # Must be set before app modules create the engine.
     os.environ["DATABASE_URL"] = TEST_DB
