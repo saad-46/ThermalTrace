@@ -1,6 +1,6 @@
 """Importing this package registers every table on Base.metadata (used by Alembic)."""
 from app.models.auth import Organization, Permission, PushSubscription, Role, User, UserSession  # noqa: F401
-from app.models.enrichment import SatelliteObservation, WeatherObservation  # noqa: F401
+from app.models.enrichment import ImageryAnalysis, LandCoverObservation, SatelliteObservation, WeatherObservation  # noqa: F401
 from app.models.facilities import (  # noqa: F401
     EventFacilityLink,
     Facility,

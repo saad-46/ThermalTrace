@@ -63,7 +63,7 @@ FIRMS · Overpass · WRI/GEM/CEA · Sentinel-2 STAC · Open-Meteo · Nominatim
                  │ (retries, backoff, cache, health tracking)
      worker (bulk lane + scheduler) · worker (interactive lane)   ← Postgres SKIP LOCKED job queue
                  │
-        PostgreSQL 16 + PostGIS 3.4 (Alembic, 40 tables)
+        PostgreSQL 16 + PostGIS 3.4 (Alembic, 42 tables)
                  │
       FastAPI /api/v1 (JWT, roles, audit, rate limits)
                  │
@@ -83,10 +83,10 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 ## Features
 
 - **Live map.** Viewport-bounded loading, clustering, a facility layer, event footprint and pixels, attribution rings, potential dispersion direction, replay and a Sentinel-2 basemap.
-- **Investigation.** Summary answers, evidence chain, evidence confidence matrix, confidence components, thermal fingerprint, distance-ranked facilities, a per-day persistence strip, before/after satellite swipe, weather, model evidence (rule trace and SHAP) and full provenance.
+- **Investigation.** Summary answers, evidence chain, evidence confidence matrix, confidence components, thermal fingerprint, distance-ranked facilities, raster land cover (ESA WorldCover), a per-day persistence strip, before/after satellite swipe, Sentinel-2 NDVI / NBR change, weather, model evidence (rule trace and SHAP) and full provenance.
 - **Triage and search.** An explainable triage priority orders the review queue; it is not a risk score. Global search covers event IDs, districts, facilities, classifications and coordinates.
 - **Analyst workflow.** Confirm, reclassify, reject, false positive or escalate, with notes, evidence links and assignment. Every decision feeds the training dataset (CSV/JSON export, audited).
-- **Monitoring.** Alert rules with cooldowns (in-app, email and push delivery), and watchlists for facilities, points, districts and polygons.
+- **Monitoring.** Alert rules on class, persistence, facility proximity, triage priority, repeated activity at a facility, or an increase in facility activity, with cooldowns (in-app, email and push delivery); watchlists for facilities, points, districts and polygons.
 - **Reporting.** PDF investigation reports with source attribution.
 - **Operations.** Data-source health, local facility-index coverage, ingestion runs, jobs, workers, model cards, audit log, and user and role administration.
 - **Mobile.** An installable PWA with bottom navigation, a map bottom sheet, swipeable evidence cards, "near me", offline reads and Web Push.
@@ -106,7 +106,8 @@ Full status of each feature: [docs/FEATURES.md](docs/FEATURES.md).
 | OpenStreetMap (Overpass) | Facilities and land use; a local facility index is built in 1° tiles | None (User-Agent required) |
 | WRI Global Power Plant Database | Power plants | None |
 | Global Energy Monitor, CEA | Additional facility registries | None, but the data files must be downloaded manually |
-| Sentinel-2 L2A (Earth Search STAC, Copernicus Data Space) | Scene search, previews and SWIR renders | None for search. `COPERNICUS_CLIENT_ID/SECRET` for SWIR. |
+| Sentinel-2 L2A (Earth Search STAC, Copernicus Data Space) | Scene search, previews, NDVI / NBR change, SWIR renders | None for search and NDVI / NBR. `COPERNICUS_CLIENT_ID/SECRET` for SWIR. |
+| ESA WorldCover 10 m (2021) | Land-cover shares around each event | None |
 | Open-Meteo | Weather at detection time | None |
 | OSM Nominatim | State and district | None |
 
@@ -148,7 +149,7 @@ python -m venv .venv
 .venv/Scripts/pip install -r requirements.txt     # Linux/macOS: .venv/bin/pip
 ```
 
-**5. Run the migrations** (creates all 40 tables and seeds roles and sources; no users are seeded)
+**5. Run the migrations** (creates all 42 tables and seeds roles and sources; no users are seeded)
 
 ```bash
 alembic upgrade head
@@ -223,7 +224,7 @@ python -m app.cli process [--all]             # cluster + classify + alerts
 python -m app.cli enrich --limit 40           # OSM, weather, imagery, geocoding
 python -m app.cli sync-facilities --tiles 4   # local OSM facility index (busiest tiles first)
 python -m app.cli import-registry --source gem --path tracker.xlsx --version 2026-H1 --published 2026-07-01
-python -m app.cli train                       # train + activate LightGBM (adjudicated + weak labels; model card stored)
+python -m app.cli train                       # train LightGBM (stored inactive; activate it from System health)
 ruff check app tests
 alembic check                                 # models ↔ migrations drift
 
@@ -249,7 +250,7 @@ npm run build
 E2E_EMAIL=analyst@example.org E2E_PASSWORD=… npm run test:e2e
 ```
 
-Current results: backend **49 passed**, Vitest **17 passed**, Playwright **3 passed** (desktop, tablet, mobile). `pip-audit` and `npm audit` are clean. CI (`.github/workflows/ci.yml`) runs lint, the backend tests against PostGIS, typecheck, the frontend tests, the build, both audits and the image builds. Details: [docs/TESTING.md](docs/TESTING.md).
+Current results: backend **70 passed**, Vitest **23 passed**, Playwright **3 passed** (desktop, tablet, mobile). `pip-audit` and `npm audit` are clean. CI (`.github/workflows/ci.yml`) runs lint, the backend tests against PostGIS, typecheck, the frontend tests, the build, both audits and the image builds. Details: [docs/TESTING.md](docs/TESTING.md).
 
 ## Docker and deployment
 
@@ -262,9 +263,9 @@ Topology, checklist and credentials: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## ML status
 
-- **The classifier of record is the rule cascade** (`rule-cascade-v1.0`). It is deterministic, cites published domain knowledge, and records a rule trace for every decision.
+- **The classifier of record is the rule cascade** (`rule-cascade-v1.1`). It is deterministic, cites published domain knowledge, and records a rule trace for every decision.
 - **A LightGBM + SHAP pipeline is implemented and tested, but no model ships and none is active.** Labels today are mostly rule-derived, so a trained model would only reproduce the rules and its scores would be meaningless.
-- `python -m app.cli train` (or *System health → Train*) trains **and activates** a model. It refuses to train with fewer than 40 labels or fewer than 2 classes with 5+ rows each. Run it only once analysts have adjudicated a meaningful number of events, then review the model card under *System health*.
+- `python -m app.cli train` (or *System health → Train*) trains a model and stores it **inactive**. An admin activates it after reviewing the model card, and can deactivate it at any time (both audited). It refuses to train with fewer than 40 labels or fewer than 2 classes with 5+ rows each. Run it only once analysts have adjudicated a meaningful number of events, then review the model card under *System health*.
 - Confidence comes from eight explicit components, with data-quality grades. An event is never `CONFIRMED` without an imagery check.
 
 Details: [docs/ML.md](docs/ML.md).
@@ -274,7 +275,7 @@ Details: [docs/ML.md](docs/ML.md).
 - Persistence is only as deep as the loaded FIRMS history: about 8 days without `FIRMS_MAP_KEY`.
 - OSM industrial coverage in India is uneven. A missing facility is reported as "not mapped", never as "no facility".
 - Public Overpass is slow, so the local facility index fills gradually. Self-host Overpass for national backfills.
-- Satellite imagery is shown for analyst comparison and is not analysed automatically.
+- Imagery is analysed only as NDVI / NBR change on request, and only when clear scenes bracket the event. There is no automated imagery classifier, and scene previews show the whole tile.
 - The region of interest is a bounding box, so it includes parts of neighbouring countries.
 - The EOX Sentinel-2 cloudless basemap is non-commercial (CC BY-NC-SA).
 
@@ -298,7 +299,7 @@ Details, audit findings and known gaps: [docs/SECURITY.md](docs/SECURITY.md).
 |---|---|
 | Product and users | [PRODUCT.md](docs/PRODUCT.md) |
 | Architecture | [ARCHITECTURE.md](docs/ARCHITECTURE.md) |
-| API (75 operations) | [API.md](docs/API.md) |
+| API (77 operations) | [API.md](docs/API.md) |
 | Database and migrations | [DATABASE.md](docs/DATABASE.md) |
 | Data sources and integration matrix | [DATA_SOURCES.md](docs/DATA_SOURCES.md) |
 | ML, confidence and explainability | [ML.md](docs/ML.md) |

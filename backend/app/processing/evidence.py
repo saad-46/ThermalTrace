@@ -10,6 +10,7 @@ import math
 from dataclasses import dataclass, field
 
 from app.gis.geo import compass
+from app.integrations.raster import group_fractions
 from app.ml.base import CLASS_LABELS, Prediction
 
 INDUSTRIAL_LABELS = {"flare", "process_heat", "coal_seam_fire", "industrial_fire"}
@@ -34,6 +35,69 @@ class EvidenceItem:
 
 def _fmt_km(m: float) -> str:
     return f"{m / 1000:.1f} km" if m >= 1000 else f"{m:.0f} m"
+
+
+VEGETATION_LABELS = ("agricultural_burn", "wildfire")
+INDUSTRIAL_LABELS = ("flare", "process_heat", "industrial_fire", "coal_seam_fire")
+CLASS_NAMES = {"tree_cover": "tree cover", "shrubland": "shrubland", "grassland": "grassland", "cropland": "cropland",
+               "built_up": "built-up", "bare_sparse": "bare / sparse vegetation", "snow_ice": "snow and ice", "water": "water",
+               "herbaceous_wetland": "wetland", "mangroves": "mangroves", "moss_lichen": "moss and lichen"}
+
+
+def _landcover_items(wc: dict | None, status: str | None, label: str) -> list[EvidenceItem]:
+    """ESA WorldCover shares as CONTEXT. It can support or weakly contradict a class but never decides it."""
+    if wc is None:
+        if status == "ok":
+            return [EvidenceItem("landcover", "external", "missing", 0.2,
+                                 "No land-cover data at this location (offshore or outside WorldCover coverage).", None)]
+        return [EvidenceItem("landcover", "external", "missing", 0.3, "Raster land cover not yet retrieved for this event.", None)]
+    g = group_fractions(wc["fractions"])
+    top = sorted(wc["fractions"].items(), key=lambda kv: -kv[1])[:3]
+    text_top = ", ".join(f"{CLASS_NAMES.get(k, k)} {v:.0%}" for k, v in top)
+    direction = "neutral"
+    if label == "agricultural_burn":
+        if g["cropland"] >= 0.5:
+            direction = "supports"
+        elif g["cropland"] < 0.05 and g["vegetation"] < 0.10:
+            direction = "contradicts"
+    elif label == "wildfire":
+        if g["vegetation"] >= 0.5:
+            direction = "supports"
+        elif g["vegetation"] < 0.10:
+            direction = "contradicts"
+    elif label in INDUSTRIAL_LABELS and g["built_up"] + g["bare"] >= 0.50:
+        direction = "supports"
+    return [EvidenceItem(
+        "landcover", "external", direction, 0.3,
+        f"{wc['product']}, {wc['window_m']:.0f} m window: {text_top}. Land cover is context; it does not decide the class by itself.",
+        {"fractions": wc["fractions"], "groups": g, "dominant": wc["dominant"]},
+        {"source": "ESA WorldCover", "product": wc["product"], "retrieved_at": wc["retrieved_at"]})]
+
+
+def _imagery_items(ia: dict | None, label: str) -> list[EvidenceItem]:
+    """Sentinel-2 NDVI/NBR change. Unavailable imagery is 'missing', never 'no change'."""
+    if ia is None:
+        return []
+    prov = {"source": "Sentinel-2 L2A via Earth Search", "retrieved_at": ia["retrieved_at"]}
+    if ia["status"] != "ok":
+        return [EvidenceItem("satellite", "external", "missing", 0.3,
+                             f"Sentinel-2 spectral change could not be computed: {ia['reason']}", None, prov)]
+    d, b, a = ia["deltas"], ia["before_scene"], ia["after_scene"]
+    finding = ia["finding"]
+    head = (f"NDVI {b['ndvi']:+.2f} to {a['ndvi']:+.2f} (change {d['ndvi']:+.2f}); NBR {b['nbr']:+.2f} to {a['nbr']:+.2f} "
+            f"(change {d['nbr']:+.2f}) between scenes of {b['acquired_at'][:10]} and {a['acquired_at'][:10]}, 1 km window. ")
+    if finding == "vegetation_loss_consistent":
+        direction, strength = ("supports" if label in VEGETATION_LABELS else "neutral"), 0.55
+        body = "Both indices changed in the direction of vegetation loss, which is consistent with burning but not proof of it."
+    elif finding == "partial_change":
+        direction, strength = "neutral", 0.3
+        body = "One index crossed its change threshold and the other did not, so the result is inconclusive."
+    else:
+        direction, strength = "neutral", 0.2
+        body = ("No index crossed its change threshold. This does not rule out a fire: the scenes may not bracket it, the source "
+                "may not involve vegetation, or the burned area may be smaller than the window.")
+    return [EvidenceItem("satellite", "external", direction, strength, head + body,
+                         {"finding": finding, "deltas": d, "before": b, "after": a, "method": ia["method"]}, prov)]
 
 
 def build_evidence(ctx: dict, label: str, rule: Prediction, gbm: Prediction | None) -> list[EvidenceItem]:
@@ -112,6 +176,9 @@ def build_evidence(ctx: dict, label: str, rule: Prediction, gbm: Prediction | No
         items.append(EvidenceItem("land", "external", "neutral", 0.2, "No farmland, forest or residential land use mapped within 1.5 km.",
                                   None, {"source": "OpenStreetMap"}))
 
+    # --- external: raster land cover (ESA WorldCover) ---------------------------------------------
+    items.extend(_landcover_items(ctx.get("landcover"), ctx.get("landcover_status"), label))
+
     # --- external: weather ----------------------------------------------------------------------
     w = ctx["weather"]
     if w:
@@ -149,6 +216,9 @@ def build_evidence(ctx: dict, label: str, rule: Prediction, gbm: Prediction | No
             "comparison — it has not been analysed automatically.",
             {"scene_count": len(scenes), "best_item": best["item_id"], "best_cloud": best["cloud_cover"]},
             {"source": "Copernicus Sentinel-2 via Earth Search", "item": best["item_id"]}))
+
+    # --- external: Sentinel-2 spectral change -----------------------------------------------------
+    items.extend(_imagery_items(ctx.get("imagery"), label))
 
     # --- model --------------------------------------------------------------------------------
     items.append(EvidenceItem(

@@ -1,6 +1,6 @@
-# Final status (2026-09-25)
+# Final status (2026-09-26)
 
-**Repository:** `saad-46/ThermalTrace`. **Branch:** `production-consolidation`, ready to merge into `main`.
+**Repository:** `saad-46/ThermalTrace`. **Branch:** `main`.
 
 ## Live state at the time of writing (development database; real data only, `DEMO_MODE=false`)
 
@@ -14,7 +14,16 @@
 | Local facility index | 17 of 297 tiles synced (busiest first); syncs continuously in the background |
 | Analyst reviews | 14 |
 
-## COMPLETED (this phase)
+## COMPLETED (advanced feature phase, 2026-09-26)
+
+- **Raster land cover** (ESA WorldCover 10 m) for every event: stored with provenance, used as context evidence, as features, in the confidence engine's land support, and as a capped fallback in the rule cascade (`rule-cascade-v1.1`).
+- **Sentinel-2 NDVI / NBR change** between clear scenes bracketing the event, cloud-masked with SCL, on demand; stored as `unavailable` with a reason when scenes do not allow it.
+- **Alert conditions** for triage priority, repeated activity at the nearest facility, and an increase in facility activity.
+- **Audit trail** now records previous and new state for reviews and alert-rule edits, plus watchlist changes, imagery requests and model deactivation.
+- **Model lifecycle:** training stores models inactive; admins activate or deactivate (audited), so the rule cascade can always be restored.
+- **Bug found and fixed:** new job kinds must belong to a worker lane or they queue forever; a test now enforces it.
+
+## COMPLETED (consolidation phase)
 
 - **Consolidation**: this repository is the single source. Earlier prototypes were audited feature by feature; everything valuable was rebuilt here on real data, and the rest is recorded as rejected with a reason (`PROJECT_HISTORY.md`, `FEATURES.md`).
 - **Local facility index**: scheduled 1° tile sync from OSM into PostGIS. Enrichment now asks Overpass only for land use where tiles are fresh. The OSM error rate fell from 15.2 % to 3.0 %.

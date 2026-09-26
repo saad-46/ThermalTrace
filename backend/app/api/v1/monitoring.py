@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
@@ -51,7 +52,9 @@ def _owned_rule(db: Session, rule_id: uuid.UUID, user: User) -> AlertRule:
 def _apply_rule(r: AlertRule, body: AlertRuleIn) -> None:
     if (body.latitude is None) != (body.longitude is None):
         raise AppError("Provide both latitude and longitude, or neither", code="invalid_center")
-    if body.latitude is None and body.watchlist_id is None and not (body.source_classes or body.facility_types):
+    if body.latitude is None and body.watchlist_id is None and not (
+            body.source_classes or body.facility_types or body.min_priority is not None
+            or body.min_repeat_events is not None or body.activity_increase):
         raise AppError("A rule needs a location, a watchlist, or class/facility criteria", code="rule_too_broad")
     data = body.model_dump(exclude={"latitude", "longitude"})
     for k, v in data.items():
@@ -86,9 +89,15 @@ def create_rule(body: AlertRuleIn, request: Request, user: User = AnalystUser, d
 
 
 @router.put("/alert-rules/{rule_id}", response_model=AlertRuleOut, tags=["alerts"])
-def update_rule(rule_id: uuid.UUID, body: AlertRuleIn, user: User = AnalystUser, db: Session = Depends(get_db)):
+def update_rule(rule_id: uuid.UUID, body: AlertRuleIn, request: Request, user: User = AnalystUser, db: Session = Depends(get_db)):
     r = _owned_rule(db, rule_id, user)
+    before = _rule_out(db, r)
     _apply_rule(r, body)
+    db.flush()
+    after = _rule_out(db, r)
+    changed = {k: {"from": before[k], "to": after[k]} for k in after
+               if k not in ("alert_count", "last_triggered_at", "created_at") and before.get(k) != after[k]}
+    audit.record(db, request, user.id, "alert_rule.update", "alert_rule", r.id, jsonable_encoder({"changes": changed}))
     db.commit()
     return _rule_out(db, r)
 
@@ -181,9 +190,11 @@ def list_watchlists(user: User = CurrentUser, db: Session = Depends(get_db)):
 
 
 @router.post("/watchlists", response_model=WatchlistOut, status_code=201, tags=["watchlists"])
-def create_watchlist(body: WatchlistIn, user: User = AnalystUser, db: Session = Depends(get_db)):
+def create_watchlist(body: WatchlistIn, request: Request, user: User = AnalystUser, db: Session = Depends(get_db)):
     wl = Watchlist(owner_id=user.id, name=body.name, description=body.description)
     db.add(wl)
+    db.flush()
+    audit.record(db, request, user.id, "watchlist.create", "watchlist", wl.id, {"name": body.name})
     db.commit()
     return _watchlist_out(db, wl)
 
@@ -194,13 +205,15 @@ def get_watchlist(wl_id: uuid.UUID, user: User = CurrentUser, db: Session = Depe
 
 
 @router.delete("/watchlists/{wl_id}", status_code=204, tags=["watchlists"])
-def delete_watchlist(wl_id: uuid.UUID, user: User = AnalystUser, db: Session = Depends(get_db)):
-    db.delete(_owned_watchlist(db, wl_id, user))
+def delete_watchlist(wl_id: uuid.UUID, request: Request, user: User = AnalystUser, db: Session = Depends(get_db)):
+    wl = _owned_watchlist(db, wl_id, user)
+    audit.record(db, request, user.id, "watchlist.delete", "watchlist", wl.id, {"name": wl.name})
+    db.delete(wl)
     db.commit()
 
 
 @router.post("/watchlists/{wl_id}/items", response_model=WatchlistOut, status_code=201, tags=["watchlists"])
-def add_item(wl_id: uuid.UUID, body: WatchlistItemIn, user: User = AnalystUser, db: Session = Depends(get_db)):
+def add_item(wl_id: uuid.UUID, body: WatchlistItemIn, request: Request, user: User = AnalystUser, db: Session = Depends(get_db)):
     wl = _owned_watchlist(db, wl_id, user)
     item = WatchlistItem(watchlist_id=wl.id, kind=body.kind, label=body.label, radius_m=body.radius_m)
     if body.kind == "facility":
@@ -226,16 +239,20 @@ def add_item(wl_id: uuid.UUID, body: WatchlistItemIn, user: User = AnalystUser, 
             raise AppError("admin_district required", code="district_required")
         item.admin_district = body.admin_district
     db.add(item)
+    db.flush()
+    audit.record(db, request, user.id, "watchlist.item_add", "watchlist", wl.id,
+                 jsonable_encoder({"item": item.id, "kind": body.kind, "label": body.label}))
     db.commit()
     return _watchlist_out(db, wl)
 
 
 @router.delete("/watchlists/{wl_id}/items/{item_id}", status_code=204, tags=["watchlists"])
-def remove_item(wl_id: uuid.UUID, item_id: uuid.UUID, user: User = AnalystUser, db: Session = Depends(get_db)):
+def remove_item(wl_id: uuid.UUID, item_id: uuid.UUID, request: Request, user: User = AnalystUser, db: Session = Depends(get_db)):
     _owned_watchlist(db, wl_id, user)
     item = db.get(WatchlistItem, item_id)
     if item is None or item.watchlist_id != wl_id:
         raise NotFound("Item not found")
+    audit.record(db, request, user.id, "watchlist.item_remove", "watchlist", wl_id, {"item": str(item_id), "kind": item.kind})
     db.delete(item)
     db.commit()
 

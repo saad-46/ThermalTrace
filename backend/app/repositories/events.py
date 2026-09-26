@@ -170,6 +170,10 @@ def get_bundle(db: Session, event_id: uuid.UUID) -> dict:
                             WHERE l.event_id = :id ORDER BY l.rank""")
     ev["land"] = q("""SELECT category, name, distance_m, osm_type, osm_id, retrieved_at FROM land_context
                       WHERE event_id = :id ORDER BY distance_m LIMIT 30""")
+    ev["landcover"] = (q("""SELECT product, window_m, fractions, dominant, valid_fraction, source_ref, retrieved_at
+                           FROM landcover_observations WHERE event_id = :id""") or [None])[0]
+    ev["imagery_analysis"] = (q("""SELECT status, reason, finding, window_m, before_scene, after_scene, deltas, method,
+                                  retrieved_at FROM imagery_analyses WHERE event_id = :id""") or [None])[0]
     ev["weather"] = q("""SELECT kind, source_id, dataset, observed_at, retrieved_at, temperature_c, humidity_pct,
                            wind_speed_ms, wind_direction_deg, precipitation_mm, pressure_hpa, weather_code, condition
                          FROM weather_observations WHERE event_id = :id ORDER BY observed_at DESC""")
@@ -189,8 +193,8 @@ def get_bundle(db: Session, event_id: uuid.UUID) -> dict:
     ev["evidence"] = q("""SELECT category, knowledge_type, direction, strength, statement, value, provenance
                           FROM classification_evidence WHERE event_id = :id
                           ORDER BY CASE category WHEN 'firms' THEN 1 WHEN 'persistence' THEN 2 WHEN 'history' THEN 3
-                            WHEN 'facility' THEN 4 WHEN 'land' THEN 5 WHEN 'weather' THEN 6 WHEN 'satellite' THEN 7
-                            ELSE 8 END, strength DESC""")
+                            WHEN 'facility' THEN 4 WHEN 'land' THEN 5 WHEN 'landcover' THEN 6 WHEN 'weather' THEN 7
+                            WHEN 'satellite' THEN 8 ELSE 9 END, strength DESC""")
     ev["reviews"] = q("""SELECT r.id, r.decision, r.source_class, r.persistence_class, r.false_positive_reason, r.notes,
                            r.system_source_class, r.system_confidence_score, r.created_at, u.full_name AS reviewer
                          FROM analyst_reviews r LEFT JOIN users u ON u.id = r.user_id WHERE r.event_id = :id
@@ -235,6 +239,28 @@ def build_timeline(ev: dict) -> list[dict]:
     return sorted(items, key=lambda i: i["at"] if isinstance(i["at"], datetime) else datetime.fromisoformat(str(i["at"])))
 
 
+def _landcover_row(wc: dict | None, status: str | None) -> dict:
+    if wc is None:
+        return {"type": "Land cover", "availability": "failed" if status == "failed" else ("checked" if status == "ok" else "pending"),
+                "strength": 0, "detail": "no WorldCover data here" if status == "ok" else
+                ("retrieval failed" if status == "failed" else "not yet retrieved")}
+    share = (wc["fractions"] or {}).get(wc["dominant"], 0)
+    return {"type": "Land cover", "availability": "available", "strength": round(share, 2),
+            "detail": f"{(wc['dominant'] or '').replace('_', ' ')} {share:.0%} (ESA WorldCover 2021)"}
+
+
+def _imagery_row(ia: dict | None) -> dict:
+    if ia is None:
+        return {"type": "Spectral change", "availability": "not requested", "strength": 0,
+                "detail": "NDVI/NBR change not computed (request it from the imagery tab)"}
+    if ia["status"] != "ok":
+        return {"type": "Spectral change", "availability": "unavailable", "strength": 0, "detail": ia["reason"]}
+    d = ia["deltas"] or {}
+    return {"type": "Spectral change", "availability": "available",
+            "strength": {"vegetation_loss_consistent": 0.8, "partial_change": 0.4}.get(ia["finding"], 0.1),
+            "detail": f"dNDVI {d.get('ndvi', 0):+.2f}, dNBR {d.get('nbr', 0):+.2f} ({ia['finding'].replace('_', ' ')})"}
+
+
 def evidence_matrix(ev: dict) -> list[dict]:
     """Evidence Type | Availability | Strength — the analyst's at-a-glance evidence quality grid."""
     state = ev.get("enrichment_state") or {}
@@ -259,6 +285,8 @@ def evidence_matrix(ev: dict) -> list[dict]:
          "strength": comps.get("satellite", {}).get("value", 0),
          "detail": f"{len(scenes)} scene(s), best {best_cloud:.0f}% cloud" if scenes and best_cloud is not None
          else ("no clear scene" if st("satellite") == "ok" else "not yet searched")},
+        _landcover_row(ev.get("landcover"), st("landcover")),
+        _imagery_row(ev.get("imagery_analysis")),
         {"type": "Weather", "availability": "available" if ev["weather"] else ("failed" if st("weather") == "failed" else "pending"),
          "strength": 1.0 if ev["weather"] else 0, "detail": ev["weather"][0]["dataset"] if ev["weather"] else "not available"},
         {"type": "History", "availability": "available", "strength": ev.get("persistence_score") or 0,

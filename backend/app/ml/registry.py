@@ -29,6 +29,9 @@ def ensure_rule_model(db: Session) -> None:
             training_summary={}, metrics={},
         ))
         db.flush()
+    # Earlier rule versions stay in the registry (their past predictions reference them) but are retired.
+    db.execute(update(ModelVersion).where(ModelVersion.kind == "rule", ModelVersion.id != RULE_ID,
+                                          ModelVersion.is_active.is_(True)).values(is_active=False))
 
 
 def rule_model() -> RuleCascadeClassifier:
@@ -62,7 +65,9 @@ _TRAINING_ROWS = text(
 )
 
 
-def train_and_register(db: Session, activate: bool = True) -> ModelVersion:
+def train_and_register(db: Session, activate: bool = False) -> ModelVersion:
+    """Train and store a model version. It stays INACTIVE unless `activate` is passed: activation is a
+    separate, audited admin decision taken after reviewing the model card."""
     rows = []
     for r in db.execute(_TRAINING_ROWS, {"rule": RULE_ID}).mappings():
         feats = {k: (float("nan") if v is None else v) for k, v in (r["features_used"] or {}).items()}

@@ -255,6 +255,34 @@ export interface Note {
   author: string | null;
 }
 
+export interface LandCover {
+  product: string;
+  window_m: number;
+  fractions: Record<string, number>;
+  dominant: string | null;
+  valid_fraction: number;
+  source_ref: string | null;
+  retrieved_at: string;
+}
+export interface SpectralScene {
+  item_id: string;
+  acquired_at: string;
+  cloud_cover: number | null;
+  ndvi: number | null;
+  nbr: number | null;
+  valid_fraction: number;
+}
+export interface ImageryAnalysis {
+  status: "ok" | "unavailable";
+  reason: string | null;
+  finding: "vegetation_loss_consistent" | "partial_change" | "no_change_detected" | null;
+  window_m: number;
+  before_scene: SpectralScene | null;
+  after_scene: SpectralScene | null;
+  deltas: { ndvi: number; nbr: number } | null;
+  method: { thresholds?: { dndvi: number; dnbr: number } } & Record<string, unknown>;
+  retrieved_at: string;
+}
 export interface EventDetail extends EventSummary {
   persistence_metrics: PersistenceMetrics | null;
   confidence_components: { score: number; state: string; components: ConfidenceComponent[]; missing: string[] } | null;
@@ -270,6 +298,8 @@ export interface EventDetail extends EventSummary {
   observations: Observation[];
   facilities: FacilityLink[];
   land: { category: string; name: string | null; distance_m: number; osm_type: string; osm_id: number; retrieved_at: string }[];
+  landcover?: LandCover | null;
+  imagery_analysis?: ImageryAnalysis | null;
   weather: Weather[];
   satellite: Scene[];
   classification_current: { primary_model_id: string; supporting_model_ids: string[]; pipeline_version: string; created_at: string } | null;
@@ -320,6 +350,10 @@ export interface AlertRule {
   min_duration_hours: number | null;
   channels: ("in_app" | "email" | "push")[];
   cooldown_minutes: number;
+  min_priority: number | null;
+  min_repeat_events: number | null;
+  repeat_days: number;
+  activity_increase: boolean;
   last_notified_at: string | null;
   created_at: string;
   last_triggered_at: string | null;

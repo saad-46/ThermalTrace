@@ -5,6 +5,7 @@ import { Link, Navigate, NavLink, Route, Routes, useNavigate, useParams, useSear
 import { ConfidenceBreakdown, EvidenceList, EvidenceMatrix, FacilityList, Fingerprint, ModelPanel, PersistencePanel, Timeline } from "../components/evidence";
 import { DEFAULT_FILTERS, FilterPanel, TimeRange, toQuery, type FilterState } from "../components/filters";
 import { EventActions, EventHeader, ReviewPanel, SatellitePanel, WeatherPanel } from "../components/investigation";
+import { LandCoverPanel, SpectralChangePanel } from "../components/landcover";
 import GlobalSearch from "../components/GlobalSearch";
 import MapCanvas, { DEFAULT_LAYERS } from "../components/MapCanvas";
 import { EvidenceChain, PriorityPanel, PriorityPill } from "../components/triage";
@@ -75,6 +76,8 @@ function EvidenceCards({ ev }: { ev: EventDetail }) {
     ["Confidence", <ConfidenceBreakdown ev={ev} key="c" />],
     ["Facilities", <div className="table-wrap" key="f"><FacilityList ev={ev} /></div>],
     ["Persistence", <PersistencePanel ev={ev} key="p" />],
+    ["Land cover", <LandCoverPanel ev={ev} key="lc" />],
+    ["Spectral change", <SpectralChangePanel ev={ev} key="sc" />],
     ["Satellite", <SatellitePanel ev={ev} key="s" />],
     ["Weather", <WeatherPanel ev={ev} key="w" />],
     ["Model evidence", <ModelPanel ev={ev} key="md" />],

@@ -83,7 +83,7 @@ GET  /api/v1/reports/{id}/download
 | GET | `/api/v1/analytics/diurnal` | Day/night + hour-of-day pattern by sensor |
 | GET | `/api/v1/analytics/feedback` | Training feedback dataset + false-positive intelligence |
 | GET | `/api/v1/analytics/hotspots` | Districts and facility types with most thermal activity |
-| GET | `/api/v1/analytics/persistent-sources` | Locations repeatedly producing thermal anomalies â€” ranked by evidence, not a threat ranking |
+| GET | `/api/v1/analytics/persistent-sources` | Locations repeatedly producing thermal anomalies — ranked by evidence, not a threat ranking |
 | GET | `/api/v1/analytics/sensors` | Sensors |
 | GET | `/api/v1/analytics/summary` | Summary |
 | GET | `/api/v1/analytics/trends` | Daily detections/events by class (operational trend) |
@@ -110,7 +110,8 @@ GET  /api/v1/reports/{id}/download
 | GET | `/api/v1/events/{ref}` | Full investigation bundle for one event (id or public id) |
 | POST | `/api/v1/events/{ref}/assign` | Assign the event's investigation to an analyst |
 | GET | `/api/v1/events/{ref}/detections.geojson` | Individual FIRMS pixels of an event (replay / map layer) |
-| POST | `/api/v1/events/{ref}/enrich` | Queue enrichment (OSM, weather, imagery, geocoding) for this event |
+| POST | `/api/v1/events/{ref}/enrich` | Queue enrichment (OSM, land cover, weather, imagery, geocoding) for this event |
+| POST | `/api/v1/events/{ref}/imagery-analysis` | Queue Sentinel-2 NDVI/NBR change analysis (before vs after scenes) for this event |
 | POST | `/api/v1/events/{ref}/notes` | Add a note or evidence link |
 | POST | `/api/v1/events/{ref}/reanalyse` | Re-run classification with current context (synchronous, fast) |
 | POST | `/api/v1/events/{ref}/reviews` | Record an analyst decision (confirm/reject/false positive/escalate/reclassify/note) |
@@ -129,9 +130,10 @@ GET  /api/v1/reports/{id}/download
 
 | Method | Path | Summary |
 |---|---|---|
-| GET | `/api/v1/ml/training-dataset` | Adjudicated training dataset (event â†’ prediction â†’ analyst label â†’ features â†’ reviewer â†’ model version) |
+| GET | `/api/v1/ml/training-dataset` | Adjudicated training dataset (event → prediction → analyst label → features → reviewer → model version) |
 | GET | `/api/v1/models` | Model versions with model cards |
-| POST | `/api/v1/models/{model_id}/activate` | Activate |
+| POST | `/api/v1/models/{model_id}/activate` | Activate (admin, audited) |
+| POST | `/api/v1/models/{model_id}/deactivate` | Deactivate a trained model; the rule cascade becomes the classifier of record again |
 
 ### push
 
@@ -154,7 +156,7 @@ GET  /api/v1/reports/{id}/download
 
 | Method | Path | Summary |
 |---|---|---|
-| GET | `/api/v1/satellite/{observation_id}/swir.png` | AOI SWIR composite (B12/B8A/B4) via Copernicus â€” requires CDSE OAuth credentials |
+| GET | `/api/v1/satellite/{observation_id}/swir.png` | AOI SWIR composite (B12/B8A/B4) via Copernicus — requires CDSE OAuth credentials |
 
 ### search
 
@@ -172,7 +174,7 @@ GET  /api/v1/reports/{id}/download
 | GET | `/api/v1/jobs` | Jobs |
 | GET | `/api/v1/jobs/{job_id}` | Job |
 | GET | `/api/v1/sources` | Source registry with health, freshness and configuration state |
-| GET | `/api/v1/sources/facility-index` | Local OSM facility index coverage (1Â° tiles) |
+| GET | `/api/v1/sources/facility-index` | Local OSM facility index coverage (1° tiles) |
 
 ### system
 

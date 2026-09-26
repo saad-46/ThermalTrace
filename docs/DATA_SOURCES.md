@@ -13,10 +13,27 @@ Every source is registered in the `data_sources` table. Its health (status, last
 | CEA (India) | Official station list | File import of a CSV transcribed from a named CEA publication | None | Publication-dated. The publication id and date are required at import. |
 | Sentinel-2 L2A (Element84 Earth Search) | Scene search (before, during, after, latest), cloud cover, public preview JPEGs | STAC API | None | Scene acquisition time is shown on every image. |
 | Copernicus Data Space | Second STAC catalogue. AOI SWIR render (B12/B8A/B4) around an event. | STAC (keyless) and Sentinel Hub Process API (OAuth) | `COPERNICUS_CLIENT_ID` / `SECRET` for SWIR | Per scene |
+| ESA WorldCover 10 m 2021 v200 | Land-cover shares (tree, shrub, grass, cropland, built-up, bare, water, wetland) in a 1.5 km square around each event | Windowed reads of the public cloud-optimised GeoTIFF tiles on AWS (3° tiles, HTTP range requests) | None (CC BY 4.0) | 2021 product. Shown with its year; land use may have changed since. |
 | Open-Meteo | Weather at the last detection hour: temperature, RH, wind, precipitation, pressure, condition | Forecast API (≤ 6 days old) or Archive API (ERA5) | None | Hourly. ERA5 arrives about 5 days late. |
 | OSM Nominatim | Admin geocoding (state, district) | Reverse geocoding at ≤ 1 req/s, cached 90 days | None | On demand |
 | EOX Sentinel-2 cloudless 2021 | Optional satellite basemap tiles | WMTS | None (CC BY-NC-SA 4.0: **non-commercial**) | 2021 mosaic. Context only. |
 | CARTO Positron / Dark Matter | Vector basemap | Style JSON | None | — |
+
+## Raster land cover (ESA WorldCover)
+
+- **Step:** `landcover` in enrichment (`services/landcover.py`, `integrations/raster.py`). About 3 s per event.
+- **Sampling:** a 1.5 km square around the event centroid, read at 30 × 30 cells. Class shares are computed over valid pixels only.
+- **No data:** if fewer than half the pixels are valid (offshore or outside coverage), nothing is stored and the step says so.
+- **Backfill:** a scheduled `landcover_backfill` job fills events enriched before this step existed, highest triage priority first.
+- **Use:** evidence (`landcover`, context only), features (`lc_*_frac`), the confidence engine's land support for vegetation classes, and the rule cascade's raster fallback (docs/ML.md). It never decides a classification by itself.
+
+## Sentinel-2 spectral change (NDVI / NBR)
+
+- **Trigger:** on demand (`POST /events/{ref}/imagery-analysis`, the *Compute NDVI / NBR change* button), because it reads several band windows per scene.
+- **Scenes:** the latest clear scene before the first detection and the earliest after the last detection, from the scenes already stored for the event (cloud ≤ 40 %).
+- **Method:** 1 km window at 20 m; bands B04, B08, B8A, B12 plus the scene classification layer (SCL). Only SCL classes 4, 5 and 7 are used, so clouds, shadows, cirrus, water and snow are excluded. The −1000 DN offset for processing baseline ≥ 04.00 is applied. A scene needs ≥ 50 % usable pixels.
+- **Finding:** dNDVI ≤ −0.10 and dNBR ≥ 0.10 → *vegetation loss consistent with burning*; one of the two → *partial change*; neither → *no change above threshold*.
+- **Honesty rules:** missing scenes are stored as `unavailable` with the reason, never as "no change". A change is described as consistent with burning, not as proof; no change does not rule out a fire.
 
 ## FIRMS details
 
@@ -76,6 +93,8 @@ Health is tracked per source (`data_sources`) and shown on *Data sources*.
 | WRI GPPD | `registries.WRIGPPDClient` | Power plants (CEA-derived for India) | none | 120 s / 3 | Import run `failed` | Stored | **Imported (1,589)** |
 | Global Energy Monitor | `registries.GlobalEnergyMonitorClient` | Coal/gas plants, steel, cement, mines | none (terms-gated download) | file | Clear validation errors | Stored | **Needs data file** |
 | CEA | `registries.CEAClient` | Official station list | none | file | Requires publication id and date | Stored | **Needs data file** |
+| ESA WorldCover (AWS COG) | `raster.sample_worldcover` | Land cover around events | none | GDAL HTTP 30 s / 2 | `landcover` step `failed`; UI says "retrieval failed" | Stored per event | **Live** |
+| Sentinel-2 L2A band COGs (AWS) | `raster.read_window` via `services/imagery` | NDVI / NBR change | none | GDAL HTTP 30 s / 2 | Analysis stored as `unavailable` with the reason | Stored per event | **Live (on demand)** |
 | Sentinel-2 (Element84 Earth Search STAC) | `sentinel.SatelliteSearchService` | Scene search, previews, metadata | none | 45 s / 4 | `satellite` step `failed`; UI says "not searched" or "no scene" | Stored per event | **Live** |
 | Copernicus Data Space STAC | `search_cdse` | Second catalogue | none | 45 s / 4 | As above | — | **Available** |
 | Copernicus Sentinel Hub Process (OAuth) | `SatellitePreviewService.render_swir` | SWIR composite around the event | `COPERNICUS_CLIENT_ID`, `COPERNICUS_CLIENT_SECRET` | 60 s / 2 | 503 `provider_not_configured` / `source_unavailable` | Browser cache 24 h | **Needs credential** |
@@ -89,5 +108,4 @@ Health is tracked per source (`data_sources`) and shown on *Data sources*.
 ### Not integrated (considered)
 
 - **VIIRS Nightfire.** Its licence must be reviewed before flare evidence can be used.
-- **ESA WorldCover.** A land-cover raster; roadmap.
 - **Supabase keys.** Not needed. `DATABASE_URL` can point at a Supabase Postgres.

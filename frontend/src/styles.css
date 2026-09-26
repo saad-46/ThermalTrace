@@ -370,3 +370,11 @@ table.table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
   .fresh .item:nth-child(n+3) { display: none; }
 }
 .table td .mono, .table td.nowrap { white-space: nowrap; }
+
+/* Land cover (ESA WorldCover shares) */
+.lc-bar { display: flex; height: 12px; border-radius: 3px; overflow: hidden; border: 1px solid var(--border); }
+.lc-bar > span { display: block; height: 100%; min-width: 1px; }
+.lc-legend { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 2px 12px; font-size: 12px; }
+.lc-legend li { display: flex; align-items: center; gap: 6px; }
+.lc-legend .swatch { width: 9px; height: 9px; border-radius: 2px; flex: none; border: 1px solid var(--border); }
+.lc-legend .num { margin-left: auto; color: var(--text-2); }

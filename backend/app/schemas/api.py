@@ -113,6 +113,8 @@ class EventDetail(EventSummary):
     observations: list[dict]
     facilities: list[dict]
     land: list[dict]
+    landcover: dict | None = None
+    imagery_analysis: dict | None = None
     weather: list[dict]
     satellite: list[dict]
     classification_current: dict | None
@@ -196,6 +198,11 @@ class AlertRuleIn(BaseModel):
     min_duration_hours: float | None = Field(None, ge=0)
     channels: list[Literal["in_app", "email", "push"]] = ["in_app"]
     cooldown_minutes: int = Field(0, ge=0, le=10_080, description="suppress email/push for this long after a notification")
+    min_priority: int | None = Field(None, ge=0, le=100, description="minimum triage priority (0-100; not a risk score)")
+    min_repeat_events: int | None = Field(None, ge=2, le=1000,
+                                          description="nearest facility has at least this many events within repeat_days")
+    repeat_days: int = Field(30, ge=1, le=365)
+    activity_increase: bool = Field(False, description="nearest facility: >= 3 events in the last 7 days and >= 2x the prior 7 days")
 
 
 class AlertRuleOut(AlertRuleIn):

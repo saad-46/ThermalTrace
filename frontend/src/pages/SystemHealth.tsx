@@ -23,10 +23,13 @@ export default function SystemHealth() {
   const audit = useQuery({ queryKey: ["audit"], queryFn: () => api<Audit[]>("/admin/audit", { query: { limit: 50 } }), enabled: can("admin") });
   if (!can("admin")) return <div className="page"><Empty title="Administrators only" /></div>;
   const train = async () => {
-    try { await post("/ingestion/trigger", { kind: "train_model", payload: {} }); toast("Training queued — the model card appears here when done"); } catch (e) { toast(errText(e), "error"); }
+    try { await post("/ingestion/trigger", { kind: "train_model", payload: {} }); toast("Training queued. The model is stored inactive; review its card here, then activate it if it adds value."); } catch (e) { toast(errText(e), "error"); }
   };
   const activate = async (id: string) => {
     try { await post(`/models/${id}/activate`); toast(`${id} activated; events are being re-analysed`); models.refetch(); } catch (e) { toast(errText(e), "error"); }
+  };
+  const deactivate = async (id: string) => {
+    try { await post(`/models/${id}/deactivate`); toast(`${id} deactivated; the rule cascade is the classifier of record again`); models.refetch(); } catch (e) { toast(errText(e), "error"); }
   };
   return (
     <div className="page">
@@ -53,13 +56,14 @@ export default function SystemHealth() {
         </div>
       )}</Async>
       <section className="panel" style={{ marginTop: 12 }}>
-        <div className="panel-head"><h2>Model versions</h2><div className="right"><button className="btn sm" onClick={train}>Train LightGBM on current labels</button></div></div>
+        <div className="panel-head"><h2>Model versions</h2><div className="right"><button className="btn sm" onClick={train} title="The trained model is stored inactive; review its card before activating it">Train LightGBM on current labels</button></div></div>
         <Async q={models}>{(m) => (
           <div>{m.models.map((v) => (
             <div key={v.id} className="section">
               <div className="row"><b className="mono">{v.id}</b><span className="pill">{v.kind}</span>{v.is_active && <span className="pill live">active</span>}
                 <span className="faint">{v.current_classifications} current classifications · {relTime(v.created_at)}</span><span style={{ flex: 1 }} />
-                {v.kind === "lightgbm" && !v.is_active && <button className="btn sm" onClick={() => activate(v.id)}>Activate</button>}</div>
+                {v.kind === "lightgbm" && !v.is_active && <button className="btn sm" onClick={() => activate(v.id)}>Activate</button>}
+                {v.kind === "lightgbm" && v.is_active && <button className="btn sm" onClick={() => deactivate(v.id)}>Deactivate</button>}</div>
               <div className="muted" style={{ fontSize: 12.5, marginTop: 4 }}>{v.description}</div>
               <div style={{ fontSize: 12.5 }}><b>Labels:</b> {v.label_provenance}</div>
               {v.metrics && "macro_f1_holdout" in v.metrics && <div style={{ fontSize: 12.5 }}><b>Hold-out macro-F1:</b> {String(v.metrics.macro_f1_holdout ?? "n/a")} <span className="faint">— {String(v.metrics.caveat ?? "")}</span></div>}

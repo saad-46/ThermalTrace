@@ -9,13 +9,15 @@ from dataclasses import dataclass
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.integrations.raster import group_fractions
+
 NAN = float("nan")
 
 
 @dataclass(frozen=True)
 class FeatureSpec:
     name: str
-    origin: str  # firms | derived | facility | land | weather | calendar
+    origin: str  # firms | derived | facility | land | imagery | weather | calendar
     description: str
 
 
@@ -43,6 +45,12 @@ FEATURES: list[FeatureSpec] = [
     FeatureSpec("land_cropland", "land", "1 if OSM farmland/orchard/meadow within 1.5 km, 0 if checked and absent, NaN if not checked"),
     FeatureSpec("land_forest", "land", "1 if OSM forest/wood/scrub within 1.5 km (0/NaN as above)"),
     FeatureSpec("land_residential", "land", "1 if OSM residential landuse within 1.5 km (0/NaN as above)"),
+    FeatureSpec("lc_vegetation_frac", "land", "ESA WorldCover share of tree, shrub, grass, wetland within 750 m (NaN if not sampled)"),
+    FeatureSpec("lc_cropland_frac", "land", "ESA WorldCover cropland share within 750 m (NaN if not sampled)"),
+    FeatureSpec("lc_built_up_frac", "land", "ESA WorldCover built-up share within 750 m (NaN if not sampled)"),
+    FeatureSpec("lc_bare_frac", "land", "ESA WorldCover bare / sparse vegetation share within 750 m (NaN if not sampled)"),
+    FeatureSpec("dndvi", "imagery", "NDVI change between the clear Sentinel-2 scenes before and after the event (NaN unless computed)"),
+    FeatureSpec("dnbr", "imagery", "NBR change (after minus before) between those scenes (NaN unless computed)"),
     FeatureSpec("wind_speed_ms", "weather", "10 m wind speed at last detection (m/s)"),
     FeatureSpec("month_sin", "calendar", "sin(2π·month/12) of first detection — seasonality"),
     FeatureSpec("month_cos", "calendar", "cos(2π·month/12) of first detection — seasonality"),
@@ -68,6 +76,8 @@ _Q = text(
         WHERE l.event_id = e.id AND f.facility_type = ANY(:mines)) AS d_mine,
       (SELECT count(*) FROM facilities f WHERE ST_DWithin(f.geom, e.geom, 5000)) AS fac_5km,
       (SELECT array_agg(DISTINCT category) FROM land_context lc WHERE lc.event_id = e.id) AS land_cats,
+      (SELECT lc.fractions FROM landcover_observations lc WHERE lc.event_id = e.id) AS lc_fractions,
+      (SELECT ia.deltas FROM imagery_analyses ia WHERE ia.event_id = e.id AND ia.status = 'ok') AS imagery_deltas,
       (SELECT w.wind_speed_ms FROM weather_observations w WHERE w.event_id = e.id AND w.kind = 'at_last_detection'
         ORDER BY w.observed_at DESC LIMIT 1) AS wind_speed
     FROM thermal_events e WHERE e.id = :id
@@ -98,6 +108,8 @@ def build_features(db: Session, event_id) -> dict[str, float]:
             return NAN
         return 1.0 if cats.intersection(names) else 0.0
 
+    lc = group_fractions(r["lc_fractions"]) if r["lc_fractions"] is not None else None
+    deltas = r["imagery_deltas"] or {}
     month = r["first_detected"].month
     return {
         "frp_max_log": _log1p(r["frp_max"]),
@@ -123,6 +135,12 @@ def build_features(db: Session, event_id) -> dict[str, float]:
         "land_cropland": land("cropland"),
         "land_forest": land("forest", "scrub"),
         "land_residential": land("residential"),
+        "lc_vegetation_frac": lc["vegetation"] if lc else NAN,
+        "lc_cropland_frac": lc["cropland"] if lc else NAN,
+        "lc_built_up_frac": lc["built_up"] if lc else NAN,
+        "lc_bare_frac": lc["bare"] if lc else NAN,
+        "dndvi": _num(deltas.get("ndvi")),
+        "dnbr": _num(deltas.get("nbr")),
         "wind_speed_ms": _num(r["wind_speed"]),
         "month_sin": round(math.sin(2 * math.pi * month / 12), 4),
         "month_cos": round(math.cos(2 * math.pi * month / 12), 4),

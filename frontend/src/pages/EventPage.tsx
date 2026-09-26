@@ -2,6 +2,7 @@ import { ArrowLeft, Map as MapIcon } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { AnswerGrid, ConfidenceBreakdown, EvidenceList, EvidenceMatrix, FacilityList, Fingerprint, ModelPanel, PersistencePanel, Provenance, Timeline } from "../components/evidence";
 import { EventActions, EventHeader, ReviewPanel, SatellitePanel, SimilarEvents, WeatherPanel } from "../components/investigation";
+import { LandCoverPanel, SpectralChangePanel } from "../components/landcover";
 import { EvidenceChain, PriorityPanel } from "../components/triage";
 import { ErrorState, Skeleton } from "../components/ui";
 import { useEvent } from "../lib/hooks";
@@ -40,6 +41,7 @@ export default function EventPage() {
             })}
           </P>
           <P title="Nearby facilities" flush><div className="table-wrap"><FacilityList ev={ev} /></div></P>
+          <P title="Land cover (ESA WorldCover)"><LandCoverPanel ev={ev} /></P>
           <P title="Persistence & evolution"><PersistencePanel ev={ev} /></P>
           <P title="Data provenance" flush><Provenance ev={ev} /></P>
         </div>
@@ -48,6 +50,7 @@ export default function EventPage() {
           <P title="Confidence components"><ConfidenceBreakdown ev={ev} /></P>
           <P title="Why is this prioritised?"><PriorityPanel p={ev.priority_components} /></P>
           <P title="Model evidence"><ModelPanel ev={ev} /></P>
+          <P title="Spectral change (NDVI / NBR)"><SpectralChangePanel ev={ev} /></P>
           <P title="Satellite imagery"><SatellitePanel ev={ev} /></P>
           <P title="Weather at last detection"><WeatherPanel ev={ev} /></P>
           <P title="Thermal fingerprint"><Fingerprint ev={ev} /></P>

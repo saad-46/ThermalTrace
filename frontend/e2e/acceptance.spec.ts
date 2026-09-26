@@ -68,6 +68,10 @@ test.describe("desktop analyst workflow", () => {
       await page.getByRole("tab", { name: tab }).click();
       await expect(page.getByRole("tabpanel")).toBeVisible();
     }
+    await page.getByRole("tab", { name: "Facilities" }).click();
+    await expect(page.getByRole("heading", { name: "Land cover (ESA WorldCover)" })).toBeVisible();
+    await page.getByRole("tab", { name: "Satellite" }).click();
+    await expect(page.getByRole("heading", { name: "Spectral change (NDVI / NBR)" })).toBeVisible();
     await page.getByRole("tab", { name: "History" }).click();
     await expect(page.getByRole("list", { name: "Detections per day" })).toBeVisible();
     await shot(page, "04-evidence-history");
@@ -75,6 +79,8 @@ test.describe("desktop analyst workflow", () => {
     // Full investigation page
     await page.goto(`/events/${publicId}`);
     await expect(page.getByRole("heading", { name: "Analyst review" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Land cover (ESA WorldCover)" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Spectral change (NDVI / NBR)" })).toBeVisible();
     await noHorizontalOverflow(page, "event page");
     await shot(page, "05-event-page");
 
@@ -95,6 +101,8 @@ test.describe("desktop analyst workflow", () => {
     await page.getByRole("link", { name: /Alert on area/ }).click();
     await expect(page.getByRole("heading", { name: "New alert rule" })).toBeVisible();
     await expect(page.getByLabel("Email/push cooldown (minutes)")).toHaveValue("60");
+    await expect(page.getByLabel("Min triage priority (0–100)")).toBeVisible();
+    await expect(page.getByText(/not a risk score/)).toBeVisible();
     await page.getByRole("button", { name: "Create rule" }).click();
     await expect(page.getByText(/Rule created/)).toBeVisible();
     await shot(page, "06-alerts");
@@ -165,6 +173,9 @@ test.describe("mobile investigation", () => {
     await expect(page.getByRole("list", { name: /Evidence cards/ })).toBeVisible({ timeout: 15_000 });
     await noHorizontalOverflow(page, "mobile event");
     await shot(page, "m03-event");
+    const cards = page.getByRole("list", { name: /Evidence cards/ });
+    await expect(cards.getByRole("heading", { name: "Land cover", exact: true })).toBeAttached();
+    await expect(cards.getByRole("heading", { name: "Spectral change", exact: true })).toBeAttached();
     await page.getByRole("list", { name: /Evidence cards/ }).evaluate((el) => el.scrollBy({ left: 700 }));
     await page.waitForTimeout(400);
     await shot(page, "m04-evidence");

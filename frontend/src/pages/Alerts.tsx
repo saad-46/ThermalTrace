@@ -11,10 +11,12 @@ import type { AlertRule } from "../lib/types";
 type Draft = {
   name: string; latitude: string; longitude: string; radius_km: string; watchlist_id: string; source_classes: string[];
   persistence_classes: string[]; facility_types: string[]; facility_within_km: string; min_confidence: string; min_frp: string;
-  min_duration_hours: string; channels: string[]; cooldown_minutes: string;
+  min_duration_hours: string; channels: string[]; cooldown_minutes: string; min_priority: string; min_repeat_events: string;
+  repeat_days: string; activity_increase: boolean;
 };
 const EMPTY_DRAFT: Draft = { name: "", latitude: "", longitude: "", radius_km: "5", watchlist_id: "", source_classes: [], persistence_classes: [],
-  facility_types: [], facility_within_km: "", min_confidence: "", min_frp: "", min_duration_hours: "", channels: ["in_app"], cooldown_minutes: "60" };
+  facility_types: [], facility_within_km: "", min_confidence: "", min_frp: "", min_duration_hours: "", channels: ["in_app"], cooldown_minutes: "60", min_priority: "", min_repeat_events: "", repeat_days: "30",
+  activity_increase: false };
 const FAC_TYPES = ["refinery", "oil_gas", "flare_site", "power_plant_coal", "steel_plant", "cement_plant", "chemical_plant", "coal_mine", "mine", "factory", "industrial_area"];
 const toggle = (l: string[], v: string) => (l.includes(v) ? l.filter((x) => x !== v) : [...l, v]);
 const num = (s: string) => (s.trim() === "" ? null : Number(s));
@@ -31,7 +33,8 @@ function RuleForm({ initial, onDone, rule }: { initial: Draft; onDone: () => voi
       source_classes: d.source_classes, persistence_classes: d.persistence_classes, facility_types: d.facility_types,
       facility_within_m: d.facility_within_km ? Number(d.facility_within_km) * 1000 : null, min_confidence: num(d.min_confidence),
       min_frp: num(d.min_frp), min_duration_hours: num(d.min_duration_hours), channels: d.channels,
-      cooldown_minutes: num(d.cooldown_minutes) ?? 0,
+      cooldown_minutes: num(d.cooldown_minutes) ?? 0, min_priority: num(d.min_priority), min_repeat_events: num(d.min_repeat_events),
+      repeat_days: num(d.repeat_days) ?? 30, activity_increase: d.activity_increase,
     };
     try { await save.mutateAsync(body); toast(rule ? "Rule updated" : "Rule created and evaluated against recent events"); onDone(); }
     catch (e) { toast(errText(e), "error"); }
@@ -66,7 +69,17 @@ function RuleForm({ initial, onDone, rule }: { initial: Draft; onDone: () => voi
         {F("min_confidence", "Min confidence (0–1)", { type: "number", min: 0, max: 1, step: 0.05, style: { width: 130 } })}
         {F("min_frp", "Min peak FRP (MW)", { type: "number", min: 0, style: { width: 130 } })}
         {F("min_duration_hours", "Min duration (h)", { type: "number", min: 0, style: { width: 130 } })}
+        {F("min_priority", "Min triage priority (0–100)", { type: "number", min: 0, max: 100, style: { width: 150 } })}
       </div>
+      <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>
+        <legend style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>Repeated activity at the nearest facility</legend>
+        <div className="row wrap" style={{ alignItems: "flex-end" }}>
+          {F("min_repeat_events", "At least N events", { type: "number", min: 2, style: { width: 130 } })}
+          {F("repeat_days", "within (days)", { type: "number", min: 1, max: 365, style: { width: 110 } })}
+          <label className="check"><input type="checkbox" checked={d.activity_increase} onChange={() => setD({ ...d, activity_increase: !d.activity_increase })} />Activity increase (≥ 3 events in 7 days, at least double the prior 7 days)</label>
+        </div>
+        <div className="help faint" style={{ fontSize: 11.5 }}>Triage priority orders the review queue; it is not a risk score. Facility conditions never match events with no mapped facility nearby.</div>
+      </fieldset>
       <div className="field"><label>Delivery</label><div className="row">
         {(["in_app", "email", "push"] as const).map((c) => <label key={c} className="check"><input type="checkbox" checked={d.channels.includes(c)} onChange={() => setD({ ...d, channels: toggle(d.channels, c) })} />{titleCase(c)}</label>)}
       </div><div className="help">Email and push are delivered only if configured on the server; skipped deliveries are recorded on each alert.</div></div>
@@ -83,7 +96,8 @@ function draftFrom(r: AlertRule): Draft {
     watchlist_id: r.watchlist_id ?? "", source_classes: r.source_classes, persistence_classes: r.persistence_classes, facility_types: r.facility_types,
     facility_within_km: r.facility_within_m ? String(r.facility_within_m / 1000) : "", min_confidence: r.min_confidence?.toString() ?? "",
     min_frp: r.min_frp?.toString() ?? "", min_duration_hours: r.min_duration_hours?.toString() ?? "", channels: r.channels,
-    cooldown_minutes: String(r.cooldown_minutes ?? 0) };
+    cooldown_minutes: String(r.cooldown_minutes ?? 0), min_priority: r.min_priority?.toString() ?? "",
+    min_repeat_events: r.min_repeat_events?.toString() ?? "", repeat_days: String(r.repeat_days ?? 30), activity_increase: !!r.activity_increase };
 }
 
 export default function Alerts() {

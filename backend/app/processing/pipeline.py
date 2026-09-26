@@ -9,9 +9,11 @@ from datetime import UTC, datetime
 from sqlalchemy import delete, select, text, update
 from sqlalchemy.orm import Session
 
+from app.integrations.raster import group_fractions
 from app.ml import registry
 from app.ml.base import Prediction
-from app.models.enrichment import SatelliteObservation, WeatherObservation
+from app.ml.rule_cascade import RASTER_MAJORITY
+from app.models.enrichment import ImageryAnalysis, LandCoverObservation, SatelliteObservation, WeatherObservation
 from app.models.facilities import LandContext
 from app.models.ml import Classification, ClassificationEvidence, ModelPrediction
 from app.models.thermal import ThermalEvent
@@ -79,6 +81,10 @@ def analyse_event(db: Session, event_id: uuid.UUID, history_days: int | None = N
     scenes = [_row(s) for s in db.execute(select(SatelliteObservation).where(SatelliteObservation.event_id == ev.id)).scalars()]
     best_cloud = min((s["cloud_cover"] for s in scenes if s["cloud_cover"] is not None), default=None)
 
+    wc_row = db.execute(select(LandCoverObservation).where(LandCoverObservation.event_id == ev.id)).scalar_one_or_none()
+    ia_row = db.execute(select(ImageryAnalysis).where(ImageryAnalysis.event_id == ev.id)).scalar_one_or_none()
+    lc_status = (state.get("landcover") or {}).get("status")
+
     hours_since = (datetime.now(UTC) - ev.last_detected).total_seconds() / 3600
     quality = assess_data_quality({
         "sensor_count": ev.sensor_count,
@@ -91,6 +97,11 @@ def analyse_event(db: Session, event_id: uuid.UUID, history_days: int | None = N
     land_support = None if osm_status != "ok" else bool(
         (primary.label == "agricultural_burn" and "cropland" in land_cats)
         or (primary.label == "wildfire" and ({"forest", "scrub"} & set(land_cats))))
+    if land_support is None and wc_row is not None:
+        # OSM land use not retrieved: fall back to raster land cover, for the vegetation classes only.
+        g = group_fractions(wc_row.fractions)
+        land_support = bool((primary.label == "agricultural_burn" and g["cropland"] >= RASTER_MAJORITY)
+                            or (primary.label == "wildfire" and g["vegetation"] >= RASTER_MAJORITY))
     conf = compute_confidence(
         label=primary.label, probability=primary.probability, rule_label=rule_pred.label,
         gbm_label=gbm_pred.label if gbm_pred else None, persistence_class=pm.persistence_class,
@@ -113,7 +124,9 @@ def analyse_event(db: Session, event_id: uuid.UUID, history_days: int | None = N
 
     ev_dict = _row(ev)
     ctx = {"event": ev_dict, "persistence": pm.as_dict(), "facilities": ranked, "osm_status": osm_status, "land": land,
-           "weather": _row(weather) if weather else None, "satellite": scenes, "satellite_status": sat_status}
+           "weather": _row(weather) if weather else None, "satellite": scenes, "satellite_status": sat_status,
+           "landcover": _row(wc_row) if wc_row else None, "landcover_status": lc_status,
+           "imagery": _row(ia_row) if ia_row else None}
     db.execute(delete(ClassificationEvidence).where(ClassificationEvidence.event_id == ev.id))
     for item in build_evidence(ctx, primary.label, rule_pred, gbm_pred):
         db.add(ClassificationEvidence(classification_id=cls.id, event_id=ev.id, **item.__dict__))

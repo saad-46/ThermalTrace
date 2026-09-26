@@ -46,3 +46,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t thermaltrace-api backend && docker build -t thermaltrace-web frontend
+      # A build can succeed while a native library is missing at import time (e.g. GDAL inside rasterio).
+      - name: Import check inside the API image
+        run: docker run --rm thermaltrace-api python -c "import rasterio, lightgbm, shap, app.main, app.workers.tasks"

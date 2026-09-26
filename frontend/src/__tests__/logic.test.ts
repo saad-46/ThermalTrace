@@ -57,7 +57,7 @@ describe("qualitative confidence decomposition", () => {
 describe("evidence chain", () => {
   it("builds all stages from real bundle fields and flags missing ones", () => {
     const chain = buildEvidenceChain(event());
-    expect(chain.map((s) => s.key)).toEqual(["detection", "location", "facility", "persistence", "satellite", "weather", "classification", "confidence"]);
+    expect(chain.map((s) => s.key)).toEqual(["detection", "location", "landcover", "facility", "persistence", "satellite", "weather", "classification", "confidence"]);
     expect(chain.find((s) => s.key === "facility")!.summary).toContain("ArcelorMittal");
     expect(chain.find((s) => s.key === "satellite")!.state).toBe("missing");
     expect(chain.find((s) => s.key === "satellite")!.summary).toBe("No scene available");

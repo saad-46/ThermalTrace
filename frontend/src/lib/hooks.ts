@@ -83,6 +83,7 @@ export const actions = {
   review: (ref: string) => (body: Record<string, unknown>) => post(`/events/${ref}/reviews`, body),
   note: (ref: string) => (body: { body: string; url?: string }) => post(`/events/${ref}/notes`, body),
   enrich: (ref: string) => () => post<{ job_id: string }>(`/events/${ref}/enrich`),
+  imageryAnalysis: (ref: string) => () => post<{ job_id: string }>(`/events/${ref}/imagery-analysis`),
   report: () => (eventId: string) => post<Report>("/reports", { event_id: eventId }),
   createRule: () => (body: Record<string, unknown>) => post<AlertRule>("/alert-rules", body),
   updateRule: (id: string) => (body: Record<string, unknown>) => put<AlertRule>(`/alert-rules/${id}`, body),

@@ -149,7 +149,11 @@ def test_review_alert_report_workflow(client, db, auth_headers):
     pid = page["items"][0]["public_id"]
     detail = client.get(f"/api/v1/events/{pid}", headers=h).json()
     assert detail["facilities"][0]["name"] == "Test Refinery"
-    assert {m["type"] for m in detail["evidence_matrix"]} == {"FIRMS", "Facility", "Satellite", "Weather", "History", "ML"}
+    assert {m["type"] for m in detail["evidence_matrix"]} == {
+        "FIRMS", "Facility", "Land cover", "Spectral change", "Satellite", "Weather", "History", "ML"}
+    assert detail["landcover"] is None and detail["imagery_analysis"] is None  # not retrieved: shown as pending, not invented
+    lc_row = next(m for m in detail["evidence_matrix"] if m["type"] == "Land cover")
+    assert lc_row["availability"] == "pending" and lc_row["strength"] == 0
     geo = client.get("/api/v1/events/geojson", headers=h, params={"bbox": "60,0,70,30"}).json()
     assert len(geo["features"]) == 1 and geo["features"][0]["properties"]["classification"] == "flare"
 
@@ -217,7 +221,7 @@ def test_priority_search_training_export_and_facility_profile(client, db, auth_h
     data = client.get("/api/v1/ml/training-dataset", headers=h).json()
     assert data["count"] == 1
     row = data["rows"][0]
-    assert row["analyst_label"] == "flare" and row["model_version"] == "rule-cascade-v1.0" and row["reviewer"]
+    assert row["analyst_label"] == "flare" and row["model_version"] == "rule-cascade-v1.1" and row["reviewer"]
     assert row["features"]["sensor_count"] == 3.0
     csv_resp = client.get("/api/v1/ml/training-dataset", headers=h, params={"format": "csv"})
     assert csv_resp.status_code == 200 and "analyst_label" in csv_resp.text.splitlines()[0]
@@ -256,3 +260,100 @@ def test_alert_cooldown_suppresses_external_delivery(client, db, auth_headers, m
     rule = db.execute(select(AlertRule)).scalar_one()
     db.refresh(rule)
     assert rule.last_notified_at is not None
+
+
+def test_landcover_imagery_and_audit_trail(client, db, auth_headers, monkeypatch):
+    """Stored land cover reaches features, evidence and the bundle; imagery analysis is queued and
+    audited; reviews, rule edits and watchlist changes record who changed what."""
+    from datetime import UTC, datetime
+
+    from sqlalchemy import text
+
+    from app.models.enrichment import LandCoverObservation
+    from app.processing.pipeline import analyse_event, process_new_detections
+
+    now = datetime.now(UTC).replace(microsecond=0)
+    _ingest(db, [_row(30.99, 74.22, now, frp=15), _row(30.991, 74.221, now, frp=18)])
+    process_new_detections(db)
+    ev_id = db.execute(text("SELECT id FROM thermal_events")).scalar_one()
+    db.add(LandCoverObservation(event_id=ev_id, source_id="esa_worldcover", product="ESA WorldCover 10 m 2021 v200",
+                                window_m=1500, fractions={"cropland": 0.92, "tree_cover": 0.05, "built_up": 0.03},
+                                dominant="cropland", valid_fraction=1.0, source_ref="test", retrieved_at=now))
+    db.execute(text("UPDATE thermal_events SET enrichment_state = jsonb_build_object('landcover', "
+                    "jsonb_build_object('status', 'ok')) WHERE id = :i"), {"i": ev_id})
+    db.flush()
+    analyse_event(db, ev_id)
+    db.commit()
+    h = auth_headers("supervisor")
+    pid = db.execute(text("SELECT public_id FROM thermal_events")).scalar_one()
+    d = client.get(f"/api/v1/events/{pid}", headers=h).json()
+    assert d["landcover"]["dominant"] == "cropland"
+    assert d["classification"] == "agricultural_burn" and d["classification_probability"] <= 0.6
+    lc_ev = [e for e in d["evidence"] if e["category"] == "landcover"]
+    assert lc_ev and lc_ev[0]["direction"] == "supports" and "does not decide" in lc_ev[0]["statement"]
+    feats = d["predictions"][0]["features_used"]
+    assert feats["lc_cropland_frac"] == 0.92 and feats["dndvi"] is None  # no imagery analysis: NaN -> null, never 0
+
+    r = client.post(f"/api/v1/events/{pid}/imagery-analysis", headers=h)
+    assert r.status_code == 202
+    assert db.execute(text("SELECT count(*) FROM jobs WHERE kind = 'imagery_analysis'")).scalar() == 1
+
+    client.post(f"/api/v1/events/{pid}/reviews", headers=h, json={"decision": "reclassify", "source_class": "wildfire"})
+    audit_row = db.execute(text("SELECT detail FROM audit_logs WHERE action = 'event.review.reclassify'")).scalar_one()
+    assert audit_row["previous"]["system_class"] == "agricultural_burn" and audit_row["previous"]["review_status"] == "unreviewed"
+    assert audit_row["new"]["analyst_class"] == "wildfire"
+
+    rule = client.post("/api/v1/alert-rules", headers=h, json={"name": "priority only", "min_priority": 101 - 1}).json()
+    upd = client.put(f"/api/v1/alert-rules/{rule['id']}", headers=h, json={"name": "priority only", "min_priority": 10})
+    assert upd.status_code == 200 and upd.json()["min_priority"] == 10
+    change = db.execute(text("SELECT detail FROM audit_logs WHERE action = 'alert_rule.update'")).scalar_one()
+    assert change["changes"]["min_priority"] == {"from": 100, "to": 10}
+
+    wl = client.post("/api/v1/watchlists", headers=h, json={"name": "Punjab"}).json()
+    item = client.post(f"/api/v1/watchlists/{wl['id']}/items", headers=h, json={"kind": "district", "label": "Firozpur", "admin_district": "Firozpur"})
+    assert item.status_code == 201
+    actions = {r[0] for r in db.execute(text("SELECT action FROM audit_logs WHERE entity_type = 'watchlist'"))}
+    assert actions == {"watchlist.create", "watchlist.item_add"}
+
+
+def test_alert_min_priority_condition(client, db, auth_headers):
+    from app.processing.pipeline import process_new_detections
+
+    _facility(db)
+    _ingest(db, _flare_site(7))
+    process_new_detections(db)
+    h = auth_headers("analyst")
+    prio = client.get("/api/v1/events", headers=h).json()["items"][0]["priority_score"]
+    none = client.post("/api/v1/alert-rules", headers=h, json={"name": "above", "min_priority": prio + 1})
+    assert none.status_code == 201 and none.json()["alert_count"] == 0
+    hit = client.post("/api/v1/alert-rules", headers=h, json={"name": "at", "min_priority": prio})
+    assert hit.json()["alert_count"] == 1
+    reason = client.get("/api/v1/alerts", headers=h).json()["items"][0]["reason"]
+    assert reason["priority"] == prio
+    too_broad = client.post("/api/v1/alert-rules", headers=h, json={"name": "nothing"})
+    assert too_broad.status_code == 400
+
+
+def test_model_activation_is_an_audited_admin_decision(client, db, auth_headers):
+    """Training stores a model inactive; an admin activates and can deactivate it (rules take over again)."""
+    import inspect
+
+    from sqlalchemy import text
+
+    from app.ml.registry import train_and_register
+    from app.models.ml import ModelVersion
+
+    assert inspect.signature(train_and_register).parameters["activate"].default is False
+    db.add(ModelVersion(id="lgbm-test", kind="lightgbm", is_active=False, feature_names=[], classes=[], description="t",
+                        label_provenance="t", training_summary={}, metrics={}))
+    db.commit()
+    assert client.post("/api/v1/models/lgbm-test/activate", headers=auth_headers("analyst")).status_code == 403
+    admin = auth_headers("admin")
+    assert client.post("/api/v1/models/lgbm-test/activate", headers=admin).status_code == 200
+    assert db.execute(text("SELECT is_active FROM model_versions WHERE id = 'lgbm-test'")).scalar() is True
+    assert client.post("/api/v1/models/lgbm-test/deactivate", headers=admin).status_code == 200
+    assert db.execute(text("SELECT is_active FROM model_versions WHERE id = 'lgbm-test'")).scalar() is False
+    actions = [r[0] for r in db.execute(text("SELECT action FROM audit_logs WHERE entity_type = 'model_version' ORDER BY id"))]
+    assert actions == ["model.activate", "model.deactivate"]
+    db.execute(text("DELETE FROM model_versions WHERE id = 'lgbm-test'"))
+    db.commit()

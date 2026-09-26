@@ -1,7 +1,8 @@
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
-RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
+# libgomp1: LightGBM's OpenMP runtime. libexpat1: required by the GDAL bundled in the rasterio wheel.
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 libexpat1 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 10001 app
 WORKDIR /app

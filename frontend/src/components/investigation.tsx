@@ -11,6 +11,7 @@ import {
   AnswerGrid, ConfidenceBreakdown, EventRowMini, EvidenceList, EvidenceMatrix, ExtLink, FacilityList, Fingerprint, ModelPanel,
   PersistencePanel, Provenance, Timeline,
 } from "./evidence";
+import { LandCoverPanel, SpectralChangePanel } from "./landcover";
 import { EvidenceChain, PriorityPanel, PriorityPill } from "./triage";
 import { ClassLabel, Empty, errText, ModePill, StatePill, useToast } from "./ui";
 import { downloadFile } from "../lib/api";
@@ -348,6 +349,7 @@ export function Investigation({ ev, compact, initialTab = "Summary" }: { ev: Eve
           </div>
         ))}
         {tab === "Facilities" && <div className="section" style={{ padding: 0 }}><div className="table-wrap"><FacilityList ev={ev} /></div>
+          <div className="section"><h4>Land cover (ESA WorldCover)</h4><LandCoverPanel ev={ev} /></div>
           {ev.land.length > 0 && <div className="section"><h4>Land use within 1.5 km (OSM)</h4>
             <div className="chips">{[...new Map(ev.land.map((l) => [l.category, l])).values()].map((l) => <span key={l.category} className="chip">{l.category} · {Math.round(l.distance_m)} m</span>)}</div></div>}
         </div>}
@@ -358,7 +360,12 @@ export function Investigation({ ev, compact, initialTab = "Summary" }: { ev: Eve
             <div className="section"><h4>Similar events (fingerprint)</h4><SimilarEvents ev={ev} /></div>
           </>
         )}
-        {tab === "Satellite" && <div className="section"><SatellitePanel ev={ev} /></div>}
+        {tab === "Satellite" && (
+          <>
+            <div className="section"><h4>Spectral change (NDVI / NBR)</h4><SpectralChangePanel ev={ev} /></div>
+            <div className="section"><h4>Scenes</h4><SatellitePanel ev={ev} /></div>
+          </>
+        )}
         {tab === "Weather" && <div className="section"><WeatherPanel ev={ev} /></div>}
         {tab === "Model" && <div className="section"><ModelPanel ev={ev} /></div>}
         {tab === "Review" && <div className="section"><ReviewPanel ev={ev} /></div>}

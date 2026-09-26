@@ -1,6 +1,6 @@
 # Features
 
-Status of every capability on `production-consolidation`. Statuses: **EXISTS** (built and tested), **IMPLEMENTED** (added in the consolidation phase), **NEEDS CREDENTIAL / NEEDS REAL DATA** (implemented; activates when configured), **DEFERRED**, **REJECTED**.
+Status of every capability on `main`. Statuses: **EXISTS** (built and tested), **IMPLEMENTED** (added in the consolidation phase), **NEEDS CREDENTIAL / NEEDS REAL DATA** (implemented; activates when configured), **DEFERRED**, **REJECTED**.
 
 | Feature | Status | Priority |
 |---|---|---|
@@ -23,6 +23,8 @@ Status of every capability on `production-consolidation`. Statuses: **EXISTS** (
 | Multi-source facility consolidation | EXISTS | P1 |
 | Facility thermal-activity profile | IMPLEMENTED | P1 |
 | Sentinel-2 scene search + previews | EXISTS | P1 |
+| Sentinel-2 NDVI / NBR change (before vs after, cloud-masked) | IMPLEMENTED (on demand; honest "unavailable") | P1 |
+| Raster land cover (ESA WorldCover 10 m) per event | IMPLEMENTED (enrichment step + backfill) | P1 |
 | Before/after swipe comparison | EXISTS | P1 |
 | SWIR render (CDSE) | NEEDS CREDENTIAL (`COPERNICUS_CLIENT_ID/SECRET`) | P1 |
 | Weather + potential dispersion | EXISTS | P1 |
@@ -34,6 +36,8 @@ Status of every capability on `production-consolidation`. Statuses: **EXISTS** (
 | Triage priority + "why prioritised" | IMPLEMENTED | P1 |
 | Rule trace + SHAP explanation | EXISTS | P1 |
 | LightGBM training pipeline | EXISTS; not trained on live labels | P1 |
+| Model lifecycle: train inactive → admin activates / deactivates (audited) | IMPLEMENTED | P1 |
+| Rule cascade raster land-cover fallback (`rule-cascade-v1.1`, capped) | IMPLEMENTED | P1 |
 | Training feedback dataset export | IMPLEMENTED | P0 |
 | Analyst review (confirm / reclassify / reject / FP / escalate) | EXISTS | P0 |
 | Notes / evidence links / assignment | EXISTS | P1 |
@@ -46,6 +50,8 @@ Status of every capability on `production-consolidation`. Statuses: **EXISTS** (
 | Replay | EXISTS | P2 |
 | Similar events | EXISTS | P2 |
 | Alert rules + deliveries | EXISTS | P0 |
+| Alert conditions: triage priority, repeated facility activity, facility activity increase | IMPLEMENTED | P1 |
+| Audit trail with previous / new state (reviews, alert-rule edits, watchlists, model activation) | IMPLEMENTED | P1 |
 | Alert cooldown / delivery suppression | IMPLEMENTED | P0 |
 | Alert deduplication | EXISTS | P0 |
 | Email / push | NEEDS CREDENTIAL (SMTP / VAPID) | P1 |
@@ -64,3 +70,28 @@ Status of every capability on `production-consolidation`. Statuses: **EXISTS** (
 | Native mobile app | DEFERRED (no native code exists in any source; PWA retained) | P2 |
 
 Rejected during consolidation (demo-only or not evidence-based): a hand-weighted classifier whose outputs were not probabilities, a guided walkthrough over synthetic data, and a marketing card. See `PROJECT_HISTORY.md`.
+
+
+## Presentation claims versus implementation
+
+Checked against the code on 2026-09-26.
+
+| Claim | Status | Where |
+|---|---|---|
+| NASA FIRMS (MODIS, VIIRS S-NPP / NOAA-20 / NOAA-21) | Implemented, live | `integrations/firms.py` |
+| FIRMS history / backfill | Implemented; needs `FIRMS_MAP_KEY` | `ingest-historical`, `firms_historical` job |
+| OpenStreetMap facilities and land use | Implemented, live | `integrations/overpass.py`, `services/facility_sync.py` |
+| Global Energy Monitor | Importer implemented; needs the downloaded tracker files | `services/registries_import.py` |
+| CEA | Importer implemented; needs a transcribed publication | same |
+| WRI power plants | Implemented, live | same |
+| Sentinel-2 | Scene search, previews and NDVI / NBR change implemented; SWIR render needs Copernicus credentials | `integrations/sentinel.py`, `services/imagery.py` |
+| Land cover | Implemented (ESA WorldCover 10 m, 2021) | `services/landcover.py` |
+| NDVI | Implemented (with NBR) as before/after change, on demand | `services/imagery.py` |
+| PostGIS | Implemented (geography columns, GiST indexes, `ST_DWithin`) | migrations 0001–0004 |
+| FRP, brightness | Implemented as features and evidence | `processing/features.py` |
+| Persistence | Implemented (per-day strip, gaps, recurrence) | `processing/persistence.py` |
+| LightGBM + SHAP | Implemented and tested; no model active (no adjudicated labels yet) | `ml/gbm.py` |
+| XGBoost | **Not implemented.** LightGBM is the gradient-boosting model used | — |
+| Probability calibration, model drift monitoring | **Not implemented** (see docs/ML.md) | — |
+| FastAPI, React, MapLibre | Implemented | `backend/`, `frontend/` |
+| Automated alerts (in-app, email, Web Push) | Implemented; email needs SMTP, push needs VAPID keys | `services/alerts.py` |

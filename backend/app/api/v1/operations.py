@@ -257,6 +257,19 @@ def activate(model_id: str, request: Request, admin: User = AdminUser, db: Sessi
     return {"active": model_id}
 
 
+@router.post("/models/{model_id}/deactivate", tags=["models"],
+             summary="Deactivate a trained model; the rule cascade becomes the classifier of record again")
+def deactivate(model_id: str, request: Request, admin: User = AdminUser, db: Session = Depends(get_db)):
+    mv = db.get(ModelVersion, model_id)
+    if mv is None or mv.kind != "lightgbm":
+        raise NotFound("Trainable model version not found")
+    mv.is_active = False
+    audit.record(db, request, admin.id, "model.deactivate", "model_version", model_id)
+    db.commit()
+    enqueue(db, "process_events", {"reanalyse_all": True}, dedupe_key="process_events", priority=40)
+    return {"active": None}
+
+
 # --- ML training feedback dataset ---------------------------------------------------------------------
 _TRAINING_SQL = text(
     """

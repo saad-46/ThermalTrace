@@ -61,6 +61,12 @@ export function buildEvidenceChain(ev: EventDetail): Stage[] {
   const land = [...new Set(ev.land.map((l) => l.category))];
   const osmChecked = ev.enrichment_state?.osm?.status === "ok";
   const w = ev.weather[0];
+  const lc = ev.landcover;
+  const lcTop = lc ? Object.entries(lc.fractions).sort((a, b) => b[1] - a[1]).slice(0, 2) : [];
+  const ia = ev.imagery_analysis;
+  const spectral = ia?.status === "ok" && ia.deltas
+    ? ` Spectral change: NDVI ${ia.deltas.ndvi >= 0 ? "+" : ""}${ia.deltas.ndvi.toFixed(2)}, NBR ${ia.deltas.nbr >= 0 ? "+" : ""}${ia.deltas.nbr.toFixed(2)} (${(ia.finding ?? "").replace(/_/g, " ")}).`
+    : ia ? " Spectral change unavailable." : "";
   return [
     { key: "detection", title: "Thermal detection", state: "ok",
       summary: `${ev.observation_count} FIRMS detection(s) · ${ev.sensor_count} platform(s)`,
@@ -68,6 +74,9 @@ export function buildEvidenceChain(ev: EventDetail): Stage[] {
     { key: "location", title: "Location context", state: ev.admin_district || land.length ? "ok" : "neutral",
       summary: [ev.admin_district, ev.admin_state].filter(Boolean).join(", ") || `${ev.latitude.toFixed(3)}, ${ev.longitude.toFixed(3)}`,
       detail: land.length ? `Mapped land use nearby: ${land.join(", ")}.` : osmChecked ? "No farmland/forest/residential mapped within 1.5 km." : "Land use not yet retrieved." },
+    { key: "landcover", title: "Land cover", state: lc ? "ok" : ev.enrichment_state?.landcover?.status === "ok" ? "neutral" : "missing",
+      summary: lc ? lcTop.map(([k, v]) => `${k.replace(/_/g, " ")} ${Math.round(v * 100)}%`).join(" · ") : ev.enrichment_state?.landcover?.status === "ok" ? "No data at this location" : "Not yet retrieved",
+      detail: lc ? "ESA WorldCover 2021, 1.5 km window. Context only; it does not decide the class." : "" },
     { key: "facility", title: "Facility attribution", state: top ? "ok" : osmChecked ? "neutral" : "missing",
       summary: top ? `${top.name ?? "Unnamed"} — ${fmtDistance(top.distance_m)}` : osmChecked ? "No mapped facility within 10 km" : "Not yet retrieved",
       detail: top ? `${FACILITY_LABELS[top.facility_type] ?? top.facility_type}, ${top.bearing_deg != null ? compass(top.bearing_deg) + " of event, " : ""}attribution ${top.attribution_score.toFixed(2)}.` : "Absence may reflect incomplete mapping." },
@@ -76,7 +85,7 @@ export function buildEvidenceChain(ev: EventDetail): Stage[] {
       detail: pm ? `${pm.rationale}.` : "" },
     { key: "satellite", title: "Satellite imagery", state: best ? "ok" : "missing",
       summary: best ? `Sentinel-2 ${fmtDate(best.acquired_at)} · ${fmtNum(best.cloud_cover, 0)}% cloud` : "No scene available",
-      detail: best ? "Available for analyst comparison; not analysed automatically." : ev.enrichment_state?.satellite ? "No L2A scene under the cloud threshold." : "Imagery not yet searched." },
+      detail: (best ? "Available for analyst comparison." : ev.enrichment_state?.satellite ? "No L2A scene under the cloud threshold." : "Imagery not yet searched.") + spectral },
     { key: "weather", title: "Weather context", state: w ? "ok" : "missing",
       summary: w ? `${w.condition ?? "—"}, wind ${fmtNum(w.wind_speed_ms)} m/s from ${compass(w.wind_direction_deg)}` : "Not available",
       detail: w ? `${w.dataset}. Context only — not proof of source.` : "" },

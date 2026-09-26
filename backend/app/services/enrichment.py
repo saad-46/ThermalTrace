@@ -1,4 +1,4 @@
-"""Event enrichment: OSM infrastructure + land use, weather, Sentinel-2 scenes, admin geocoding.
+"""Event enrichment: OSM infrastructure + land use, ESA WorldCover land cover, weather, Sentinel-2 scenes, admin geocoding.
 
 Each step records its own status in event.enrichment_state[step] = {status, at, detail}. A
 failed provider marks that step failed (visible in the UI and data-quality score); it never
@@ -23,7 +23,7 @@ from app.integrations.weather import WeatherClient
 from app.models.enrichment import SatelliteObservation, WeatherObservation
 from app.models.facilities import LandContext
 from app.models.thermal import ThermalEvent
-from app.services import cache, facility_sync, source_health
+from app.services import cache, facility_sync, landcover, source_health
 
 logger = logging.getLogger(__name__)
 CELL_DEG = 0.05  # ≈5.5 km; one Overpass request serves every event in a cell
@@ -186,7 +186,8 @@ def enrich_geocode(db: Session, ev: ThermalEvent) -> None:
     _mark(ev, "geocode", "ok", "OSM Nominatim")
 
 
-def enrich_events(db: Session, event_ids: list, steps: tuple[str, ...] = ("osm", "weather", "satellite", "geocode")) -> dict:
+def enrich_events(db: Session, event_ids: list,
+                  steps: tuple[str, ...] = ("osm", "landcover", "weather", "satellite", "geocode")) -> dict:
     from app.processing.pipeline import analyse_event
 
     events = list(db.execute(select(ThermalEvent).where(ThermalEvent.id.in_(event_ids))).scalars())
@@ -194,6 +195,8 @@ def enrich_events(db: Session, event_ids: list, steps: tuple[str, ...] = ("osm",
     if "osm" in steps:
         out["osm"] = enrich_osm(db, events)
     for ev in events:
+        if "landcover" in steps:
+            landcover.enrich_landcover(db, ev, _mark)
         if "weather" in steps:
             enrich_weather(db, ev)
         if "satellite" in steps:
@@ -215,4 +218,13 @@ def enrichment_priority(db: Session, limit: int) -> list:
         """SELECT id FROM thermal_events
            WHERE NOT (enrichment_state ? 'osm') OR enrichment_state->'osm'->>'status' <> 'ok'
            ORDER BY (observation_count >= 3) DESC, observation_count DESC, frp_max DESC NULLS LAST, last_detected DESC
+           LIMIT :n"""), {"n": limit}).scalars())
+
+
+def landcover_backfill_ids(db: Session, limit: int) -> list:
+    """Events that have not had a land-cover lookup yet, most review-worthy first (triage priority)."""
+    return list(db.execute(text(
+        """SELECT id FROM thermal_events
+           WHERE NOT (enrichment_state ? 'landcover')
+           ORDER BY priority_score DESC NULLS LAST, last_detected DESC
            LIMIT :n"""), {"n": limit}).scalars())

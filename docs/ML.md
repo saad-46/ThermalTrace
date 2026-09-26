@@ -12,7 +12,7 @@ Two independent axes are used.
 
 | Model | Kind | Role |
 |---|---|---|
-| `rule-cascade-v1.0` | `RuleCascadeClassifier` (deterministic) | Classifier of record, and the source of weak labels. It produces a readable rule trace. |
+| `rule-cascade-v1.1` | `RuleCascadeClassifier` (deterministic) | Classifier of record, and the source of weak labels. It produces a readable rule trace. |
 | `lgbm-<timestamp>` | `GradientBoostingClassifier` (LightGBM + SHAP TreeExplainer) | Trained on adjudicated plus weak labels. When active and at least as confident as the rules, it becomes the primary model. |
 | `RemoteSensingClassifier` | Interface only | Extension point for a Sentinel-2 SWIR image model. It is deliberately not registered because no trained image model exists. |
 
@@ -27,9 +27,12 @@ The rules are applied in this order:
 3. **Heavy industry within 2 km.** Recurring or persistent → `process_heat` (capped at 0.75). Transient with ≥ 40 MW within 1 km → `industrial_fire` (p = 0.45, always sent to review).
 4. **Mine within 3 km** with a recurring pattern → `coal_seam_fire`.
 5. **Cropland mapped within 1.5 km** and not persistent → `agricultural_burn` (+0.12 in the Mar–May and Oct–Dec burning seasons). **Forest or scrub** → `wildfire`.
+   *Raster fallback (v1.1):* when OSM land use has not been retrieved, ESA WorldCover within 750 m is used instead, but only when one class is a clear majority (≥ 50 %) and built-up area is ≤ 20 %. Probabilities on this path are capped at 0.60, because the product maps 2021 conditions and a 1.5 km window can mix land uses. The trace says which source was used.
 6. **Persistent with no context** → `other` ("candidate unmapped industrial source"). Anything else → `unknown`.
 
 ### Training (`python -m app.cli train`, or *System health → Train*)
+
+**Lifecycle.** Rules bootstrap labels → analysts adjudicate events → training dataset (exportable) → spatial hold-out evaluation → model card → **an admin decides** whether to activate (audited `model.activate`) → the model can be deactivated at any time (audited `model.deactivate`), which makes the rule cascade the classifier of record again. Training never activates a model by itself.
 
 - **Labels**:
   - Analyst `confirm` or `reclassify` decisions, with weight 3.
@@ -41,7 +44,7 @@ The rules are applied in this order:
 
 ### Feature pipeline (`processing/features.py`)
 
-There are 26 named features, each tagged with its origin (FIRMS, derived, facility, land, weather or calendar). The full table is shown in the UI (*System health → Feature pipeline*) and served by `GET /api/v1/models`.
+There are 32 named features, each tagged with its origin (FIRMS, derived, facility, land, imagery, weather or calendar). Version 1.1 added four ESA WorldCover shares (`lc_vegetation_frac`, `lc_cropland_frac`, `lc_built_up_frac`, `lc_bare_frac`) and two Sentinel-2 change features (`dndvi`, `dnbr`); all are NaN until measured. The full table is shown in the UI (*System health → Feature pipeline*) and served by `GET /api/v1/models`.
 
 Missing inputs stay **NaN**; nothing is imputed with invented constants. For example, the land-use flags are NaN until OSM has actually been checked.
 
@@ -93,3 +96,10 @@ Tiers are high (≥ 70), elevated (≥ 50), routine (≥ 30) and low. The breakd
 - *Analytics → Analyst feedback loop* shows how many adjudicated labels exist, false positives by reason (industrial process heat, agricultural burn, sensor artefact, construction, known static source, sun glint, other), and a system-versus-analyst agreement table.
 - Retraining uses adjudicated labels at 3× weight.
 - **Export**: `GET /api/v1/ml/training-dataset?format=csv|json` (supervisor or above, audited). One row per decision: event, decision, analyst label, false-positive reason, system label and confidence at review time, model and pipeline version, reviewer, timestamp, and the 26 features as they were when the analyst decided.
+
+## Not implemented (stated plainly)
+
+- **XGBoost.** Only LightGBM is implemented; the presentation's "XGBoost/LightGBM" refers to this family of models.
+- **Probability calibration.** Model probabilities are not calibrated (no isotonic or Platt step), and the rule probabilities are expert settings, not frequencies. The confidence score is a documented weighted sum, not a calibrated probability.
+- **Model monitoring.** There is no automated drift monitoring. The analyst feedback view (*Analytics → Analyst feedback loop*) shows system-versus-analyst agreement, which is the current manual check.
+- **Image classifier.** No trained model uses imagery pixels. Imagery contributes only the measured `dndvi` / `dnbr` features and evidence.

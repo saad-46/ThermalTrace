@@ -20,7 +20,16 @@ logger = logging.getLogger(__name__)
 _MATCH_SQL = text(
     """
     SELECT e.id, e.public_id, e.classification, e.persistence_class, e.confidence_score, e.frp_max,
-           e.duration_hours, e.admin_district, e.admin_state, e.latitude, e.longitude,
+           e.duration_hours, e.admin_district, e.admin_state, e.latitude, e.longitude, e.priority_score,
+           e.nearest_facility_id,
+           (SELECT count(*) FROM thermal_events o WHERE e.nearest_facility_id IS NOT NULL
+              AND o.nearest_facility_id = e.nearest_facility_id
+              AND o.last_detected >= now() - make_interval(days => r.repeat_days)) AS facility_events,
+           (SELECT count(*) FROM thermal_events o WHERE e.nearest_facility_id IS NOT NULL
+              AND o.nearest_facility_id = e.nearest_facility_id AND o.first_detected >= now() - interval '7 days') AS fac_recent,
+           (SELECT count(*) FROM thermal_events o WHERE e.nearest_facility_id IS NOT NULL
+              AND o.nearest_facility_id = e.nearest_facility_id
+              AND o.first_detected >= now() - interval '14 days' AND o.first_detected < now() - interval '7 days') AS fac_prior,
            (SELECT min(l.distance_m) FROM event_facility_links l JOIN facilities f ON f.id = l.facility_id
              WHERE l.event_id = e.id AND (cardinality(r.facility_types) = 0 OR f.facility_type = ANY(r.facility_types))) AS fac_dist
     FROM thermal_events e, alert_rules r
@@ -38,6 +47,7 @@ _MATCH_SQL = text(
       AND (r.min_confidence IS NULL OR e.confidence_score >= r.min_confidence)
       AND (r.min_frp IS NULL OR e.frp_max >= r.min_frp)
       AND (r.min_duration_hours IS NULL OR e.duration_hours >= r.min_duration_hours)
+      AND (r.min_priority IS NULL OR e.priority_score >= r.min_priority)
       AND NOT EXISTS (SELECT 1 FROM alerts a WHERE a.rule_id = r.id AND a.event_id = e.id)
     """
 )
@@ -61,8 +71,14 @@ def evaluate_rules(db: Session, event_ids: list) -> dict:
             if rule.facility_types and rule.facility_within_m is not None and (
                     row["fac_dist"] is None or row["fac_dist"] > rule.facility_within_m):
                 continue
+            if not repeat_and_increase_ok(rule, row["facility_events"], row["fac_recent"], row["fac_prior"]):
+                continue
             label = CLASS_LABELS.get(row["classification"], row["classification"])
             reason = {
+                "priority": row["priority_score"],
+                "facility_events_in_window": row["facility_events"] if rule.min_repeat_events else None,
+                "facility_events_last_7d": row["fac_recent"] if rule.activity_increase else None,
+                "facility_events_prior_7d": row["fac_prior"] if rule.activity_increase else None,
                 "rule": rule.name, "classification": row["classification"], "persistence": row["persistence_class"],
                 "confidence": row["confidence_score"], "frp_max": row["frp_max"],
                 "facility_distance_m": round(row["fac_dist"]) if row["fac_dist"] is not None else None,
@@ -77,6 +93,17 @@ def evaluate_rules(db: Session, event_ids: list) -> dict:
             created += 1
     db.commit()
     return {"alerts": created}
+
+
+def repeat_and_increase_ok(rule: AlertRule, facility_events: int, recent: int, prior: int) -> bool:
+    """Facility-activity conditions. Both are about the event's nearest mapped facility, so an event with
+    no facility nearby never satisfies them. `activity_increase` needs at least 3 events in the last
+    7 days and at least double the 7 days before, so one or two new events never count as a surge."""
+    if rule.min_repeat_events is not None and (facility_events or 0) < rule.min_repeat_events:
+        return False
+    if rule.activity_increase and not ((recent or 0) >= 3 and (recent or 0) >= 2 * (prior or 0)):
+        return False
+    return True
 
 
 def in_cooldown(rule: AlertRule, now: datetime | None = None) -> bool:

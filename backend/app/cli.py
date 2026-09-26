@@ -7,7 +7,7 @@
   enrich [--limit 40]                              OSM / weather / imagery / geocode for top-priority events
   import-registry --source wri_gppd|gem|cea [--path F] [--version V] [--published YYYY-MM-DD]
   sync-facilities [--tiles 4]                      refresh the local OSM facility index (busiest 1° tiles first)
-  train                                            train + activate the LightGBM model
+  train                                            train a LightGBM model (stored inactive; activate it from System health)
   load-demo                                        synthetic data (DEMO_MODE=true only)
 """
 import argparse
@@ -103,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
 
             mv = train_and_register(db)
             db.commit()
-            _print({"model": mv.id, "label_provenance": mv.label_provenance, "metrics": {
+            _print({"model": mv.id, "active": mv.is_active, "label_provenance": mv.label_provenance, "metrics": {
                 k: mv.metrics.get(k) for k in ("macro_f1_holdout", "n_train", "n_test", "caveat")}})
         elif args.cmd == "load-demo":
             from app.services.ingestion import load_demo_dataset

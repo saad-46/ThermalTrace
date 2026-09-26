@@ -98,8 +98,14 @@ def detections_geojson(ref: str, user: User = CurrentUser, db: Session = Depends
 @router.post("/{ref}/reviews", status_code=201, summary="Record an analyst decision (confirm/reject/false positive/escalate/reclassify/note)")
 def create_review(ref: str, body: ReviewIn, request: Request, user: User = AnalystUser, db: Session = Depends(get_db)):
     eid = repo.resolve_event_id(db, ref)
+    before = db.execute(text("SELECT review_status, classification FROM thermal_events WHERE id=:i"), {"i": eid}).one()
     review = reviews.record_review(db, eid, body, user)
-    audit.record(db, request, user.id, f"event.review.{body.decision}", "event", eid, body.model_dump(exclude_none=True))
+    after = db.execute(text("SELECT review_status FROM thermal_events WHERE id=:i"), {"i": eid}).scalar()
+    audit.record(db, request, user.id, f"event.review.{body.decision}", "event", eid, {
+        **body.model_dump(exclude_none=True),
+        "previous": {"review_status": before.review_status, "system_class": before.classification},
+        "new": {"review_status": after, "analyst_class": review.source_class},
+    })
     db.commit()
     return {"id": review.id, "review_status": db.execute(text("SELECT review_status FROM thermal_events WHERE id=:i"), {"i": eid}).scalar()}
 
@@ -120,6 +126,16 @@ def assign(ref: str, body: AssignIn, request: Request, user: User = SupervisorUs
     audit.record(db, request, user.id, "event.assign", "event", eid, {"assignee": str(body.user_id), "priority": body.priority})
     db.commit()
     return {"investigation_id": inv.id, "assigned_to": inv.assigned_to}
+
+
+@router.post("/{ref}/imagery-analysis", status_code=202,
+             summary="Queue Sentinel-2 NDVI/NBR change analysis (before vs after scenes) for this event")
+def request_imagery_analysis(ref: str, request: Request, user: User = AnalystUser, db: Session = Depends(get_db)):
+    eid = repo.resolve_event_id(db, ref)
+    job_id = enqueue(db, "imagery_analysis", {"event_id": str(eid)}, dedupe_key=f"imagery:{eid}", priority=12, created_by=user.id)
+    audit.record(db, request, user.id, "event.imagery_analysis.request", "event", eid, {"job": str(job_id)})
+    db.commit()
+    return {"job_id": job_id}
 
 
 @router.post("/{ref}/enrich", status_code=202, summary="Queue enrichment (OSM, weather, imagery, geocoding) for this event")

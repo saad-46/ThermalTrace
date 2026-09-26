@@ -105,6 +105,13 @@ class AlertRule(Base):
     # alerts are still created in-app and the suppression is recorded on each delivery row.
     cooldown_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     last_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Triage and activity conditions. `min_priority` is the 0-100 triage priority (not a risk score).
+    # `min_repeat_events`: the event's nearest facility has at least this many events in `repeat_days`.
+    # `activity_increase`: that facility's last-7-day event count is at least 3 and at least double the prior 7 days.
+    min_priority: Mapped[int | None] = mapped_column(Integer)
+    min_repeat_events: Mapped[int | None] = mapped_column(Integer)
+    repeat_days: Mapped[int] = mapped_column(Integer, nullable=False, default=30, server_default="30")
+    activity_increase: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
 
 
 class Alert(Base):
