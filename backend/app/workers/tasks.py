@@ -15,6 +15,12 @@ logger = logging.getLogger(__name__)
 Handler = Callable[[Session, dict, Job], dict]
 
 
+def continuation_key(kind: str) -> str:
+    """Dedupe key for a job that queues its own next pass. It must differ from the running job's key:
+    a queued/running job with the same key suppresses the insert, so reusing it would drop the continuation."""
+    return f"{kind}:continue"
+
+
 def firms_poll(db: Session, payload: dict, job: Job) -> dict:
     summary = ingestion.ingest_firms_nrt(db, payload.get("datasets"), payload.get("window", "24h"), job_id=job.id)
     if any(s.get("inserted") for s in summary.values()):
@@ -39,6 +45,8 @@ def process_events(db: Session, payload: dict, job: Job) -> dict:
 
     res = process_new_detections(db, reanalyse_all=bool(payload.get("reanalyse_all")))
     alert_res = alerts.evaluate_rules(db, res["event_ids"])
+    if res["remaining_unassigned"]:  # large backfills are clustered 50,000 detections per pass
+        enqueue(db, "process_events", {}, dedupe_key=continuation_key("process_events"), priority=20)
     enqueue(db, "enrich_batch", {"limit": 40}, dedupe_key="enrich_batch", priority=60)
     return {**{k: v for k, v in res.items() if k != "event_ids"}, "alerts": alert_res}
 
@@ -56,7 +64,7 @@ def landcover_backfill(db: Session, payload: dict, job: Job) -> dict:
         return {"events": 0}
     res = enrichment.enrich_events(db, ids, steps=("landcover",))
     if len(ids) == int(payload.get("limit", 25)):
-        enqueue(db, "landcover_backfill", payload, dedupe_key="landcover_backfill", priority=85, delay_s=5)
+        enqueue(db, "landcover_backfill", payload, dedupe_key=continuation_key("landcover_backfill"), priority=85, delay_s=5)
     return res
 
 
@@ -82,7 +90,7 @@ def enrich_batch(db: Session, payload: dict, job: Job) -> dict:
     res = enrichment.enrich_events(db, ids)
     alerts.evaluate_rules(db, [str(i) for i in ids])
     if len(ids) == int(payload.get("limit", 40)):  # more remaining — continue gradually
-        enqueue(db, "enrich_batch", payload, dedupe_key="enrich_batch", priority=80, delay_s=5)
+        enqueue(db, "enrich_batch", payload, dedupe_key=continuation_key("enrich_batch"), priority=80, delay_s=5)
     return res
 
 

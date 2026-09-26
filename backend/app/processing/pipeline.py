@@ -146,10 +146,11 @@ def analyse_event(db: Session, event_id: uuid.UUID, history_days: int | None = N
     return cls
 
 
-def process_new_detections(db: Session, reanalyse_all: bool = False) -> dict:
-    """Cluster new detections and (re)analyse every touched event. Commits in batches."""
+def process_new_detections(db: Session, reanalyse_all: bool = False, batch_size: int = 50_000) -> dict:
+    """Cluster up to `batch_size` new detections (oldest first) and (re)analyse every touched event.
+    Commits in batches. `remaining_unassigned` tells the caller whether another pass is needed."""
     registry.ensure_rule_model(db)
-    touched = clustering.assign_detections(db)
+    touched = clustering.assign_detections(db, limit=batch_size)
     clustering.refresh_event_stats(db, touched)
     aged = clustering.refresh_activity_status(db)
     db.commit()
@@ -168,5 +169,7 @@ def process_new_detections(db: Session, reanalyse_all: bool = False) -> dict:
         if i % 200 == 199:
             db.commit()
     db.commit()
-    logger.info("processing: analysed=%d failed=%d aged=%d", done, failed, aged)
-    return {"events_analysed": done, "events_failed": failed, "events_aged": aged, "event_ids": [str(e) for e in touched]}
+    remaining = db.execute(text("SELECT count(*) FROM thermal_detections WHERE event_id IS NULL")).scalar_one()
+    logger.info("processing: analysed=%d failed=%d aged=%d remaining_unassigned=%d", done, failed, aged, remaining)
+    return {"events_analysed": done, "events_failed": failed, "events_aged": aged, "remaining_unassigned": remaining,
+            "event_ids": [str(e) for e in touched]}

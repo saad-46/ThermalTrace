@@ -417,3 +417,28 @@ def test_firms_backfill_trigger_validates_before_queueing(client, auth_headers, 
     ok = client.post("/api/v1/ingestion/trigger", headers=h, json={"kind": "firms_historical",
                      "payload": {"source": "VIIRS_SNPP_SP", "start": "2025-07-01", "days": 365}})
     assert ok.status_code == 202
+
+
+def test_processing_continues_across_batches_and_continuations_are_not_suppressed(db):
+    """A backlog larger than one clustering pass is finished by continuation jobs; a job that re-queues
+    itself while running must use a different dedupe key or the queue silently drops the continuation."""
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import text
+
+    from app.processing.pipeline import process_new_detections
+    from app.workers.queue import enqueue
+    from app.workers.tasks import continuation_key
+
+    now = datetime.now(UTC).replace(microsecond=0)
+    _ingest(db, [_row(20.0 + i, 75.0, now - timedelta(hours=i), frp=30) for i in range(3)])
+    first = process_new_detections(db, batch_size=2)
+    assert first["remaining_unassigned"] == 1
+    assert process_new_detections(db, batch_size=2)["remaining_unassigned"] == 0
+
+    running = enqueue(db, "process_events", {}, dedupe_key="process_events")
+    db.execute(text("UPDATE jobs SET status = 'running' WHERE id = :i"), {"i": running})
+    db.commit()
+    assert enqueue(db, "process_events", {}, dedupe_key="process_events") == running  # same key: suppressed
+    cont = enqueue(db, "process_events", {}, dedupe_key=continuation_key("process_events"))
+    assert cont != running and db.execute(text("SELECT status FROM jobs WHERE id = :i"), {"i": cont}).scalar() == "queued"

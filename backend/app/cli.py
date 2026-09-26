@@ -82,9 +82,17 @@ def main(argv: list[str] | None = None) -> int:
             from app.processing.pipeline import process_new_detections
             from app.services.alerts import evaluate_rules
 
-            res = process_new_detections(db, reanalyse_all=args.all)
-            res["alerts"] = evaluate_rules(db, res.pop("event_ids"))
-            _print(res)
+            total = {"passes": 0, "events_analysed": 0, "events_failed": 0, "alerts": 0}
+            while True:  # one pass clusters up to 50,000 detections; continue until the backlog is empty
+                res = process_new_detections(db, reanalyse_all=args.all and total["passes"] == 0)
+                total["passes"] += 1
+                total["events_analysed"] += res["events_analysed"]
+                total["events_failed"] += res["events_failed"]
+                total["alerts"] += evaluate_rules(db, res.pop("event_ids"))["alerts"]
+                total["remaining_unassigned"] = res["remaining_unassigned"]
+                if not res["remaining_unassigned"]:
+                    break
+            _print(total)
         elif args.cmd == "enrich":
             from app.services.enrichment import enrich_events, enrichment_priority
 

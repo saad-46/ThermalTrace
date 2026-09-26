@@ -250,7 +250,7 @@ npm run build
 E2E_EMAIL=analyst@example.org E2E_PASSWORD=… npm run test:e2e
 ```
 
-Current results: backend **75 passed**, Vitest **24 passed**, Playwright **3 passed** (desktop, tablet, mobile). `pip-audit` and `npm audit` are clean. CI (`.github/workflows/ci.yml`) runs lint, the backend tests against PostGIS, typecheck, the frontend tests, the build, both audits and the image builds. Details: [docs/TESTING.md](docs/TESTING.md).
+Current results: backend **76 passed**, Vitest **24 passed**, Playwright **3 passed** (desktop, tablet, mobile). `pip-audit` and `npm audit` are clean. CI (`.github/workflows/ci.yml`) runs lint, the backend tests against PostGIS, typecheck, the frontend tests, the build, both audits and the image builds. Details: [docs/TESTING.md](docs/TESTING.md).
 
 ## Docker and deployment
 
