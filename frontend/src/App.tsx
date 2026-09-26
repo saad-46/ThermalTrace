@@ -5,7 +5,7 @@ import { ApiError } from "./lib/api";
 import { SessionProvider, useIsMobile, useSession } from "./lib/session";
 import { Skeleton, ToastProvider } from "./components/ui";
 import DesktopShell from "./pages/DesktopShell";
-import Login from "./pages/Login";
+import Landing from "./pages/Landing";
 import { TourProvider } from "./tour/TourProvider";
 
 const TourOverlay = lazy(() => import("./tour/TourOverlay"));
@@ -39,7 +39,7 @@ function Gate() {
   const { user, loading, isDemo } = useSession();
   const mobile = useIsMobile();
   if (loading) return <div className="auth"><div style={{ width: 240 }}><Skeleton lines={3} /></div></div>;
-  if (!user) return <Login />;
+  if (!user) return <Landing />;
   const fallback = <div className="page"><Skeleton lines={6} /></div>;
   const tour = isDemo ? <Suspense fallback={null}><TourOverlay /></Suspense> : null;
   if (mobile) return <><Suspense fallback={fallback}><MobileApp /></Suspense>{tour}</>;

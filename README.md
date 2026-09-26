@@ -197,9 +197,17 @@ docker compose up -d --build        # db → migrate → api, worker (bulk + sch
 docker compose exec api python -m app.cli create-user --email you@example.org --name "Your Name" --role admin
 ```
 
+## Landing page
+
+Signed-out visitors see a landing page with the sign-in form at the top, and below it live figures (detections, events,
+facilities, active sources), a 30-day activity map aggregated to a 1° grid, the workflow, capabilities, data sources and
+technology. Every figure comes from `GET /api/v1/public/landing`, a public, cached, rate-limited endpoint that exposes
+aggregates only (no identifiers or personal data); when it is unavailable the page says so rather than showing numbers.
+Disable it with `PUBLIC_LANDING_ENABLED=false`.
+
 ## Guided exploration
 
-With `EXPLORE_MODE_ENABLED=true`, the login page offers **Explore as Analyst** and **Explore as Admin**: a read-only
+With `EXPLORE_MODE_ENABLED=true`, the landing page offers **Explore as Analyst** and **Explore as Admin**: a read-only
 demo session on the real application with a guided tour of the investigation workflow or of the platform behind it.
 No credentials are involved; the server refuses every change from a demo session and masks personal data. See
 [docs/GUIDED_TOURS.md](docs/GUIDED_TOURS.md).
@@ -215,6 +223,7 @@ Every variable is documented and tagged REQUIRED / OPTIONAL / PROVIDER in [.env.
 | Auth | `SECRET_KEY` (≥ 32 random characters), `ACCESS_TOKEN_TTL_MINUTES` | **Required** outside development |
 | API | `CORS_ORIGINS`, `RATE_LIMIT_PER_MINUTE`, `LOGIN_RATE_LIMIT_PER_MINUTE`, `ALERT_MAX_EVENT_AGE_HOURS` | Defaults are provided |
 | Guided exploration | `EXPLORE_MODE_ENABLED`, `EXPLORE_SESSION_MINUTES` | Optional (off by default) |
+| Landing page | `PUBLIC_LANDING_ENABLED` | Optional (on by default) |
 | FIRMS | `FIRMS_MAP_KEY`, `FIRMS_REGION_NAME`, `REGION_BBOX`, `FIRMS_POLL_MINUTES` | Optional (the key unlocks history) |
 | OSM | `OVERPASS_URLS`, `HTTP_USER_AGENT` | Defaults are provided |
 | Copernicus | `COPERNICUS_CLIENT_ID`, `COPERNICUS_CLIENT_SECRET`, `SATELLITE_MAX_CLOUD` | Optional (SWIR renders) |
@@ -260,7 +269,7 @@ npm run build
 E2E_EMAIL=analyst@example.org E2E_PASSWORD=… npm run test:e2e
 ```
 
-Current results: backend **93 passed**, Vitest **40 passed**, Playwright **3 passed** acceptance (desktop, tablet, mobile) and **7 passed** guided exploration. `pip-audit` and `npm audit` are clean. CI (`.github/workflows/ci.yml`) runs lint, the backend tests against PostGIS, typecheck, the frontend tests, the build, both audits and the image builds. Details: [docs/TESTING.md](docs/TESTING.md).
+Current results: backend **96 passed**, Vitest **48 passed**, Playwright **3 passed** acceptance (desktop, tablet, mobile), **7 passed** guided exploration and **8 passed** landing page. `pip-audit` and `npm audit` are clean. CI (`.github/workflows/ci.yml`) runs lint, the backend tests against PostGIS, typecheck, the frontend tests, the build, both audits and the image builds. Details: [docs/TESTING.md](docs/TESTING.md).
 
 ## Docker and deployment
 

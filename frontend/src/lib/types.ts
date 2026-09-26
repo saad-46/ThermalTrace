@@ -458,3 +458,19 @@ export interface DataSource {
   configuration: { configured?: boolean; note?: string | null; mode?: string };
   last_run: { status: string; started_at: string; completed_at: string | null; records_inserted: number; error_detail: string | null } | null;
 }
+
+/** GET /public/landing: safe public aggregates for the landing page (no identifiers or personal data). */
+export type PublicSourceState = "active" | "degraded" | "unavailable" | "not_configured" | "standby";
+export interface PublicLanding {
+  counts: { detections: number; events: number; events_recent: number; facilities: number };
+  sources: { id: string; name: string; kind: string; state: PublicSourceState; last_success_at: string | null }[];
+  sources_active: number;
+  sources_total: number;
+  latest_detection: string | null;
+  firms_last_sync: string | null;
+  workers_online: boolean;
+  classifier: string;
+  activity: { window_days: number; cell_deg: number; cells: [number, number, number][] };
+  generated_at: string;
+  cache_seconds: number;
+}

@@ -31,6 +31,14 @@
 - **Test isolation**: `tests/conftest.py` blanks every provider credential (FIRMS, Copernicus, SMTP, VAPID, Sentry) before the app loads settings, so a developer's local `.env` can never make the test suite send email or call keyed APIs. A test enforces this.
 - **Fail-closed images**: the API image defaults to `ENVIRONMENT=production` and refuses to start with development secrets, the development database password, or localhost-only CORS. CI checks that the image refuses to start with defaults.
 
+## Public landing aggregates
+
+`GET /api/v1/public/landing` is the only unauthenticated data endpoint. It returns totals (detections, events,
+facilities), source names and states, the classifier id, worker liveness and event counts per 1° grid cell for the last 30
+days. It returns no event ids, individual coordinates, users, notes, reviews or configuration values, excludes demo
+data, is computed at most every 5 minutes and is rate-limited per IP like every anonymous request. A test asserts that
+no e-mail addresses or event ids appear in it. Turn it off with `PUBLIC_LANDING_ENABLED=false`.
+
 ## Guided exploration (demo sessions)
 
 `EXPLORE_MODE_ENABLED` adds credential-free, read-only demo sessions. Every non-GET request from them is refused
@@ -38,6 +46,13 @@ server-side, quota-consuming reads are refused, personal data is masked, session
 accounts have no usable password. Details: `GUIDED_TOURS.md`. Keep it off unless a public demo is intended.
 
 ## Known gaps
+
+- **Development tooling advisories (2026-09-27).** `npm audit --omit=dev` reports 0 vulnerabilities: nothing in the
+  shipped bundle or runtime is affected. `npm audit` (including dev tools) reports 5: Vite 5 (dev server path
+  traversal, high), Vitest 2 with vite-node / @vitest/mocker (UI-server file read, rated critical) and esbuild 0.21
+  (dev server). They affect only a developer's local dev server or test runner; fixes require major upgrades
+  (Vite 7+, Vitest 5), planned as a separate change. Playwright was upgraded 1.49 → 1.55.1 (minor) to fix its
+  browser-download advisory. Do not expose the Vite dev server or Vitest UI on a network.
 
 - Tokens are stored in `localStorage`. This is standard for a bearer-token SPA plus PWA, but it is exposed to XSS. The mitigations are React's escaping, no `dangerouslySetInnerHTML` of user input (map popups escape names), and a strict CSP recommended at the edge.
 - There is no MFA or SSO yet (roadmap).

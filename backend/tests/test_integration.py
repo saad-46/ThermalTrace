@@ -677,3 +677,37 @@ def test_watchlist_matches_every_item_kind_once(client, db, auth_headers):
     assert add_and_count({"kind": "district", "label": "Firozpur", "admin_district": "firozpur"}) == 2  # case-insensitive
     assert add_and_count({"kind": "facility", "label": "refinery", "facility_id": str(fac.id)}) == 2  # same event, counted once
     assert add_and_count({"kind": "event", "label": weak.public_id, "event_id": str(weak.id)}) == 2
+
+
+def test_public_landing_exposes_only_safe_live_aggregates(client, db, make_user, monkeypatch):
+    import json
+
+    from app.api.v1 import public
+    from app.core.config import settings
+    from app.processing.pipeline import process_new_detections
+
+    make_user("admin", email="private.person@agency.gov.in")
+    _facility(db)
+    _ingest(db, _flare_site(7))
+    _ingest(db, [_row(28.0, 77.0, datetime.now(UTC) - timedelta(days=1), frp=3, dn="D")])
+    process_new_detections(db)
+    db.execute(text("UPDATE thermal_events SET data_mode = 'demo' WHERE observation_count = 1"))  # demo data is not counted
+    db.execute(text("UPDATE thermal_detections SET data_mode = 'demo' WHERE event_id IN "
+                    "(SELECT id FROM thermal_events WHERE data_mode = 'demo')"))
+    db.commit()
+    public.clear_cache()
+
+    r = client.get("/api/v1/public/landing")  # no Authorization header
+    assert r.status_code == 200
+    d = r.json()
+    assert d["counts"] == {"detections": 21, "events": 1, "events_recent": 1, "facilities": 1}
+    assert d["classifier"] == "rule-cascade-v1.1"
+    assert d["sources_total"] == len(d["sources"]) and all(s["id"] != "demo" for s in d["sources"])
+    assert d["activity"]["cells"] == [[22.5, 69.5, 1]]  # 1° cell centre and a count, nothing identifying
+    body = json.dumps(d)
+    for private in ("private.person", "@", "TT-", "password", "token"):
+        assert private not in body
+
+    public.clear_cache()
+    monkeypatch.setattr(settings, "public_landing_enabled", False)
+    assert client.get("/api/v1/public/landing").status_code == 404

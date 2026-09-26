@@ -49,6 +49,8 @@ class Settings(BaseSettings):
     # historical FIRMS backfill must not notify anyone about months-old events).
     alert_max_event_age_hours: int = Field(72, ge=1, le=24 * 30)
     explore_mode_enabled: bool = False
+    # Public landing-page aggregates (GET /api/v1/public/landing): totals, source states, coarse 30-day activity grid.
+    public_landing_enabled: bool = True
     explore_session_minutes: int = Field(120, ge=5, le=720)
 
     # --- NASA FIRMS ------------------------------------------------------------------------

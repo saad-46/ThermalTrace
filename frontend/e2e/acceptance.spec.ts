@@ -145,7 +145,7 @@ test.describe("tablet layout", () => {
 
   test("icon-rail navigation, map + evidence panel, tables", async ({ page }) => {
     await login(page);
-    await expect(page.getByRole("link", { name: "Live map" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Live map" })).toBeVisible({ timeout: 15_000 }); // lazy map chunk after login
     await page.waitForTimeout(1500);
     await noHorizontalOverflow(page, "tablet map");
     await shot(page, "t01-map");

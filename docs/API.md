@@ -135,6 +135,12 @@ GET  /api/v1/reports/{id}/download
 | POST | `/api/v1/models/{model_id}/activate` | Activate (admin, audited) |
 | POST | `/api/v1/models/{model_id}/deactivate` | Deactivate a trained model; the rule cascade becomes the classifier of record again |
 
+### public
+
+| Method | Path | Summary |
+|---|---|---|
+| GET | `/api/v1/public/landing` | Public landing-page aggregates: totals, source states, 30-day activity on a 1° grid (no identifiers). No authentication; cached 5 min (stale-while-revalidate); 404 when `PUBLIC_LANDING_ENABLED=false` |
+
 ### push
 
 | Method | Path | Summary |

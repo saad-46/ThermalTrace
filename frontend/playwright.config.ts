@@ -3,6 +3,8 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "e2e",
   timeout: 120_000,
+  // The suites drive one shared live stack (demo accounts, per-IP login/demo rate limits): run them serially.
+  workers: 1,
   retries: 0,
   reporter: [["list"]],
   use: {

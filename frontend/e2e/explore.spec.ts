@@ -56,7 +56,7 @@ async function enter(page: Page, role: "analyst" | "admin") {
   await page.goto("/");
   await page.evaluate(() => { localStorage.clear(); sessionStorage.clear(); });
   await page.goto("/");
-  await page.getByRole("button", { name: `Explore ${role} mode` }).click();
+  await page.getByRole("button", { name: role === "admin" ? "Explore as Admin" : "Explore as Analyst", exact: true }).click();
   await expect(page.getByRole("region", { name: "Demo mode" })).toContainText(role === "admin" ? "Admin" : "Analyst", { timeout: 20_000 });
 }
 
@@ -93,9 +93,9 @@ test.describe("explore modes", () => {
   test("login page keeps normal sign-in and offers both explore modes", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Explore ThermalTrace" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Explore analyst mode" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Explore admin mode" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Explore without an account" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Explore as Analyst", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Explore as Admin", exact: true })).toBeVisible();
     await page.getByLabel("Email").fill("nobody@example.org");
     await page.getByLabel("Password").fill("wrong-password-123");
     await page.getByRole("button", { name: "Sign in" }).click();

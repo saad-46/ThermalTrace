@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy import text
 
-from app.api.v1 import auth, context, events, monitoring, operations, search
+from app.api.v1 import auth, context, events, monitoring, operations, public, search
 from app.core.config import settings
 from app.core.errors import install_error_handlers
 from app.core.logging import configure_logging
@@ -101,6 +101,6 @@ def metrics():
 app.include_router(health)
 api = APIRouter(prefix="/api/v1")
 api.include_router(health)
-for module in (auth, events, context, monitoring, operations, search):
+for module in (auth, events, context, monitoring, operations, public, search):
     api.include_router(module.router)
 app.include_router(api)

@@ -489,3 +489,38 @@ def test_worker_survives_a_database_outage(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["run", "--lane", "bulk"])
     run.main()
     assert calls["claim"] == 2 and calls["sessions"] == 2  # reconnected with a fresh session, then kept polling
+
+
+def test_public_source_states_never_overstate_availability():
+    from app.api.v1.public import source_state
+
+    assert source_state("healthy", True, True) == "active"
+    assert source_state("degraded", True, True) == "degraded"
+    assert source_state("down", True, True) == "unavailable"
+    assert source_state("unknown", False, False) == "not_configured"
+    assert source_state("unknown", True, False) == "standby"  # configured but never succeeded: not called active
+
+
+def test_public_landing_serves_the_previous_snapshot_while_refreshing(monkeypatch):
+    import threading
+    import time
+
+    from app.api.v1 import public
+
+    done = threading.Event()
+
+    def compute(db):
+        done.set()
+        return {"snapshot": "new"}
+
+    monkeypatch.setattr(public, "_compute", compute)
+    public.clear_cache()
+    public._cache.update(at=time.monotonic() - public.CACHE_SECONDS - 1, data={"snapshot": "old"})
+    assert public.landing(db=None) == {"snapshot": "old"}  # no visitor waits for the aggregate queries
+    assert done.wait(5)
+    for _ in range(50):
+        if not public._cache.get("refreshing"):
+            break
+        time.sleep(0.02)
+    assert public.landing(db=None) == {"snapshot": "new"}
+    public.clear_cache()

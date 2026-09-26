@@ -6,7 +6,7 @@ data, not a separate demo app. Normal sign-in is unchanged.
 
 ## Enabling it
 
-`EXPLORE_MODE_ENABLED=true` (off by default; on in `.env.development.example`). When off, the login page does not
+`EXPLORE_MODE_ENABLED=true` (off by default; on in `.env.development.example`). When off, the landing page does not
 show the section and `POST /api/v1/auth/demo` returns 404. `EXPLORE_SESSION_MINUTES` (default 120) sets how long a
 session lasts.
 
