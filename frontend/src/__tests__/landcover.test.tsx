@@ -2,7 +2,6 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { LandCoverPanel, landcoverShares, SpectralTable } from "../components/landcover";
-import { buildEvidenceChain } from "../components/triage";
 import type { ImageryAnalysis, LandCover } from "../lib/types";
 import { event } from "./fixture";
 
@@ -37,8 +36,11 @@ describe("land cover", () => {
     render(<LandCoverPanel ev={event({ landcover: null, enrichment_state: {} })} />);
     expect(screen.getByText(/not been retrieved yet/)).toBeTruthy();
     cleanup();
-    render(<LandCoverPanel ev={event({ landcover: null, enrichment_state: { landcover: { status: "failed", at: "", detail: "timeout" } } })} />);
-    expect(screen.getByText(/Provider error: timeout/)).toBeTruthy();
+    render(<LandCoverPanel ev={event({ landcover: null, enrichment_state: { landcover: { status: "failed", at: "", detail: "timeout", category: "timeout" } } })} />);
+    expect(screen.getByText(/Provider failure: the provider timed out\. This is not an absence of land cover/)).toBeTruthy();
+    cleanup();
+    render(<LandCoverPanel ev={event({ landcover: null, enrichment_state: { landcover: { status: "no_data", at: "", detail: null } } })} />);
+    expect(screen.getByText(/offshore or outside coverage/)).toBeTruthy();
     cleanup();
     render(<LandCoverPanel ev={event({ landcover: null, enrichment_state: { landcover: { status: "ok", at: "", detail: null } } })} />);
     expect(screen.getByText(/offshore or outside coverage/)).toBeTruthy();
@@ -54,14 +56,6 @@ describe("spectral change", () => {
     expect(screen.getByText(/does not identify the cause, and no change does not rule out a fire/)).toBeTruthy();
   });
 
-  it("evidence chain reports land cover and unavailable spectral change honestly", () => {
-    const ev = event({ landcover: WC, imagery_analysis: { ...IA, status: "unavailable", reason: "No usable clear scene after the event.", deltas: null, finding: null } });
-    const chain = buildEvidenceChain(ev);
-    expect(chain.find((s) => s.key === "landcover")!.summary).toBe("cropland 93% · tree cover 4%");
-    expect(chain.find((s) => s.key === "satellite")!.detail).toContain("Spectral change unavailable");
-    const pending = buildEvidenceChain(event({ landcover: null, enrichment_state: {} })).find((s) => s.key === "landcover")!;
-    expect(pending.state).toBe("missing");
-  });
 });
 
 describe("share formatting", () => {

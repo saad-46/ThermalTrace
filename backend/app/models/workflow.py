@@ -35,13 +35,16 @@ class AnalystReview(Base):
         UUID(as_uuid=True), ForeignKey("thermal_events.id", ondelete="CASCADE"), nullable=False, index=True
     )
     user_id: Mapped[uuid.UUID | None] = _user_fk()
-    decision: Mapped[str] = mapped_column(String(20), nullable=False)
+    decision: Mapped[str] = mapped_column(String(24), nullable=False)
     source_class: Mapped[str | None] = mapped_column(String(32))  # analyst's label (confirm/reclassify)
     persistence_class: Mapped[str | None] = mapped_column(String(16))
     false_positive_reason: Mapped[str | None] = mapped_column(String(40))
     notes: Mapped[str | None] = mapped_column(Text)
     system_source_class: Mapped[str | None] = mapped_column(String(32))  # snapshot at review time
     system_confidence_score: Mapped[float | None] = mapped_column(Float)
+    # the event's review status before and after this decision (0012): history is never overwritten silently
+    previous_status: Mapped[str | None] = mapped_column(String(24))
+    new_status: Mapped[str | None] = mapped_column(String(24))
     classification_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("classifications.id", ondelete="SET NULL")
     )
@@ -112,6 +115,13 @@ class AlertRule(Base):
     min_repeat_events: Mapped[int | None] = mapped_column(Integer)
     repeat_days: Mapped[int] = mapped_column(Integer, nullable=False, default=30, server_default="30")
     activity_increase: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    # Advanced conditions (0012). `increase_factor` / `increase_window_days` parameterise `activity_increase`;
+    # `repeat_within_m` counts events within that distance of the event's nearest facility instead of sharing it.
+    increase_factor: Mapped[float] = mapped_column(Float, nullable=False, default=2.0, server_default="2")
+    increase_window_days: Mapped[int] = mapped_column(Integer, nullable=False, default=7, server_default="7")
+    repeat_within_m: Mapped[float | None] = mapped_column(Float)
+    min_active_days: Mapped[int | None] = mapped_column(Integer)  # persistence: days with detections
+    min_evidence_stages: Mapped[int | None] = mapped_column(Integer)  # evidence availability (not confidence)
 
 
 class Alert(Base):
@@ -136,6 +146,7 @@ class Alert(Base):
 
 class AlertDelivery(Base):
     __tablename__ = "alert_deliveries"
+    __table_args__ = (UniqueConstraint("alert_id", "channel", name="uq_alert_deliveries_alert_channel"),)  # 0013
     id: Mapped[uuid.UUID] = uuid_pk()
     alert_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("alerts.id", ondelete="CASCADE"), nullable=False, index=True

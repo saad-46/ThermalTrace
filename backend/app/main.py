@@ -9,7 +9,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy import text
 
-from app.api.v1 import auth, context, events, monitoring, operations, public, search
+from app.api.v1 import auth, context, events, intelligence, monitoring, operations, public, search
 from app.core.config import settings
 from app.core.errors import install_error_handlers
 from app.core.logging import configure_logging
@@ -82,6 +82,9 @@ def readiness():
 
 @health.get("/metrics", response_class=PlainTextResponse, summary="Prometheus-style operational gauges")
 def metrics():
+    now = time.monotonic()
+    if _METRICS["text"] is not None and now - _METRICS["at"] < 30:
+        return _METRICS["text"]
     with engine.connect() as conn:
         r = conn.execute(text("""
             SELECT (SELECT count(*) FROM thermal_detections) d, (SELECT count(*) FROM thermal_events) e,
@@ -98,12 +101,14 @@ def metrics():
         "# TYPE thermaltrace_firms_latest_detection_age_seconds gauge",
         f"thermaltrace_firms_latest_detection_age_seconds {r.lag or 0:.0f}",
     ]
-    return "\n".join(lines) + "\n"
+    _METRICS.update(text="\n".join(lines) + "\n", at=now)
+    return _METRICS["text"]
 
 
+_METRICS: dict = {"text": None, "at": 0.0}
 app.include_router(health)
 api = APIRouter(prefix="/api/v1")
 api.include_router(health)
-for module in (auth, events, context, monitoring, operations, public, search):
+for module in (auth, events, context, monitoring, operations, public, search, intelligence):
     api.include_router(module.router)
 app.include_router(api)

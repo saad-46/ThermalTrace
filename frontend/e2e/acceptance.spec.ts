@@ -189,7 +189,7 @@ test.describe("mobile investigation", () => {
     await page.getByRole("list", { name: /Evidence cards/ }).evaluate((el) => el.scrollBy({ left: 700 }));
     await page.waitForTimeout(400);
     await shot(page, "m04-evidence");
-    await page.getByRole("button", { name: "Review" }).click();
+    await page.getByRole("button", { name: "Review", exact: true }).click();
     await expect(page.getByRole("button", { name: "Record decision" })).toBeVisible();
     await page.getByRole("link", { name: "Alerts" }).click();
     await shot(page, "m05-alerts");

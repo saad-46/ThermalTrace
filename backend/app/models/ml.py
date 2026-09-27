@@ -28,6 +28,7 @@ CONFIDENCE_STATES = (
     "UNDER_REVIEW",
     "ANALYST_CONFIRMED",
     "ANALYST_REJECTED",
+    "ANALYST_REVIEWED",
 )
 
 
@@ -72,6 +73,8 @@ class Classification(Base):
     __table_args__ = (
         Index("ix_classifications_event_current", "event_id", "is_current"),
         Index("ix_classifications_current_model", "primary_model_id", postgresql_where=text("is_current")),
+        # one current classification per event (0013)
+        Index("uq_classifications_event_current", "event_id", unique=True, postgresql_where=text("is_current")),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()

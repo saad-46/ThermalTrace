@@ -114,3 +114,18 @@ See DATA_SOURCES.md. Facilities are synced by 1° tile. An event counts as cover
   - B-tree on acquisition time, dataset, sensor, confidence, classification, persistence and status.
   - A partial index on unassigned detections.
 - **Query plan**: `EXPLAIN ANALYZE` of the viewport query (`e.geom && ST_MakeEnvelope(...)::geography`) with the 1,351 events uses the GiST index. See `docs/TESTING.md` for the recorded plan.
+
+## 10. Clusters, recurring activity and map layers (advanced phase)
+
+- **Activity cluster**: events whose geography lies within `radius_km` (2 to 25) of an event and that were active within
+  `days` of its span (`ST_DWithin` on the GiST index). Summary: count, detections, duration, farthest distance, peak and
+  mean FRP, convex-hull extent, classification / persistence / land-cover distributions and facilities within 3 km.
+  A cluster groups activity for review; it does not mean the events share a source.
+- **Recurring activity**: counts of events within 2 km (location) or linked within 2 km (facility) this week, the
+  previous week, the last and previous 30 days and the weekly average over the loaded history. Places without a facility
+  are grouped in ~5.5 km cells. Observed activity, never a risk measure.
+- **Map layers**: thermal events and activity density; selected-event pixels, rings and dispersion; facilities (squares),
+  OSM industrial areas and quarries; state and district boundaries, roads, rivers and OSM land cover (OpenMapTiles
+  classes); the EOX satellite basemap. The legend lists only active layers. The selected facility gets an outline,
+  facilities linked to the selected event a blue ring. The ESA WorldCover WMS was not reachable from the development
+  network, so the map's land-cover layer uses OSM data; per-event land cover remains ESA WorldCover.

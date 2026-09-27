@@ -40,6 +40,12 @@ The rules are applied in this order:
 - **Minimums**: 40 rows, and at least 2 classes with 5 or more rows each. Otherwise training refuses.
 - **Validation**: a **spatial block split** holds out 20 % of 1° cells, so neighbouring pixels never appear on both sides.
 - **Stored with the model version**: macro-F1 on the hold-out, the class counts, the label origins, and this caveat: *"Hold-out labels are mostly weak (rule-derived); this F1 measures agreement with the rule cascade, not accuracy against ground truth."*
+- **Independent estimate**: macro-F1 on the **analyst-adjudicated** labels of the held-out blocks only
+  (`macro_f1_holdout_analyst`, with `n_test_analyst`). It is the only figure that does not measure agreement with the
+  rules; below 10 such labels it is reported as unavailable, with the reason. *System health* shows both.
+- **Activation is never automatic**: `train_and_register` has no activation option and the `train_model` job always
+  stores the model inactive. Activation (`POST /models/{id}/activate`, admin) records the previously active model;
+  both activation and deactivation queue a full re-analysis under their own queue key.
 - **Status**: the pipeline is tested end to end (`tests/test_ml.py`: train → save → load → predict → SHAP). On the live database it will train once enrichment has produced enough confidently labelled events, or once analysts have adjudicated events.
 
 ### Feature pipeline (`processing/features.py`)
@@ -74,7 +80,8 @@ Confidence is a weighted sum. Every component is stored and displayed with its e
 - `INSUFFICIENT_EVIDENCE` when any of these holds: the label is unknown, data quality is poor, or the score is < 0.40.
 - Otherwise `LOW` below 0.55, `MODERATE` below 0.72, and `HIGH` from 0.72.
 - **`CONFIRMED`** requires all of: HIGH, 2 or more sensors, consistent persistence, strong context, **and** a passed imagery (SWIR) check. The system therefore never claims confirmation from FIRMS alone.
-- Analyst decisions override the displayed state (`ANALYST_CONFIRMED`, `ANALYST_REJECTED`, `UNDER_REVIEW`). The system state is kept.
+- Analyst decisions override the displayed state (`ANALYST_CONFIRMED`, `ANALYST_REJECTED`, `ANALYST_REVIEWED` for a review
+  closed without confirming or rejecting, `UNDER_REVIEW`). The system state is kept.
 
 **Data quality** is graded excellent, good, limited or poor from seven weighted factors: sensor availability, location precision (pixel footprint), facility coverage, satellite cloud, weather availability, historical depth and source freshness. Each factor stores its reason.
 

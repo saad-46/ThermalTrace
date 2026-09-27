@@ -16,7 +16,7 @@ STATE:
   CONFIRMED only if HIGH and corroborated by ≥2 platforms, a persistent/recurring pattern consistent
   with the label, strong context support, AND an independent imagery check (SWIR) passed. Without
   imagery analysis the system never claims CONFIRMED.
-  Analyst decisions override the displayed state (ANALYST_CONFIRMED / ANALYST_REJECTED / UNDER_REVIEW).
+  Analyst decisions override the displayed state (ANALYST_CONFIRMED / ANALYST_REJECTED / ANALYST_REVIEWED / UNDER_REVIEW).
 """
 from dataclasses import dataclass
 
@@ -48,7 +48,11 @@ REVIEW_OVERRIDES = {
     "false_positive": "ANALYST_REJECTED",
     "under_review": "UNDER_REVIEW",
     "escalated": "UNDER_REVIEW",
+    # an analyst reviewed the evidence and closed the review without confirming or rejecting the interpretation
+    "reviewed": "ANALYST_REVIEWED",
 }
+# every review status an event can have (thermal_events.review_status); the list filter accepts only these
+REVIEW_STATUSES = ("unreviewed", "under_review", "escalated", "reviewed", "analyst_confirmed", "analyst_rejected", "false_positive")
 
 
 @dataclass

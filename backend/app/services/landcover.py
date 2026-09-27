@@ -7,7 +7,7 @@ from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from app.integrations import raster
-from app.integrations.http import ProviderError
+from app.integrations.http import ProviderError, ProviderNotFound
 from app.models.enrichment import LandCoverObservation
 from app.models.thermal import ThermalEvent
 from app.services import source_health
@@ -22,16 +22,22 @@ def enrich_landcover(db: Session, ev: ThermalEvent, mark) -> None:
     started = time.monotonic()
     try:
         res = raster.sample_worldcover(ev.latitude, ev.longitude, WINDOW_HALF_M)
+    except ProviderNotFound:
+        # no WorldCover tile covers this point (open sea): the provider has no data here, it did not fail
+        mark(ev, "landcover", "no_data", "no WorldCover tile at this location (offshore or outside coverage)")
+        return
     except ProviderError as exc:
-        source_health.record_failure(db, SOURCE_ID, str(exc))
-        mark(ev, "landcover", "failed", f"{exc.kind}: {exc}")
+        source_health.record_failure(db, SOURCE_ID, exc)
+        category = source_health.error_category(exc)
+        logger.warning("landcover for %s failed: %s", ev.public_id, exc)
+        mark(ev, "landcover", "failed", category.replace("_", " "), category=category)
         return
     latency_ms = (time.monotonic() - started) * 1000
     db.execute(delete(LandCoverObservation).where(LandCoverObservation.event_id == ev.id))
     if res["valid_fraction"] < 0.5:
         # Offshore or outside coverage: say so, and do not store a class from a sliver of pixels.
         source_health.record_success(db, SOURCE_ID, latency_ms, 0)
-        mark(ev, "landcover", "ok", "no land-cover data at this location (offshore or outside coverage)")
+        mark(ev, "landcover", "no_data", "no land-cover data at this location (offshore or outside coverage)")
         return
     db.add(LandCoverObservation(
         event_id=ev.id, source_id=SOURCE_ID, product=res["product"], window_m=res["window_m"], fractions=res["fractions"],

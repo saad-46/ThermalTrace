@@ -65,9 +65,9 @@ _TRAINING_ROWS = text(
 )
 
 
-def train_and_register(db: Session, activate: bool = False) -> ModelVersion:
-    """Train and store a model version. It stays INACTIVE unless `activate` is passed: activation is a
-    separate, audited admin decision taken after reviewing the model card."""
+def train_and_register(db: Session) -> ModelVersion:
+    """Train and store a model version. It is always stored INACTIVE: activation is a separate, audited admin
+    decision (POST /models/{id}/activate) taken after reviewing the model card."""
     rows = []
     for r in db.execute(_TRAINING_ROWS, {"rule": RULE_ID}).mappings():
         feats = {k: (float("nan") if v is None else v) for k, v in (r["features_used"] or {}).items()}
@@ -89,9 +89,6 @@ def train_and_register(db: Session, activate: bool = False) -> ModelVersion:
         artifact_path=info["path"],
     )
     db.add(mv)
-    if activate:
-        db.execute(update(ModelVersion).where(ModelVersion.kind == "lightgbm").values(is_active=False))
-        mv.is_active = True
     db.flush()
     logger.info("trained %s on %d rows: %s", mv.id, len(rows), metrics.get("macro_f1_holdout"))
     return mv

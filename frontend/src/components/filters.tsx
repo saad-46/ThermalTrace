@@ -1,13 +1,14 @@
 import { SlidersHorizontal, X } from "lucide-react";
 import { useState } from "react";
 import { sinceFromDays, type EventFilters } from "../lib/hooks";
-import { CLASS_META, CLASS_ORDER, FACILITY_LABELS, PERSISTENCE_META, STATE_META } from "../lib/taxonomy";
+import { CLASS_META, CLASS_ORDER, FACILITY_LABELS, PERSISTENCE_META, REVIEW_META, REVIEW_ORDER, STATE_META } from "../lib/taxonomy";
 
 export interface FilterState {
   days: number | null;
   classification: string[];
   persistence: string[];
   confidence_state: string[];
+  review_status: string[];
   sensor: string[];
   facility_type: string[];
   min_frp: number | null;
@@ -15,7 +16,7 @@ export interface FilterState {
   q: string;
 }
 export const DEFAULT_FILTERS: FilterState = {
-  days: 7, classification: [], persistence: [], confidence_state: [], sensor: [], facility_type: [], min_frp: null, min_observations: null, q: "",
+  days: 7, classification: [], persistence: [], confidence_state: [], review_status: [], sensor: [], facility_type: [], min_frp: null, min_observations: null, q: "",
 };
 const SENSORS = ["Terra", "Aqua", "S-NPP", "NOAA-20", "NOAA-21"];
 const FAC_TYPES = ["refinery", "oil_gas", "power_plant_coal", "steel_plant", "cement_plant", "coal_mine", "mine", "factory", "industrial_area"];
@@ -26,6 +27,7 @@ export function toQuery(f: FilterState): EventFilters {
     classification: f.classification.length ? f.classification : undefined,
     persistence: f.persistence.length ? f.persistence : undefined,
     confidence_state: f.confidence_state.length ? f.confidence_state : undefined,
+    review_status: f.review_status.length ? f.review_status : undefined,
     sensor: f.sensor.length ? f.sensor : undefined,
     facility_type: f.facility_type.length ? f.facility_type : undefined,
     min_frp: f.min_frp ?? undefined,
@@ -35,7 +37,7 @@ export function toQuery(f: FilterState): EventFilters {
 }
 
 export function activeCount(f: FilterState): number {
-  return [f.classification, f.persistence, f.confidence_state, f.sensor, f.facility_type].filter((x) => x.length).length
+  return [f.classification, f.persistence, f.confidence_state, f.review_status, f.sensor, f.facility_type].filter((x) => x.length).length
     + (f.min_frp ? 1 : 0) + (f.min_observations ? 1 : 0) + (f.q ? 1 : 0);
 }
 
@@ -72,6 +74,11 @@ export function FilterPanel({ f, set, onClose }: { f: FilterState; set: (f: Filt
       <div className="field"><label>Confidence (system)</label><div className="chips">
         {(["HIGH_CONFIDENCE", "MODERATE_CONFIDENCE", "LOW_CONFIDENCE", "INSUFFICIENT_EVIDENCE"] as const).map((k) => (
           <button key={k} className={`chip ${f.confidence_state.includes(k) ? "on" : ""}`} aria-pressed={f.confidence_state.includes(k)} onClick={() => set({ ...f, confidence_state: toggle(f.confidence_state, k) })}>{STATE_META[k].label}</button>
+        ))}</div></div>
+      <div className="field"><label>Review status</label><div className="chips">
+        {REVIEW_ORDER.map((k) => (
+          <button key={k} className={`chip ${f.review_status.includes(k) ? "on" : ""}`} aria-pressed={f.review_status.includes(k)} title={REVIEW_META[k].hint}
+            onClick={() => set({ ...f, review_status: toggle(f.review_status, k) })}>{REVIEW_META[k].label}</button>
         ))}</div></div>
       <div className="field"><label>Sensor platform</label><div className="chips">
         {SENSORS.map((s) => <button key={s} className={`chip ${f.sensor.includes(s) ? "on" : ""}`} aria-pressed={f.sensor.includes(s)} onClick={() => set({ ...f, sensor: toggle(f.sensor, s) })}>{s}</button>)}

@@ -17,14 +17,16 @@ RETRYABLE_STATUS = {408, 425, 429, 500, 502, 503, 504}
 
 
 class ProviderError(Exception):
-    """Base class. `kind` is one of: timeout, rate_limited, auth, not_found, server, network, malformed, empty."""
+    """Base class. `kind` is one of: timeout, rate_limited, auth, not_found, server, network, malformed, provider_error.
+    "No data" is never an error: providers return an empty result (or a dedicated no-data exception) for it."""
 
     kind = "provider_error"
 
-    def __init__(self, provider: str, message: str, *, status: int | None = None):
+    def __init__(self, provider: str, message: str, *, status: int | None = None, retry_after_s: float | None = None):
         super().__init__(f"{provider}: {message}")
         self.provider = provider
         self.status = status
+        self.retry_after_s = retry_after_s  # what the provider asked for (429 / 503 Retry-After), when it said
 
 
 class ProviderTimeout(ProviderError):
@@ -60,6 +62,31 @@ class HttpResult:
     response: httpx.Response
     latency_ms: float
     attempts: int
+    provider: str = "provider"
+
+    def json(self):
+        """The body as JSON; a body that is not JSON is a malformed provider reply, never an empty result."""
+        try:
+            return self.response.json()
+        except ValueError:
+            raise ProviderMalformed(self.provider, f"reply is not JSON (HTTP {self.response.status_code})",
+                                    status=self.response.status_code) from None
+
+
+def _retry_after(value: str | None) -> float | None:
+    """Retry-After as seconds: either delta-seconds or an HTTP date (RFC 9110 §10.2.3)."""
+    if not value:
+        return None
+    value = value.strip()
+    if value.isdigit():
+        return float(value)
+    try:
+        from datetime import UTC, datetime
+        from email.utils import parsedate_to_datetime
+
+        return max(0.0, (parsedate_to_datetime(value) - datetime.now(UTC)).total_seconds())
+    except (TypeError, ValueError):
+        return None
 
 
 class _MinInterval:
@@ -119,20 +146,23 @@ def request(
         else:
             latency = (time.perf_counter() - started) * 1000
             if resp.status_code < 400:
-                return HttpResult(resp, latency, attempt)
+                return HttpResult(resp, latency, attempt, provider)
             if resp.status_code in (401, 403):
                 raise ProviderAuthError(provider, f"authentication rejected (HTTP {resp.status_code})", status=resp.status_code)
             if resp.status_code == 404:
                 raise ProviderNotFound(provider, f"not found (HTTP 404) {safe_url}", status=404)
+            wait = _retry_after(resp.headers.get("retry-after"))
             if resp.status_code == 429:
-                last_exc = ProviderRateLimited(provider, "rate limited (HTTP 429)", status=429)
-                retry_after = resp.headers.get("retry-after")
-                if retry_after and retry_after.isdigit() and attempt < max_attempts:
-                    time.sleep(min(int(retry_after), 60))
-                    continue
+                last_exc = ProviderRateLimited(provider, "rate limited (HTTP 429)", status=429, retry_after_s=wait)
             elif resp.status_code in RETRYABLE_STATUS:
-                last_exc = ProviderServerError(provider, f"server error (HTTP {resp.status_code})", status=resp.status_code)
-            else:
+                last_exc = ProviderServerError(provider, f"server error (HTTP {resp.status_code})", status=resp.status_code,
+                                               retry_after_s=wait)
+            if wait is not None and resp.status_code in (429, 503):
+                if wait > 60 or attempt >= max_attempts:
+                    raise last_exc  # the provider asked for longer than a request can wait: record it, retry later
+                time.sleep(wait)
+                continue
+            if resp.status_code not in RETRYABLE_STATUS:
                 raise ProviderError(provider, f"unexpected HTTP {resp.status_code}", status=resp.status_code)
         if attempt < max_attempts:
             sleep_s = backoff_base_s * (2 ** (attempt - 1)) + random.uniform(0, 0.5)

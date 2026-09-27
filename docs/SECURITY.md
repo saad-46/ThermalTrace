@@ -45,8 +45,30 @@ geometry, cached); it exposes no application data.
 ## Guided exploration (demo sessions)
 
 `EXPLORE_MODE_ENABLED` adds credential-free, read-only demo sessions. Every non-GET request from them is refused
-server-side, quota-consuming reads are refused, personal data is masked, sessions are short-lived and audited, and demo
-accounts have no usable password. Details: `GUIDED_TOURS.md`. Keep it off unless a public demo is intended.
+server-side (a test enumerates every write route from the OpenAPI schema), sessions are short-lived and audited, and demo
+accounts have no usable password. Also refused to demo sessions: Copernicus SWIR renders, live weather lookups, report
+PDF downloads and the training-dataset export (records that cannot be anonymised). Personal data is masked in every
+response they receive: e-mail addresses, IP addresses and people's names (reviewers, note authors, the user directory,
+administrator views); job tracebacks are hidden. Details: `GUIDED_TOURS.md`. Keep it off unless a public demo is intended.
+
+## Hardening (2026-09-28)
+
+- **JWT secret:** besides the production guard, the public development secret is refused whenever `CORS_ORIGINS` lists a
+  non-local origin, whatever `ENVIRONMENT` says, so a deployment that forgets `ENVIRONMENT=production` cannot run with
+  forgeable tokens.
+- **Passwords:** new passwords are limited to 72 bytes (bcrypt's input); longer ones are refused instead of truncated.
+- **Ownership:** alert rules can only reference their owner's watchlist (create and update); an event's alerts are shown
+  only to the user whose rule raised them; alerts, alert rules, watchlists and saved locations are owner-scoped (404
+  otherwise). Reports are team records with the same visibility as the event they describe.
+- **Push subscriptions:** a browser push endpoint is a device capability URL; it moves to the account that subscribes on
+  that browser. The move is audited.
+- **Jobs:** tracebacks are shown to administrators only; others see the error's last line.
+- **Copernicus SWIR renders** (limited quota) need the analyst role.
+- **`/metrics`** (unauthenticated, for Prometheus) is computed at most every 30 s.
+- **Audit trail additions:** alert acknowledge / resolve (previous and new status), saved locations, push
+  subscriptions, event re-analysis (previous and new classification), report downloads, assignment (previous assignee),
+  user updates (previous values), alert-rule deletion (snapshot of the rule), model activation (previously active model)
+  and job triggers (payload). Audit details never contain passwords or tokens.
 
 ## Known gaps
 
@@ -59,7 +81,8 @@ accounts have no usable password. Details: `GUIDED_TOURS.md`. Keep it off unless
 
 - Tokens are stored in `localStorage`. This is standard for a bearer-token SPA plus PWA, but it is exposed to XSS. The mitigations are React's escaping, no `dangerouslySetInnerHTML` of user input (map popups escape names), and a strict CSP recommended at the edge.
 - There is no MFA or SSO yet (roadmap).
-- There is no automatic account lockout beyond rate limiting.
+- There is no automatic account lockout beyond rate limiting. The login rate limiter is held in each API process's
+  memory: with several API replicas, or behind a proxy without `FORWARDED_ALLOW_IPS`, apply rate limiting at the edge.
 
 ## Audit (2026-09-25)
 

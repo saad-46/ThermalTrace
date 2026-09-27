@@ -3,14 +3,23 @@ import { Component, createContext, useCallback, useContext, useState, type Error
 import { ApiError } from "../lib/api";
 import { relTime } from "../lib/format";
 import { useStatus } from "../lib/hooks";
-import { CLASS_META, PERSISTENCE_META, STATE_META, confidenceNote } from "../lib/taxonomy";
-import type { DataMode, DisplayState, PersistenceClass, SourceClass } from "../lib/types";
+import { CLASS_META, PERSISTENCE_META, REVIEW_META, STATE_META, confidenceNote } from "../lib/taxonomy";
+import type { DataMode, DisplayState, PersistenceClass, ReviewStatus, SourceClass } from "../lib/types";
 
 export function StatePill({ state, title }: { state: DisplayState | null | undefined; title?: string }) {
   const meta = STATE_META[state ?? "INSUFFICIENT_EVIDENCE"];
   return (
     <span className={`pill ${meta.tone}`} title={title ?? `${meta.hint}. ${confidenceNote(state)}`}>
       {meta.label}
+    </span>
+  );
+}
+
+export function ReviewPill({ status }: { status: ReviewStatus | null | undefined }) {
+  const meta = REVIEW_META[status ?? "unreviewed"] ?? REVIEW_META.unreviewed;
+  return (
+    <span className={`pill ${meta.tone}`} title={meta.hint}>
+      <span aria-hidden>{meta.symbol}</span> {meta.label}
     </span>
   );
 }
@@ -71,14 +80,23 @@ export function Empty({ title, children, icon }: { title: string; children?: Rea
 
 export function ErrorState({ error, retry }: { error: unknown; retry?: () => void }) {
   const e = error instanceof ApiError ? error : null;
-  const title = e?.isUnavailable ? "Data source unavailable" : e?.status === 403 ? "Not permitted" : "Could not load data";
+  // each kind of failure says what it is; retrying only helps when the failure is transient
+  const [title, retryable] = !e ? ["Could not load data", true]
+    : e.status === 401 ? ["Signed out", false]
+    : e.status === 403 ? ["Not permitted", false]
+    : e.status === 404 ? ["Not found", false]
+    : e.status === 400 || e.status === 409 || e.status === 422 ? ["Request not accepted", false]
+    : e.status === 429 ? ["Too many requests", true]
+    : e.isUnavailable ? ["Data source unavailable", true]
+    : ["Could not load data", true];
   return (
-    <div className="error-box" role="alert">
+    <div className="error-box" role="alert" data-error-status={e?.status}>
       <AlertTriangle size={20} strokeWidth={1.5} />
       <div className="title">{title}</div>
       <div>{e?.message ?? String(error)}</div>
+      {e?.status === 401 && <div className="faint">Sign in again to continue.</div>}
       {e?.requestId && <div className="faint mono">request {e.requestId}</div>}
-      {retry && (
+      {retry && retryable && (
         <button className="btn sm" onClick={retry}>
           <RefreshCw size={13} /> Retry
         </button>

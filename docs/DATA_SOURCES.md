@@ -105,9 +105,10 @@ Both are single keyless requests (~1 s), so they no longer wait behind the Overp
 - **Recorded outcome** (`thermal_events.enrichment_state[step]`), each shown differently in the UI:
   - `ok`: the provider answered. For imagery this may be zero scenes: *No suitable Sentinel-2 scene was available for
     this event*, with the searched window and cloud limit.
-  - `no_data` (weather): Open-Meteo answered without values for that hour and place. Not counted as a provider failure.
-  - `failed`: the provider could not be reached or refused (category: timeout, rate limited, service unavailable...).
-    Recorded on the source's health; the details are in the server logs.
+  - `no_data`: the provider answered without data (weather for that hour and place, no WorldCover tile or too few valid
+    pixels, no address for the point). Not counted as a provider failure, and nothing is substituted.
+  - `failed`: the provider could not be reached or refused, with a `category` (see *Provider outcomes* below) and an
+    `attempts` count. Recorded on the source's health; the raw message is in the server logs only.
   - a failed **job** (a crash, not a provider answer) is shown as *did not complete*, with the error type only.
 - **Sentinel-2 search windows:** the newest scenes in the 45 days before the first detection, and the oldest from the first
   detection until 60 days after the last, cloud ≤ 60 %, footprint containing the event point. (A single newest-first
@@ -203,3 +204,45 @@ Health is tracked per source (`data_sources`) and shown on *Data sources*.
 
 - **VIIRS Nightfire.** Its licence must be reviewed before flare evidence can be used.
 - **Supabase keys.** Not needed. `DATABASE_URL` can point at a Supabase Postgres.
+
+## Live status and provider detail (advanced phase)
+
+`GET /status/live` maps each provider's recorded state to one of: **Healthy** (a recent real request succeeded),
+**Configured** (credentials present, not recently verified), **Optional** (only extra features need it: Copernicus
+SWIR renders, the FIRMS map key for historical queries), **No data** (a file registry not imported), **Degraded**,
+**Failed** and **Not configured**. A provider that needs no key is never shown as inactive for lacking one.
+`GET /sources/{id}/detail` adds purpose, authentication requirement ("No API key required." for keyless providers), last
+success and failure, the last error as a category (raw messages stay in the logs), records and requests, and the
+rate-limit state recorded at the last failure. Evidence freshness on each event stage uses the stored retrieval times.
+
+## Provider outcomes (every provider, one vocabulary)
+
+Every external request goes through `app/integrations/http.py`, and every failure is reduced to one category
+(`source_health.ERROR_CATEGORIES`), stored on the enrichment step (`category`), on the source's health (`last_error` is
+prefixed `[category]`) and shown with the same wording in the UI (`ERROR_TEXT` in `components/enrichment.tsx`):
+
+| Outcome | How it is recognised | Stored as | Retried |
+|---|---|---|---|
+| Success | 2xx with a usable body | step `ok` | – |
+| No data | the provider answered, nothing there (0 scenes, no weather hour, no WorldCover tile / < 50 % valid pixels, no address) | step `no_data` (imagery: `unavailable` with the reason) | no |
+| Timeout | request timeout | `failed` / `timeout` | yes |
+| Rate limited | HTTP 429 (`Retry-After` seconds or HTTP date honoured up to 60 s; longer waits are recorded and retried later) | `failed` / `rate_limited` | yes |
+| Temporary failure | 5xx, network errors (503 `Retry-After` honoured as above) | `failed` / `service_unavailable` | yes |
+| Authentication error | HTTP 401 / 403, a token reply without a token | `failed` / `authentication_failed` | no (needs a person) |
+| Permanent failure | other 4xx | `failed` / `invalid_request` | no |
+| Malformed reply | a body that is not JSON, a STAC item without its fields, an unreadable raster | `failed` / `processing_failure` | no |
+| Not configured | credentials absent (FIRMS key, Copernicus, SMTP, VAPID) | source `not_configured`; the call is not made | – |
+
+- A failure is never recorded as "no data", and "no data" is never recorded as a failure. No value is ever substituted.
+- **Automatic retries:** the backfills re-select steps that failed with `timeout`, `rate_limited` or
+  `service_unavailable` after an exponential backoff of 2^attempts hours, at most 5 attempts (`enrichment._retry_due`).
+- **NDVI / NBR:** `imagery_analyses.status` is `ok`, `unavailable` (no suitable data, with the reason) or `failed` (the
+  bands could not be read, with the category). The evidence stage shows `failed`, never `no data`, for the latter.
+- **What users see:** the category, never the raw provider message (which can contain URLs). Administrators also see the
+  raw message on *Data sources*.
+- **Basemap (CARTO):** a failed style or tile load shows *Basemap unavailable* over the map; events and facilities,
+  which come from the ThermalTrace API, keep working. `VITE_CARTO_API_KEY` is compiled into the web bundle and sent with
+  each tile request: it is public by nature, so restrict it to the application's web origins in the CARTO dashboard.
+- **WRI GPPD:** the default source is the archived repository's final release (v1.3.0, 2021-06-02); a file supplied by
+  an operator is labelled *operator-supplied* instead of being given that version. Plant status is *operating (as of
+  dataset)*, the dataset's own scope.

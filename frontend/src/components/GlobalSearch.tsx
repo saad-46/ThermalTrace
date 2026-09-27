@@ -9,7 +9,8 @@ import { FACILITY_LABELS } from "../lib/taxonomy";
 import type { SearchResults } from "../lib/types";
 import { ClassLabel, StatePill } from "./ui";
 
-type Item = { key: string; label: React.ReactNode; to: string };
+type Group = "Go to" | "Events" | "Facilities" | "Locations" | "Classifications";
+type Item = { key: string; label: React.ReactNode; to: string; group: Group };
 
 /** Header search: event ids, places, facilities, classifications, coordinates (server-side). */
 export default function GlobalSearch({ compact }: { compact?: boolean }) {
@@ -48,18 +49,21 @@ export default function GlobalSearch({ compact }: { compact?: boolean }) {
   const d = res.data;
   const items: Item[] = [];
   if (d?.coordinates) {
-    items.push({ key: "coord", to: `/map?lat=${d.coordinates.latitude}&lon=${d.coordinates.longitude}&z=11`,
+    items.push({ key: "coord", group: "Go to", to: `/map?lat=${d.coordinates.latitude}&lon=${d.coordinates.longitude}&z=11`,
       label: <><Crosshair size={13} /> Go to {d.coordinates.latitude.toFixed(4)}, {d.coordinates.longitude.toFixed(4)}</> });
   }
-  d?.events.forEach((e) => items.push({ key: `e${e.id}`, to: `/events/${e.public_id}`, label: (
+  d?.events.forEach((e) => items.push({ key: `e${e.id}`, group: "Events", to: `/events/${e.public_id}`, label: (
     <><span className="mono">{e.public_id}</span> <ClassLabel cls={e.classification} short />
       <span className="faint">{locationLabel(e)}{e.distance_m != null ? ` · ${fmtDistance(e.distance_m)}` : ""}</span>
       {e.confidence_state && <span style={{ marginLeft: "auto" }}><StatePill state={e.confidence_state} /></span>}</>) }));
-  d?.places.forEach((p) => items.push({ key: `p${p.admin_district}${p.admin_state}`, to: `/map?lat=${p.latitude}&lon=${p.longitude}&z=9`,
+  d?.facilities.forEach((f) => items.push({ key: `f${f.id}`, group: "Facilities", to: `/facilities/${f.id}`,
+    label: <><Building2 size={13} /> {f.name ?? "Unnamed"} <span className="faint">{FACILITY_LABELS[f.facility_type] ?? f.facility_type}{f.operator ? ` · ${f.operator}` : ""}
+      {f.match && f.match !== "name" ? ` · ${f.match}${f.matched_value ? `: ${f.matched_value}` : ""}` : ""}</span></> }));
+  d?.states?.forEach((st) => items.push({ key: `s${st.state}`, group: "Locations", to: `/overview?state=${encodeURIComponent(st.state)}`,
+    label: <><MapPin size={13} /> {st.state} <span className="faint">state · {st.events.toLocaleString()} event(s)</span></> }));
+  d?.places.forEach((p) => items.push({ key: `p${p.admin_district}${p.admin_state}`, group: "Locations", to: `/map?lat=${p.latitude}&lon=${p.longitude}&z=9`,
     label: <><MapPin size={13} /> {[p.admin_district, p.admin_state].filter(Boolean).join(", ")} <span className="faint">{p.events} event(s)</span></> }));
-  d?.facilities.forEach((f) => items.push({ key: `f${f.id}`, to: `/facilities/${f.id}`,
-    label: <><Building2 size={13} /> {f.name ?? "Unnamed"} <span className="faint">{FACILITY_LABELS[f.facility_type] ?? f.facility_type}{f.operator ? ` · ${f.operator}` : ""}</span></> }));
-  d?.classifications.forEach((c) => items.push({ key: `c${c.key}`, to: `/events?classification=${c.key}`,
+  d?.classifications.forEach((c) => items.push({ key: `c${c.key}`, group: "Classifications", to: `/events?classification=${c.key}`,
     label: <>Events classified as <ClassLabel cls={c.key} /></> }));
 
   const go = (it: Item) => {
@@ -90,10 +94,11 @@ export default function GlobalSearch({ compact }: { compact?: boolean }) {
           {res.isLoading ? <div className="faint" style={{ padding: 10 }}>Searching…</div>
             : res.error ? <div style={{ padding: 10, color: "var(--bad)" }}>Search unavailable</div>
             : items.length === 0 ? <div className="faint" style={{ padding: 10 }}>No matches for “{debounced}”.</div>
-            : items.map((it, i) => (
+            : items.map((it, i) => [
+              i === 0 || items[i - 1].group !== it.group ? <div key={`h${it.group}`} className="gsearch-group" role="presentation">{it.group}</div> : null,
               <button key={it.key} role="option" aria-selected={i === active} className={`gsearch-item ${i === active ? "on" : ""}`}
-                onMouseDown={(e) => e.preventDefault()} onMouseEnter={() => setActive(i)} onClick={() => go(it)}>{it.label}</button>
-            ))}
+                onMouseDown={(e) => e.preventDefault()} onMouseEnter={() => setActive(i)} onClick={() => go(it)}>{it.label}</button>,
+            ])}
         </div>
       )}
     </div>

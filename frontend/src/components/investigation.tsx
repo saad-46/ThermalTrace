@@ -2,10 +2,10 @@ import { Bell, Eye, FileText, RefreshCw } from "lucide-react";
 import { Fragment, useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { fetchImage } from "../lib/api";
-import { compass, coordsLabel, fmtDateTime, fmtNum, locationLabel, relTime, titleCase } from "../lib/format";
-import { actions, useAction, useReports, useSimilar, useWatchlists } from "../lib/hooks";
+import { compass, coordsLabel, fmtDateTime, fmtDistance, fmtNum, locationLabel, relTime, titleCase } from "../lib/format";
+import { actions, useAction, useDirectory, useReports, useSimilar, useWatchlists } from "../lib/hooks";
 import { useSession } from "../lib/session";
-import { CLASS_META, CLASS_ORDER, CONFIDENCE_EXPLAINER, FP_REASONS, confidenceNote } from "../lib/taxonomy";
+import { CLASS_META, CLASS_ORDER, CONFIDENCE_EXPLAINER, FP_REASONS, confidenceNote, reviewLabel } from "../lib/taxonomy";
 import type { EventDetail, Scene } from "../lib/types";
 import {
   AnswerGrid, ConfidenceBreakdown, EventRowMini, EvidenceList, EvidenceMatrix, ExtLink, FacilityList, Fingerprint, ModelPanel,
@@ -14,7 +14,7 @@ import {
 import { ActionButton, errorText, EvidenceState, pendingLabel, stepPhase, useRequestBlocker, useRequestSteps } from "./enrichment";
 import { LandCoverPanel, SpectralChangePanel } from "./landcover";
 import { EvidenceChain, PriorityPanel, PriorityPill } from "./triage";
-import { ClassLabel, errText, ModePill, StatePill, useToast } from "./ui";
+import { ClassLabel, errText, ModePill, ReviewPill, StatePill, useToast } from "./ui";
 import { downloadFile } from "../lib/api";
 
 // ------------------------------------------------------------------ satellite
@@ -62,7 +62,7 @@ export function SatellitePanel({ ev }: { ev: EventDetail }) {
           The background job stopped with an error{job?.error_type ? ` (${job.error_type})` : ""}. Nothing was stored.
         </EvidenceState>
       );
-    if (phase === "ok")
+    if (phase === "ok" || phase === "no_data")
       return (
         <EvidenceState title="No suitable Sentinel-2 scene was available for this event" testId="satellite-state" action={search("Search again")} meaning={meaning}>
           The catalogue answered with no L2A scene covering the event with cloud ≤ {state?.max_cloud ?? 60}%{window ? ` between ${window}` : ""}. Searched {relTime(state?.at)}.
@@ -121,7 +121,9 @@ export function SatellitePanel({ ev }: { ev: EventDetail }) {
       </div>
       {swir.error && <div className="faint" style={{ fontSize: 12 }}>SWIR render unavailable: {swir.error}</div>}
       <div className="faint" style={{ fontSize: 11.5 }} data-testid="satellite-search-info">
-        {state ? <>Searched {relTime(state.at)}: {state.scenes ?? scenes.length} scene(s) with cloud ≤ {state.max_cloud ?? 60}%{window ? `, ${window}` : ""}. </> : null}
+        {phase === "failed" && state
+          ? <b>The latest search ({relTime(state.at)}) failed: {errorText(state.category)}. The scenes below come from an earlier search. </b>
+          : state ? <>Searched {relTime(state.at)}: {state.scenes ?? scenes.length} scene(s) with cloud ≤ {state.max_cloud ?? 60}%{window ? `, ${window}` : ""}. </> : null}
         {state && ev.last_detected > (state.window_end ?? state.at) ? <b>The event has new detections since this search; search again for newer scenes. </b> : null}
         Scenes: Copernicus Sentinel-2 L2A via Element84 Earth Search.
       </div>
@@ -216,12 +218,24 @@ export function ReviewPanel({ ev, onChanged }: { ev: EventDetail; onChanged?: ()
   const [notes, setNotes] = useState("");
   const [note, setNote] = useState("");
   const [url, setUrl] = useState("");
-  const inv = [["event", ev.public_id], ["events"], ["alerts"]];
+  const inv = [["event", ev.public_id], ["event"], ["events"], ["alerts"]];
   const review = useAction(actions.review(ev.public_id), inv);
+  const assignTo = useAction(actions.assign(ev.public_id), inv);
+  const supervisor = can("supervisor");
+  const directory = useDirectory(supervisor);
+  const [assignee, setAssignee] = useState<string>(ev.investigation?.assigned_to ?? "");
+  const [priority, setPriority] = useState<"low" | "normal" | "high">((ev.investigation?.priority as "low" | "normal" | "high") ?? "normal");
   const addNote = useAction(actions.note(ev.public_id), inv);
   const analyst = can("analyst");
 
+  const saveAssignment = async () => {
+    try {
+      await assignTo.mutateAsync({ user_id: assignee || null, priority });
+      toast(assignee ? "Reviewer assigned" : "Assignment cleared");
+    } catch (e) { toast(errText(e), "error"); }
+  };
   const submit = async () => {
+    if (decision === "request_evidence" && !notes.trim()) { toast("Say which evidence is needed", "error"); return; }
     const body: Record<string, unknown> = { decision, notes: notes || undefined };
     if (decision === "reclassify") body.source_class = cls;
     if (decision === "false_positive") body.false_positive_reason = reason;
@@ -251,7 +265,7 @@ export function ReviewPanel({ ev, onChanged }: { ev: EventDetail; onChanged?: ()
           <div className="field">
             <label htmlFor="decision">Decision</label>
             <div className="seg" role="radiogroup" id="decision" style={{ flexWrap: "wrap" }}>
-              {["confirm", "reclassify", "reject", "false_positive", "escalate"].map((d) => (
+              {["confirm", "reclassify", "reject", "false_positive", "escalate", "mark_reviewed", "request_evidence"].map((d) => (
                 <button key={d} role="radio" aria-checked={decision === d} className={decision === d ? "on" : ""} onClick={() => setDecision(d)}>{titleCase(d)}</button>
               ))}
             </div>
@@ -261,6 +275,8 @@ export function ReviewPanel({ ev, onChanged }: { ev: EventDetail; onChanged?: ()
               {decision === "reject" && "The classification is wrong or unsupported."}
               {decision === "false_positive" && "Not a genuine thermal source of interest. The reason feeds false-positive intelligence."}
               {decision === "escalate" && "Flags the event for supervisor attention and keeps the investigation open."}
+              {decision === "mark_reviewed" && "You looked at the evidence without confirming or rejecting the classification. Recorded, not a training label."}
+              {decision === "request_evidence" && "More evidence is needed before a decision (say which). The investigation stays open."}
             </div>
           </div>
           {decision === "reclassify" && (
@@ -275,13 +291,46 @@ export function ReviewPanel({ ev, onChanged }: { ev: EventDetail; onChanged?: ()
                 {Object.entries(FP_REASONS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select></div>
           )}
-          <div className="field"><label htmlFor="rnotes">Rationale (optional)</label>
+          <div className="field"><label htmlFor="rnotes">{decision === "request_evidence" ? "Evidence needed" : "Rationale (optional)"}</label>
             <textarea id="rnotes" className="textarea" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="What evidence did you rely on?" /></div>
           <div><button className="btn primary" onClick={submit} disabled={review.isPending}>{review.isPending && <span className="spinner" />} Record decision</button></div>
         </div>
       ) : (
         <div className="faint">Viewers can inspect events but not record decisions. Ask an administrator for the analyst role.</div>
       )}
+
+      {supervisor && (
+        <div className="stack" style={{ gap: 6 }} data-testid="assign-reviewer">
+          <h4 style={{ margin: 0 }}>Assign reviewer</h4>
+          <div className="row wrap" style={{ gap: 6 }}>
+            <select className="select" aria-label="Reviewer" value={assignee} onChange={(e) => setAssignee(e.target.value)} style={{ minWidth: 160, flex: 1 }}>
+              <option value="">Unassigned</option>
+              {(directory.data ?? []).map((u) => <option key={u.id} value={u.id}>{u.full_name} ({u.role})</option>)}
+            </select>
+            <select className="select" aria-label="Priority" value={priority} onChange={(e) => setPriority(e.target.value as "low" | "normal" | "high")}>
+              {["low", "normal", "high"].map((p) => <option key={p} value={p}>{titleCase(p)} priority</option>)}
+            </select>
+            <button className="btn" onClick={saveAssignment} disabled={assignTo.isPending}>Save</button>
+          </div>
+        </div>
+      )}
+      <div className="stack" style={{ gap: 6 }} data-testid="review-history">
+        <h4 style={{ margin: 0 }}>Review history</h4>
+        {ev.reviews.length ? ev.reviews.map((r) => (
+          <div key={r.id} className="review-entry">
+            <div className="row wrap" style={{ gap: 6, justifyContent: "space-between" }}>
+              <b>{titleCase(r.decision)}{r.source_class && r.decision === "reclassify" ? ` as ${CLASS_META[r.source_class as keyof typeof CLASS_META]?.label ?? r.source_class}` : ""}</b>
+              <span className="faint num" style={{ fontSize: 11.5 }}>{fmtDateTime(r.created_at)}</span>
+            </div>
+            <dl className="kv compact">
+              <dt>Reviewer</dt><dd>{r.reviewer ?? "analyst"}</dd>
+              <dt>Status</dt><dd>{r.new_status ? `${reviewLabel(r.previous_status)} → ${reviewLabel(r.new_status)}` : "not recorded (before status history)"}</dd>
+              {r.system_source_class && <><dt>System said</dt><dd>{CLASS_META[r.system_source_class as keyof typeof CLASS_META]?.label ?? r.system_source_class} ({fmtNum(r.system_confidence_score, 2)})</dd></>}
+              {r.notes && <><dt>Reason</dt><dd style={{ whiteSpace: "pre-wrap" }}>{r.notes}</dd></>}
+            </dl>
+          </div>
+        )) : <div className="faint">No decision recorded yet. Every decision is kept here and in the audit trail; none overwrites an earlier one.</div>}
+      </div>
 
       <div className="divider" />
       <h4>Notes & attachments</h4>
@@ -368,11 +417,29 @@ export function EventActions({ ev, compact }: { ev: EventDetail; compact?: boole
   );
 }
 
+/** Similar observed events: nearest by thermal fingerprint, each with the dimensions that actually match. Similarity is
+ *  about the observed pattern; it does not mean the events share a cause. */
 export function SimilarEvents({ ev }: { ev: EventDetail }) {
   const q = useSimilar(ev.id);
   if (q.isLoading) return <span className="spinner" />;
   if (!q.data?.length) return <div className="faint">No comparable analysed events yet.</div>;
-  return <div>{q.data.map((e) => <EventRowMini key={e.id} e={e} />)}</div>;
+  return (
+    <div data-testid="similar-events">
+      {q.data.map((e) => (
+        <div key={e.id} className="similar-row">
+          <EventRowMini e={e} />
+          <div className="similar-meta">
+            <span className="faint">{fmtNum(e.frp_max, 1)} MW peak · {e.persistence_class ?? "—"}
+              {e.nearest_facility_name ? ` · ${e.nearest_facility_name} (${fmtDistance(e.nearest_facility_distance_m)})` : " · no facility within 10 km"}
+              {e.distance_m != null ? ` · ${fmtDistance(e.distance_m)} away` : ""}</span>
+            <div className="chips">{(e.similarity_reasons ?? []).map((r) => <span key={r} className="chip">{r}</span>)}</div>
+            <Link className="btn ghost sm" to={`/compare?a=${ev.public_id}&b=${e.public_id}`}>Compare</Link>
+          </div>
+        </div>
+      ))}
+      <div className="faint" style={{ fontSize: 11.5, marginTop: 6 }}>Similar observed pattern (thermal fingerprint), not a shared cause.</div>
+    </div>
+  );
 }
 
 // ------------------------------------------------------------------ composed investigation
@@ -385,13 +452,17 @@ export function EventHeader({ ev }: { ev: EventDetail }) {
       <div className="row wrap" style={{ gap: 8 }}>
         <h1 className="mono" style={{ fontSize: 15 }}>{ev.public_id}</h1>
         <StatePill state={ev.display_state} />
+        <ReviewPill status={ev.review_status} />
         <ModePill mode={ev.data_mode} />
         <span className={`pill ${ev.status === "active" ? "thermal" : ""}`}>{ev.status}</span>
         <PriorityPill score={ev.priority_score} tier={ev.priority_components?.tier} />
       </div>
       <div className="row wrap" style={{ gap: 10 }}>
         <ClassLabel cls={ev.classification} />
-        <span className="muted num">p {fmtNum(ev.classification_probability, 2)} · confidence {fmtNum(ev.confidence_score, 2)} · data quality {ev.data_quality ?? "—"}</span>
+        <span className="muted num">
+          <span title="The classifier's score for this class among the classes it knows. It is not the probability that a fire is burning or of what caused it.">class score {fmtNum(ev.classification_probability, 2)}</span>
+          {" · "}<span title={CONFIDENCE_EXPLAINER}>confidence {fmtNum(ev.confidence_score, 2)}</span> · data quality {ev.data_quality ?? "—"}
+        </span>
       </div>
       <div className="confidence-note" title={CONFIDENCE_EXPLAINER}>{confidenceNote(ev.display_state)}</div>
       <div className="faint" style={{ fontSize: 12 }}>

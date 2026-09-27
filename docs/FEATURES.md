@@ -49,6 +49,22 @@ Status of every capability on `main`. Statuses: **EXISTS** (built and tested), *
 | Map ↔ list filter sync | DEFERRED | P2 |
 | Viewport loading, clustering, heatmap | EXISTS | P0 |
 | Attribution radius rings | IMPLEMENTED | P2 |
+| Investigation workspace: status strip, 13 evidence stages (Available / Pending / No data / Not requested / Failed / Requires analyst review) with source, time, contribution and limitation | IMPLEMENTED (advanced phase; final test pass pending) | P0 |
+| Evidence availability (x / 13 stages; not confidence) on the event, in alerts and in analytics | IMPLEMENTED (advanced phase) | P1 |
+| Event timeline with playback (stored timestamps only, explicit gaps) | IMPLEMENTED (advanced phase) | P1 |
+| Activity chart: FRP / brightness / detections / persistence with hover | IMPLEMENTED (advanced phase) | P1 |
+| Explainable classification (interpretation, why, evidence values, limitations, SHAP caveat) | IMPLEMENTED (advanced phase) | P1 |
+| Activity cluster around an event (radius and window, extent, facilities, distributions) | IMPLEMENTED (advanced phase) | P1 |
+| Recurring activity (location, facility, global list; observed activity, not risk) | IMPLEMENTED (advanced phase) | P1 |
+| Similar events with similarity reasons; side-by-side event comparison (no ranking) | IMPLEMENTED (advanced phase) | P1 |
+| Facility intelligence profile (activity summary, week / month comparison, thermal profile, source agreement, event relationship with temporal context and evidence) | IMPLEMENTED (advanced phase) | P1 |
+| Alert conditions: persistence days, evidence stages, repeated activity within a distance, configurable increase factor and window; per-alert "Why was I alerted?" | IMPLEMENTED (advanced phase) | P1 |
+| Dashboard and analytics with server-side filters (24 h / 7 / 30 / 90 days / custom, state, district, facility, classification) | IMPLEMENTED (advanced phase) | P1 |
+| Live system status panel and data-source detail drawer | IMPLEMENTED (advanced phase) | P1 |
+| Review workflow: mark reviewed, request more evidence, reviewer assignment, review history with previous / new status | IMPLEMENTED (advanced phase) | P1 |
+| Investigation report sections (summary, thermal, spatial, environmental, explainability, limitations, audit, disclaimer) and read-only shareable view | IMPLEMENTED (advanced phase) | P1 |
+| Map layer groups (density, industrial, quarries, roads, rivers, districts, states, OSM land cover) and dynamic legend | IMPLEMENTED (advanced phase) | P2 |
+| Unified search with registry ids and states | IMPLEMENTED (advanced phase) | P2 |
 | India-wide basemap hierarchy (roads, districts, industrial areas and labels by zoom, from the basemap's own tiles) | IMPLEMENTED | P2 |
 | Replay | EXISTS | P2 |
 | Similar events | EXISTS | P2 |

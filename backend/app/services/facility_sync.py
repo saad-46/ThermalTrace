@@ -105,7 +105,7 @@ def sync_tiles(db: Session, limit: int = 4) -> dict:
             feats, endpoint, latency = client.query_facility_tile(tile.south, tile.west, tile.north, tile.east)
         except ProviderError as exc:
             tile.status, tile.error = "failed", f"{exc.kind}: {exc}"[:500]
-            source_health.record_failure(db, "osm", str(exc))
+            source_health.record_failure(db, "osm", exc)
             db.commit()
             out["failed"] += 1
             continue

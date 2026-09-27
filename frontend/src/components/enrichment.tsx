@@ -18,8 +18,13 @@ const ERROR_TEXT: Record<string, string> = {
   rate_limited: "the provider is rate-limiting requests",
   service_unavailable: "the provider is unavailable",
   unsupported_data: "the provider does not serve this request",
+  processing_failure: "the provider's reply could not be processed",
+  invalid_request: "the provider rejected the request",
   invalid_response: "the provider returned an unexpected response",
+  network_error: "the provider could not be reached",
+  provider_error: "the provider returned an error",
 };
+/** One wording for every provider failure category (backend services/source_health.ERROR_CATEGORIES). */
 export const errorText = (category?: string | null) => (category ? ERROR_TEXT[category] ?? category.replace(/_/g, " ") : "request failed");
 
 /** The latest job that covers `step` (a full enrichment covers every step). */

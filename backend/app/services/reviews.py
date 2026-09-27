@@ -18,7 +18,11 @@ DECISION_TO_STATUS = {
     "reject": "analyst_rejected",
     "false_positive": "false_positive",
     "escalate": "escalated",
+    "mark_reviewed": "reviewed",  # looked at; no confirmation or rejection
+    "request_evidence": "under_review",  # more evidence needed before a decision
 }
+# decisions that close the investigation (the others keep it open)
+CLOSING = {"confirm", "reclassify", "reject", "false_positive", "mark_reviewed"}
 
 
 def _event(db: Session, event_id: uuid.UUID) -> ThermalEvent:
@@ -43,8 +47,8 @@ def record_review(db: Session, event_id: uuid.UUID, body: ReviewIn, user: User) 
         raise AppError("Reclassification requires a source_class", code="source_class_required")
     if body.decision == "false_positive" and not body.false_positive_reason:
         raise AppError("A false-positive decision requires a reason", code="reason_required")
-    if body.decision == "note" and not body.notes:
-        raise AppError("A note requires text", code="notes_required")
+    if body.decision in ("note", "request_evidence") and not body.notes:
+        raise AppError("Say what is needed" if body.decision == "request_evidence" else "A note requires text", code="notes_required")
     current = db.execute(select(Classification).where(Classification.event_id == ev.id, Classification.is_current.is_(True))
                          ).scalar_one_or_none()
     label = body.source_class or (ev.classification if body.decision == "confirm" else None)
@@ -54,17 +58,21 @@ def record_review(db: Session, event_id: uuid.UUID, body: ReviewIn, user: User) 
         false_positive_reason=body.false_positive_reason, notes=body.notes, system_source_class=ev.classification,
         system_confidence_score=ev.confidence_score, classification_id=current.id if current else None,
     )
+    review.previous_status = ev.review_status
     db.add(review)
     inv = _investigation(db, ev, user)
     if body.decision in DECISION_TO_STATUS:
         ev.review_status = DECISION_TO_STATUS[body.decision]
         if body.decision == "escalate":
             inv.status, inv.priority = "in_progress", "high"
-        else:
+        elif body.decision in CLOSING:
             inv.status, inv.closed_at = "closed", datetime.now(UTC)
+        else:
+            inv.status, inv.closed_at = "in_progress", None
     elif ev.review_status == "unreviewed":
         ev.review_status = "under_review"
         inv.status = "in_progress"
+    review.new_status = ev.review_status
     db.flush()
     return review
 

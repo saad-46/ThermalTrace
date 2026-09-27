@@ -58,6 +58,9 @@ alembic downgrade base                  # tested in CI: tests/conftest.py runs b
 | 0008 | Indexes for the slow read paths at full-year scale: current classifications per model, persistent-source ranking, priority queue order (`priority_score DESC NULLS LAST, id`), trigram search on event id, state and region | ✅ |
 | 0009 | `cube` + `btree_gist` extensions; GiST KNN index over the five numeric fingerprint dimensions keyed by facility type (similar events), `lower(admin_district)` (watchlist district items) | ✅ |
 | 0010 | India boundary (`boundaries`, `boundary_parts` GiST, `admin_areas` GiST; loaded from app/gis/data), `thermal_events.in_india` (+ index), `registry_stations` (CEA stations with or without a location), `data_sources.health_detail` (per-capability checks), WRI fuel copied to `facilities.subtype` | ✅ |
+| 0011 | `ix_jobs_event` expression index on `jobs(payload->>'event_id')` for per-event job status | ✅ |
+| 0012 | `analyst_reviews.previous_status` / `new_status` (decision widened to 24 chars); `alert_rules.increase_factor`, `increase_window_days`, `repeat_within_m`, `min_active_days`, `min_evidence_stages`; trigram indexes on `facilities.operator`, `facility_sources.external_id`, `registry_stations.name` | ✅ (downgrade to 0011 and upgrade verified on the disposable test database) |
+| 0013 | Unique current classification per event (`uq_classifications_event_current`, partial on `is_current`); one delivery record per alert and channel (`uq_alert_deliveries_alert_channel`). Both previously enforced only in application code; verified duplicate-free on the development data | ✅ on the test database (upgrade, downgrade, upgrade); apply to other databases when no processing pass is running |
 
 `alembic check` reports no drift between models and schema. The integration suite runs `downgrade base → upgrade head` on every run, and it has passed repeatedly against a populated test database.
 

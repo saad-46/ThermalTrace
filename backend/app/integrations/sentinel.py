@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from app.core.config import settings
-from app.integrations.http import ProviderAuthError, ProviderError, request
+from app.integrations.http import ProviderAuthError, ProviderError, ProviderMalformed, request
 
 logger = logging.getLogger(__name__)
 
@@ -84,8 +84,11 @@ class SatelliteSearchService:
             "limit": limit,
         }
         res = request("earth_search", "POST", f"{settings.earth_search_url}/search", json=body, timeout=45)
-        features = res.response.json().get("features", [])
-        scenes = [SatelliteMetadataService.from_stac(f, "earth-search", "earth_search", "sentinel-2-l2a") for f in features]
+        features = res.json().get("features", [])
+        try:
+            scenes = [SatelliteMetadataService.from_stac(f, "earth-search", "earth_search", "sentinel-2-l2a") for f in features]
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ProviderMalformed("earth_search", f"STAC item without {exc}") from None
         return _dedupe_reprocessed(scenes), res.latency_ms
 
     def search_cdse(self, lat: float, lon: float, start: datetime, end: datetime, limit: int = 10) -> list[SceneMetadata]:
@@ -96,7 +99,10 @@ class SatelliteSearchService:
             "limit": limit,
         }
         res = request("cdse", "POST", f"{settings.cdse_stac_url}/search", json=body, timeout=45)
-        return [SatelliteMetadataService.from_stac(f, "cdse", "cdse", "sentinel-2-l2a") for f in res.response.json().get("features", [])]
+        try:
+            return [SatelliteMetadataService.from_stac(f, "cdse", "cdse", "sentinel-2-l2a") for f in res.json().get("features", [])]
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ProviderMalformed("cdse", f"STAC item without {exc}") from None
 
 
 def _dedupe_reprocessed(scenes: list[SceneMetadata]) -> list[SceneMetadata]:
@@ -131,7 +137,9 @@ class _CdseToken:
                       "client_secret": settings.copernicus_client_secret.get_secret_value()},
                 timeout=20, max_attempts=2,
             )
-            payload = res.response.json()
+            payload = res.json()
+            if not payload.get("access_token"):
+                raise ProviderAuthError("cdse", "token endpoint returned no access token")
             cls._token = payload["access_token"]
             cls._expires = time.time() + int(payload.get("expires_in", 600))
             return cls._token

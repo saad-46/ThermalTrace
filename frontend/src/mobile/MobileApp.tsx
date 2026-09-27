@@ -2,13 +2,15 @@ import { Bell, ChevronLeft, Eye, List, LocateFixed, Map as MapIcon, Menu } from 
 import { useQuery } from "@tanstack/react-query";
 import { lazy, Suspense, useMemo, useRef, useState, type PointerEvent as RPE, type ReactNode } from "react";
 import { Link, Navigate, NavLink, Route, Routes, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { ConfidenceBreakdown, EvidenceList, EvidenceMatrix, FacilityList, Fingerprint, ModelPanel, PersistencePanel, Timeline } from "../components/evidence";
+import { ConfidenceBreakdown, EvidenceList, EvidenceMatrix, FacilityList, Fingerprint, ModelPanel, PersistencePanel } from "../components/evidence";
 import { DEFAULT_FILTERS, FilterPanel, TimeRange, toQuery, type FilterState } from "../components/filters";
-import { EventActions, EventHeader, ReviewPanel, SatellitePanel, WeatherPanel } from "../components/investigation";
+import { EventActions, EventHeader, ReviewPanel, SatellitePanel, SimilarEvents, WeatherPanel } from "../components/investigation";
 import { LandCoverPanel, SpectralChangePanel } from "../components/landcover";
 import GlobalSearch from "../components/GlobalSearch";
 import MapCanvas, { DEFAULT_LAYERS } from "../components/MapCanvas";
 import { EvidenceChain, PriorityPanel, PriorityPill } from "../components/triage";
+import { ActivityChart, ClassificationExplained, EventTimeline, EvidenceCompleteness, RecurrencePanel } from "../components/workspace";
+import { AlertWhy } from "../pages/Alerts";
 import { Async, Boundary, ClassLabel, DemoBanner, Empty, ErrorState, Freshness, Skeleton, StatePill, errText, useToast } from "../components/ui";
 import { api } from "../lib/api";
 import { coordsLabel, fmtDistance, locationLabel, relTime } from "../lib/format";
@@ -21,6 +23,9 @@ import ExploreBanner from "../tour/ExploreBanner";
 const Overview = lazy(() => import("../pages/Overview"));
 const DataSources = lazy(() => import("../pages/DataSources"));
 const FacilityPage = lazy(() => import("../pages/FacilityPage"));
+const ClusterPage = lazy(() => import("../pages/ClusterPage"));
+const ComparePage = lazy(() => import("../pages/ComparePage"));
+const ShareView = lazy(() => import("../pages/ShareView"));
 const SystemHealth = lazy(() => import("../pages/SystemHealth"));
 const Analytics = lazy(() => import("../pages/Analytics"));
 const Settings = lazy(() => import("../pages/Settings"));
@@ -80,11 +85,17 @@ function Sheet({ children, snap, setSnap }: { children: ReactNode; snap: number;
 // ------------------------------------------------------------------ evidence cards (swipeable)
 const CARD_TOUR_IDS: Record<string, string> = {
   "How ThermalTrace thinks": "card-evidence-chain", Facilities: "card-facilities", Persistence: "card-persistence", "Land cover": "card-landcover",
-  "Spectral change": "card-spectral", "Model evidence": "card-model",
+  "Spectral change": "card-spectral", "Model evidence": "card-model", "Evidence availability": "card-evidence-availability",
+  Timeline: "card-timeline", Classification: "card-classification", "Recurring activity": "card-recurring", "Similar events": "card-similar",
 };
 function EvidenceCards({ ev }: { ev: EventDetail }) {
   const cards: [string, ReactNode][] = [
     ["How ThermalTrace thinks", <EvidenceChain ev={ev} key="ch" />],
+    ["Evidence availability", <EvidenceCompleteness ev={ev} key="ea" />],
+    ["Timeline", <EventTimeline ev={ev} key="tl" />],
+    ["Activity", <ActivityChart ev={ev} key="ac" />],
+    ["Classification", <ClassificationExplained ev={ev} key="ce" />],
+    ["Recurring activity", <RecurrencePanel ev={ev} key="ra" />],
     ["Evidence matrix", <div className="table-wrap" key="m"><EvidenceMatrix ev={ev} /></div>],
     ["Why prioritised", <PriorityPanel p={ev.priority_components} key="pr" />],
     ["Confidence", <ConfidenceBreakdown ev={ev} key="c" />],
@@ -96,6 +107,7 @@ function EvidenceCards({ ev }: { ev: EventDetail }) {
     ["Weather", <WeatherPanel ev={ev} key="w" />],
     ["Model evidence", <ModelPanel ev={ev} key="md" />],
     ["Fingerprint", <Fingerprint ev={ev} key="fp" />],
+    ["Similar events", <SimilarEvents ev={ev} key="se" />],
   ];
   return (
     <div className="cards" role="list" aria-label="Evidence cards (swipe)">
@@ -215,11 +227,18 @@ function EventScreen() {
     <Shell title={<span className="mono">{ref}</span>} back>
       {ev.isLoading ? <div className="page"><Skeleton lines={8} /></div> : ev.error || !ev.data ? <ErrorState error={ev.error} retry={() => ev.refetch()} /> : (
         <div>
-          <div className="section"><div data-tour-id="event-header"><EventHeader ev={ev.data} /></div><div style={{ marginTop: 10 }} data-tour-id="event-actions"><EventActions ev={ev.data} compact /></div></div>
+          <div className="section"><div data-tour-id="event-header"><EventHeader ev={ev.data} /></div>
+            <div style={{ marginTop: 8 }}><EvidenceCompleteness ev={ev.data} compact /></div>
+            <div style={{ marginTop: 10 }} data-tour-id="event-actions"><EventActions ev={ev.data} compact /></div>
+            <div className="row wrap" style={{ gap: 6, marginTop: 8 }}>
+              <Link className="btn ghost sm" to={`/events/${ev.data.public_id}/cluster`}>View cluster</Link>
+              <Link className="btn ghost sm" to={`/compare?a=${ev.data.public_id}`}>Compare</Link>
+              <Link className="btn ghost sm" to={`/events/${ev.data.public_id}/view`}>Shareable view</Link>
+            </div></div>
           <div className="tabs" data-tour-id="event-tabs">{(["evidence", "review", "timeline", "all"] as const).map((t) => <button key={t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}>{t === "all" ? "Evidence list" : t[0].toUpperCase() + t.slice(1)}</button>)}</div>
           {tab === "evidence" && <div style={{ paddingTop: 10 }}><EvidenceCards ev={ev.data} /></div>}
           {tab === "review" && <div className="section"><ReviewPanel ev={ev.data} /></div>}
-          {tab === "timeline" && <div className="section"><Timeline ev={ev.data} /></div>}
+          {tab === "timeline" && <div className="section"><EventTimeline ev={ev.data} /></div>}
           {tab === "all" && <div className="section"><EvidenceList items={ev.data.evidence} compact /></div>}
         </div>
       )}
@@ -237,6 +256,7 @@ function AlertsScreen() {
           <div key={a.id} className="item" style={{ flexDirection: "column", gap: 4 }}>
             <Link to={`/events/${a.event_public_id}`} style={{ fontWeight: a.status === "new" ? 600 : 400, color: "var(--text)" }}>{a.title}</Link>
             <div className="faint" style={{ fontSize: 12 }}>{a.rule_name} · {a.severity} · {relTime(a.triggered_at)}</div>
+            <details><summary className="faint" style={{ fontSize: 12 }}>Why was I alerted?</summary><AlertWhy reason={a.reason} /></details>
             {a.status === "new" && <div><button className="btn sm" onClick={() => act.mutate({ id: a.id, action: "acknowledge" })}>Acknowledge</button></div>}
           </div>
         ))}</>}</Async>
@@ -327,6 +347,9 @@ export default function MobileApp() {
       <Route path="/overview" element={<DesktopPage title="Overview"><Overview /></DesktopPage>} />
       <Route path="/sources" element={<DesktopPage title="Data sources"><DataSources /></DesktopPage>} />
       <Route path="/facilities/:id" element={<DesktopPage title="Facility"><FacilityPage /></DesktopPage>} />
+      <Route path="/events/:ref/cluster" element={<DesktopPage title="Activity cluster"><ClusterPage /></DesktopPage>} />
+      <Route path="/events/:ref/view" element={<DesktopPage title="Investigation view"><ShareView /></DesktopPage>} />
+      <Route path="/compare" element={<DesktopPage title="Compare events"><ComparePage /></DesktopPage>} />
       <Route path="/system" element={<DesktopPage title="System health"><SystemHealth /></DesktopPage>} />
       <Route path="/analytics" element={<DesktopPage title="Analytics"><Analytics /></DesktopPage>} />
       <Route path="/settings" element={<DesktopPage title="Settings"><Settings /></DesktopPage>} />

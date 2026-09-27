@@ -106,3 +106,24 @@ backend/app/
 - `web`: static build (Vercel/Netlify/nginx). `VITE_API_BASE_URL` points at the API.
 
 See `DEPLOYMENT.md`.
+
+## 7. Job queue reliability
+
+- **Heartbeats while working:** each worker writes `worker_heartbeats` every 30 s, also from a background thread while a
+  job runs. Every worker sweeps once a minute for jobs still `running` whose worker has not been seen for 3 minutes
+  (`queue.recover_stale`): those are requeued, or failed once they have used all their attempts, so a job that kills its
+  worker cannot loop forever. A long job of a live worker is never taken over.
+- **One clustering pass at a time:** `process_events` runs in the bulk lane only and holds a Postgres advisory lock (on a
+  dedicated connection) for the clustering pass; a second pass defers itself for a minute.
+- **Continuations:** a job that queues its next pass alternates between two dedupe keys, so a chain never suppresses
+  itself, while any other pass of the same kind still does. A model (de)activation re-analysis has its own key.
+- **Idempotency in the database:** detections, facility sources, facility links, daily observations, satellite scenes,
+  imagery analyses, land cover, weather, land context, alerts (rule, event), registry stations, current
+  classification (0013) and alert deliveries (0013) have unique constraints; ingestion and enrichment upsert or
+  delete-and-insert per event, so re-running them does not duplicate rows.
+- **Alerts:** an alert is committed before any e-mail or push leaves the system, and its rule row is locked while the
+  cooldown is checked and delivered; a retried job cannot send twice. Push delivery continues past a failing device and
+  removes subscriptions the browser has dropped (HTTP 404 / 410).
+- **Housekeeping** removes succeeded jobs older than 30 days (failed ones are kept for diagnosis).
+- **Limits:** events have no natural unique key (clustering is serialised instead); `model_predictions` keeps every
+  analysis (history), so it grows with re-analysis.

@@ -63,7 +63,7 @@ def import_places(db: Session) -> dict:
         zbytes = request("geonames", "GET", CITIES_URL, timeout=120, max_attempts=3).response.content
         admin_txt = request("geonames", "GET", ADMIN1_URL, timeout=60, max_attempts=3).response.text
     except ProviderError as exc:
-        source_health.record_failure(db, SOURCE_ID, str(exc))
+        source_health.record_failure(db, SOURCE_ID, exc)
         db.commit()
         raise
     with zipfile.ZipFile(io.BytesIO(zbytes)) as z:

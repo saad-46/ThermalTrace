@@ -15,10 +15,11 @@ logger = logging.getLogger(__name__)
 Handler = Callable[[Session, dict, Job], dict]
 
 
-def continuation_key(kind: str) -> str:
-    """Dedupe key for a job that queues its own next pass. It must differ from the running job's key:
-    a queued/running job with the same key suppresses the insert, so reusing it would drop the continuation."""
-    return f"{kind}:continue"
+def continuation_key(kind: str, job: Job | None = None) -> str:
+    """Dedupe key for a job that queues its own next pass. It must differ from the running job's own key (a queued or
+    running job with the same key suppresses the insert), so a continuation alternates between two keys; any other
+    pass of the same kind still suppresses it, so passes never pile up."""
+    return f"{kind}:continue:b" if job is not None and job.dedupe_key == f"{kind}:continue" else f"{kind}:continue"
 
 
 def firms_poll(db: Session, payload: dict, job: Job) -> dict:
@@ -41,12 +42,24 @@ def load_demo(db: Session, payload: dict, job: Job) -> dict:
 
 
 def process_events(db: Session, payload: dict, job: Job) -> dict:
+    """Cluster new detections and analyse events. One pass at a time across all workers (a Postgres advisory lock on a
+    dedicated connection): two concurrent clustering passes could split one fire into two events."""
+    from sqlalchemy import text
+
+    from app.db.session import engine
     from app.processing.pipeline import process_new_detections
 
-    res = process_new_detections(db, reanalyse_all=bool(payload.get("reanalyse_all")))
+    with engine.connect() as lock_conn:
+        if not lock_conn.execute(text("SELECT pg_try_advisory_lock(hashtext('thermaltrace:process_events'))")).scalar():
+            enqueue(db, "process_events", payload, dedupe_key=continuation_key("process_events", job), priority=20, delay_s=60)
+            return {"deferred": "another processing pass is running"}
+        try:
+            res = process_new_detections(db, reanalyse_all=bool(payload.get("reanalyse_all")))
+        finally:
+            lock_conn.execute(text("SELECT pg_advisory_unlock(hashtext('thermaltrace:process_events'))"))
     alert_res = alerts.evaluate_rules(db, res["event_ids"])
     if res["remaining_unassigned"]:  # large backfills are clustered 50,000 detections per pass
-        enqueue(db, "process_events", {}, dedupe_key=continuation_key("process_events"), priority=20)
+        enqueue(db, "process_events", {}, dedupe_key=continuation_key("process_events", job), priority=20)
     enqueue(db, "enrich_batch", {"limit": 40}, dedupe_key="enrich_batch", priority=60)
     return {**{k: v for k, v in res.items() if k != "event_ids"}, "alerts": alert_res}
 
@@ -79,7 +92,7 @@ def landcover_backfill(db: Session, payload: dict, job: Job) -> dict:
         return {"events": 0}
     res = enrichment.enrich_events(db, ids, steps=("landcover",))
     if len(ids) == int(payload.get("limit", 25)):
-        enqueue(db, "landcover_backfill", payload, dedupe_key=continuation_key("landcover_backfill"), priority=85, delay_s=5)
+        enqueue(db, "landcover_backfill", payload, dedupe_key=continuation_key("landcover_backfill", job), priority=85, delay_s=5)
     return res
 
 
@@ -105,7 +118,7 @@ def enrich_batch(db: Session, payload: dict, job: Job) -> dict:
     res = enrichment.enrich_events(db, ids)
     alerts.evaluate_rules(db, [str(i) for i in ids])
     if len(ids) == int(payload.get("limit", 40)):  # more remaining — continue gradually
-        enqueue(db, "enrich_batch", payload, dedupe_key=continuation_key("enrich_batch"), priority=80, delay_s=5)
+        enqueue(db, "enrich_batch", payload, dedupe_key=continuation_key("enrich_batch", job), priority=80, delay_s=5)
     return res
 
 
@@ -114,7 +127,7 @@ def facility_sync(db: Session, payload: dict, job: Job) -> dict:
 
     res = fs.sync_tiles(db, int(payload.get("limit", 4)))
     if res["remaining"] and (res["synced"] or res["failed"]):  # keep draining the backlog politely
-        enqueue(db, "facility_sync", payload, dedupe_key="facility_sync", priority=45, delay_s=10)
+        enqueue(db, "facility_sync", payload, dedupe_key=continuation_key("facility_sync", job), priority=45, delay_s=10)
     return res
 
 
@@ -131,24 +144,24 @@ def render_report(db: Session, payload: dict, job: Job) -> dict:
 def train_model(db: Session, payload: dict, job: Job) -> dict:
     from app.ml.registry import train_and_register
 
-    mv = train_and_register(db, activate=bool(payload.get("activate", False)))
+    mv = train_and_register(db)  # always inactive; an admin activates it after reviewing the model card
     db.commit()
-    if mv.is_active:
-        enqueue(db, "process_events", {"reanalyse_all": True}, dedupe_key="process_events", priority=40)
-    return {"model_version": mv.id, "active": mv.is_active,
-            "metrics": {k: mv.metrics.get(k) for k in ("macro_f1_holdout", "n_train", "n_test")}}
+    return {"model_version": mv.id, "active": False,
+            "metrics": {k: mv.metrics.get(k) for k in ("macro_f1_holdout", "macro_f1_holdout_analyst", "n_train", "n_test")}}
 
 
 def housekeeping(db: Session, payload: dict, job: Job) -> dict:
     from app.services import cache
+    from app.workers.queue import purge_finished
 
     purged = cache.purge_expired(db)
     db.commit()
+    jobs_purged = purge_finished(db)
     # Events not yet classified against India's boundary (e.g. created before it was loaded): a bounded batch per run.
     from app.gis import boundaries
 
     regions = boundaries.classify_events(db, batch=20000, max_batches=2)
-    return {"cache_purged": purged, "events_classified": regions["classified"]}
+    return {"cache_purged": purged, "jobs_purged": jobs_purged, "events_classified": regions["classified"]}
 
 
 def source_probe(db: Session, payload: dict, job: Job) -> dict:
@@ -168,7 +181,7 @@ def source_probe(db: Session, payload: dict, job: Job) -> dict:
             out["cdse"] = "ok"
         except ProviderError as exc:
             category = source_health.error_category(exc)
-            source_health.record_failure(db, "cdse", category)
+            source_health.record_failure(db, "cdse", exc, category)
             source_health.record_check(db, "cdse", "auth", False, None, exc.status, category)
             out["cdse"] = f"failed ({exc.kind})"
     else:

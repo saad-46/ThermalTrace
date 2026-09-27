@@ -1,7 +1,10 @@
+import { errorText } from "../components/enrichment";
 import { useQuery } from "@tanstack/react-query";
 import { Play } from "lucide-react";
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { ExtLink } from "../components/evidence";
+import { SourceDetailDrawer } from "../components/liveStatus";
 import { Async, Empty, errText, useToast } from "../components/ui";
 import { api, post } from "../lib/api";
 import { fmtDate, fmtDateTime, fmtNum, relTime, titleCase } from "../lib/format";
@@ -65,6 +68,8 @@ export default function DataSources() {
   const { can } = useSession();
   const toast = useToast();
   const sources = useSources();
+  const [params] = useSearchParams();
+  const [detail, setDetail] = useState<string | null>(params.get("source"));
   const jobs = useJobs();
   const [runSource, setRunSource] = useState<string>("");
   const index = useQuery({ queryKey: ["facility-index"], queryFn: () => api<FacilityIndex>("/sources/facility-index"), refetchInterval: 30_000 });
@@ -74,6 +79,7 @@ export default function DataSources() {
   };
   return (
     <div className="page">
+      {detail && <SourceDetailDrawer id={detail} onClose={() => setDetail(null)} />}
       <div className="page-head">
         <div><h1>Data sources</h1><div className="sub">Every provider, its health and freshness. Failures surface here — they are never masked with substitute data.</div></div>
       </div>
@@ -83,7 +89,8 @@ export default function DataSources() {
             <thead><tr><th scope="col">Source</th><th scope="col">Status</th><th scope="col">Last success</th><th scope="col">Latest record</th><th scope="col" className="right">Records</th><th scope="col" className="right">Latency</th><th scope="col" className="right">Error rate</th><th scope="col">Dataset / cadence</th></tr></thead>
             <tbody>{d.map((s) => (
               <tr key={s.id}>
-                <td><div style={{ fontWeight: 500 }}><ExtLink href={s.homepage.startsWith("http") ? s.homepage : "#"}>{SOURCE_NAMES[s.id] ?? s.name}</ExtLink></div>
+                <td><div style={{ fontWeight: 500 }}><ExtLink href={s.homepage.startsWith("http") ? s.homepage : "#"}>{SOURCE_NAMES[s.id] ?? s.name}</ExtLink>
+                  {s.id !== "demo" && <button className="btn ghost sm" style={{ marginLeft: 6 }} onClick={() => setDetail(s.id)} aria-label={`Details for ${SOURCE_NAMES[s.id] ?? s.name}`}>Details</button>}</div>
                   <div className="faint" style={{ fontSize: 11.5 }}>{s.kind} · {s.access.replace("_", " ")} · {s.license}</div>
                   {s.configuration?.note && <div className="faint" style={{ fontSize: 11.5 }}>{s.configuration.note}</div>}</td>
                 <td>{s.state && s.id !== "demo" ? (
@@ -97,7 +104,8 @@ export default function DataSources() {
                       {s.requirement_how ? ` ${s.requirement_how}` : ""}
                     </div>
                   )}
-                  {s.last_error && s.status !== "healthy" && <div className="faint" style={{ fontSize: 11, maxWidth: 220 }} title={s.last_error}>{s.last_error.slice(0, 90)}</div>}
+                  {s.last_error_category && s.status !== "healthy" && (
+                    <div className="faint" style={{ fontSize: 11, maxWidth: 220 }} title={s.last_error ?? undefined}>Last failure: {errorText(s.last_error_category)}</div>)}
                   <SourceChecks s={s} /></td>
                 <td className="num">{relTime(s.last_success_at)}</td>
                 <td className="num">{s.last_record_at ? fmtDateTime(s.last_record_at) : "—"}</td>

@@ -2,10 +2,10 @@
  *  Both are context. Missing data is shown as missing — never as "no vegetation" or "no change". */
 import { useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { fmtDate, fmtDateTime, fmtNum } from "../lib/format";
+import { fmtDate, fmtDateTime, fmtNum, sharePct } from "../lib/format";
 import { actions, useAction } from "../lib/hooks";
 import type { EventDetail, ImageryAnalysis, LandCover } from "../lib/types";
-import { ActionButton, EvidenceState, jobFor, pendingLabel, stepPhase, useRequestSteps } from "./enrichment";
+import { ActionButton, EvidenceState, errorText, jobFor, pendingLabel, stepPhase, useRequestSteps } from "./enrichment";
 import { Empty, errText, useToast } from "./ui";
 
 // Official ESA WorldCover legend colours, so the bar matches the published product.
@@ -24,7 +24,7 @@ export const WORLDCOVER_META: Record<string, { label: string; color: string }> =
 };
 
 /** Share as a percentage; a non-zero share below 0.5 % shows as "<1%" rather than a misleading "0%". */
-export const pct = (share: number) => (share > 0 && share < 0.005 ? "<1%" : `${Math.round(share * 100)}%`);
+export const pct = sharePct;
 
 export function landcoverShares(lc: LandCover): { key: string; label: string; color: string; share: number }[] {
   return Object.entries(lc.fractions)
@@ -38,7 +38,9 @@ export function LandCoverPanel({ ev }: { ev: EventDetail }) {
   if (!lc) {
     return (
       <Empty title="No raster land cover">
-        {step?.status === "failed" ? `Provider error: ${step.detail}` : step?.status === "ok" ? "No WorldCover data at this location (offshore or outside coverage)." : "Land cover has not been retrieved yet."}
+        {step?.status === "failed"
+          ? `Provider failure: ${errorText(step.category)}. This is not an absence of land cover; the lookup is retried automatically.`
+          : step?.status === "ok" || step?.status === "no_data" ? "No WorldCover data at this location (offshore or outside coverage)." : "Land cover has not been retrieved yet."}
       </Empty>
     );
   }
@@ -91,7 +93,14 @@ export function SpectralChangePanel({ ev }: { ev: EventDetail }) {
   if (!ev.satellite.length) {
     if (search.phase === "pending")
       return <EvidenceState tone="busy" title="Searching Sentinel-2 imagery…" testId="spectral-state">NDVI / NBR can be computed once scenes are found.</EvidenceState>;
-    const searched = search.phase === "ok";
+    if (search.phase === "failed")
+      return (
+        <EvidenceState tone="warn" title="Sentinel-2 search failed" testId="spectral-state" meaning={SPECTRAL_MEANING}
+          action={<ActionButton onClick={req.run} busy={req.sending} busyLabel="Searching…" testId="spectral-search">Search again</ActionButton>}>
+          The imagery search did not complete ({errorText(search.state?.category)}). This is a provider failure, not an absence of imagery.
+        </EvidenceState>
+      );
+    const searched = search.phase === "ok" || search.phase === "no_data";
     return (
       <EvidenceState title={searched ? "No suitable imagery available" : "Needs Sentinel-2 scenes"} testId="spectral-state" meaning={SPECTRAL_MEANING}
         action={<ActionButton onClick={req.run} busy={req.sending} busyLabel="Searching…" testId="spectral-search">{searched ? "Search again" : "Search Sentinel-2 imagery"}</ActionButton>}>
@@ -103,7 +112,13 @@ export function SpectralChangePanel({ ev }: { ev: EventDetail }) {
     return (
       <EvidenceState title="No suitable imagery available" testId="spectral-state" meaning={SPECTRAL_MEANING}>
         {ev.imagery_readiness?.reason ?? "Before/after analysis cannot be completed with the stored scenes."}
-        {ia?.status === "unavailable" && ia.reason ? <> Last attempt ({fmtDate(ia.retrieved_at)}): {ia.reason}</> : null}
+        {(ia?.status === "unavailable" || ia?.status === "failed") && ia.reason ? <> Last attempt ({fmtDate(ia.retrieved_at)}): {ia.reason}</> : null}
+      </EvidenceState>
+    );
+  if (ia?.status === "failed")
+    return (
+      <EvidenceState tone="warn" title="Sentinel-2 bands could not be read" testId="spectral-state" action={compute("Try again")} meaning={SPECTRAL_MEANING}>
+        {ia.reason} (attempted {fmtDate(ia.retrieved_at)}). This is a provider failure, not a finding about the surface.
       </EvidenceState>
     );
   if (ia?.status === "unavailable")

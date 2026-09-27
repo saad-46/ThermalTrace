@@ -26,6 +26,8 @@ _TIMEOUT_S = 30
 _METRES_PER_DEGREE = 111_320.0
 
 
+_PROVIDER = "cog_raster"  # cloud-optimised GeoTIFF reads (ESA WorldCover tiles, Sentinel-2 bands)
+
 def worldcover_tile_url(lat: float, lon: float) -> str:
     """WorldCover tiles are 3° × 3°, named by their south-west corner."""
     lat0, lon0 = math.floor(lat / 3) * 3, math.floor(lon / 3) * 3
@@ -53,17 +55,21 @@ def read_window(href: str, lat: float, lon: float, half_m: float, out_px: int) -
                 left, bottom, right, top = transform_bounds("EPSG:4326", ds.crs, lon - dlon, lat - dlat, lon + dlon, lat + dlat)
                 window = from_bounds(left, bottom, right, top, ds.transform)
                 if window.width < 1 or window.height < 1:
-                    raise ProviderMalformed("window smaller than one pixel")
+                    raise ProviderMalformed(_PROVIDER, "window smaller than one pixel")
                 return ds.read(1, window=window, out_shape=(out_px, out_px), boundless=True, fill_value=0).astype("float32")
     except ProviderError:
         raise
     except RasterioIOError as exc:
         msg = str(exc)
         if "404" in msg or "not exist" in msg or "No such file" in msg:
-            raise ProviderNotFound(msg) from exc
+            raise ProviderNotFound(_PROVIDER, "raster not found at this location") from exc
         if "timed out" in msg.lower() or "timeout" in msg.lower():
-            raise ProviderTimeout(msg) from exc
-        raise ProviderNetworkError(msg) from exc
+            raise ProviderTimeout(_PROVIDER, "raster read timed out") from exc
+        raise ProviderNetworkError(_PROVIDER, f"raster read failed ({type(exc).__name__})") from exc
+    except Exception as exc:  # any other GDAL / rasterio failure is an unreadable reply, not an absence of data
+        if type(exc).__module__.startswith("rasterio"):
+            raise ProviderMalformed(_PROVIDER, f"unreadable raster ({type(exc).__name__})") from exc
+        raise
 
 
 def landcover_fractions(window: np.ndarray) -> dict:

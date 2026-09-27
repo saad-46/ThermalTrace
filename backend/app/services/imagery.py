@@ -60,7 +60,7 @@ def scene_indices(item: dict, lat: float, lon: float) -> dict:
     assets = item.get("assets") or {}
     for need in REQUIRED_ASSETS:
         if need not in assets:
-            raise ProviderMalformed(f"scene lacks the {need} asset")
+            raise ProviderMalformed("earth_search", f"scene lacks the {need} asset")
     baseline = item.get("properties", {}).get("s2:processing_baseline")
     baseline_f = float(baseline) if baseline not in (None, "") else None
     band = {k: raster.read_window(assets[k]["href"], lat, lon, WINDOW_HALF_M, OUT_PX) for k in REQUIRED_ASSETS}
@@ -75,7 +75,7 @@ def scene_indices(item: dict, lat: float, lon: float) -> dict:
 
 
 def _fetch_item(url: str) -> dict:
-    return request("earth_search", "GET", url, timeout=30, max_attempts=3).response.json()
+    return request("earth_search", "GET", url, timeout=30, max_attempts=3).json()
 
 
 def pick_scenes(scenes: list, ev, before: bool) -> list:
@@ -125,7 +125,8 @@ def _scene_json(s, idx: dict) -> dict:
 
 
 def analyse_event_imagery(db: Session, ev: ThermalEvent) -> ImageryAnalysis:
-    """Compute and store the analysis. Provider errors are recorded as `unavailable` with the reason."""
+    """Compute and store the analysis: `ok`, `unavailable` (no suitable data, with the reason) or `failed` (the provider
+    could not be read, with the category). A failure is never stored as an absence of data."""
     scenes = list(db.execute(select(SatelliteObservation).where(SatelliteObservation.event_id == ev.id)).scalars())
     row = ImageryAnalysis(event_id=ev.id, source_id=SOURCE_ID, status="unavailable", window_m=WINDOW_HALF_M * 2,
                           method=METHOD, retrieved_at=datetime.now(UTC))
@@ -158,9 +159,10 @@ def analyse_event_imagery(db: Session, ev: ThermalEvent) -> ImageryAnalysis:
                     row.status, row.finding, row.deltas = "ok", classify_change(deltas["ndvi"], deltas["nbr"]), deltas
     except ProviderError as exc:
         logger.warning("imagery analysis for %s failed: %s", ev.public_id, exc)
-        source_health.record_failure(db, SOURCE_ID, str(exc))
-        row.reason = (f"Sentinel-2 imagery could not be read ({source_health.error_category(exc).replace('_', ' ')}); "
-                      "try again later.")
+        category = source_health.error_category(exc)
+        source_health.record_failure(db, SOURCE_ID, exc, category)
+        row.status = "failed"
+        row.reason = f"Sentinel-2 imagery could not be read ({category.replace('_', ' ')}); try again later."
     db.execute(delete(ImageryAnalysis).where(ImageryAnalysis.event_id == ev.id))
     db.add(row)
     db.flush()

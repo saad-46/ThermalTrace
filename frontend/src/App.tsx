@@ -23,6 +23,9 @@ const Analytics = lazy(() => import("./pages/Analytics"));
 const DataSources = lazy(() => import("./pages/DataSources"));
 const SystemHealth = lazy(() => import("./pages/SystemHealth"));
 const Settings = lazy(() => import("./pages/Settings"));
+const ClusterPage = lazy(() => import("./pages/ClusterPage"));
+const ComparePage = lazy(() => import("./pages/ComparePage"));
+const ShareView = lazy(() => import("./pages/ShareView"));
 const MobileApp = lazy(() => import("./mobile/MobileApp"));
 
 const qc = new QueryClient({
@@ -47,12 +50,15 @@ function Gate() {
     <>
     {tour}
     <Routes>
+      <Route path="/events/:ref/view" element={<Suspense fallback={fallback}><ShareView /></Suspense>} />
       <Route element={<DesktopShell />}>
         <Route index element={<Navigate to="/map" replace />} />
         <Route path="/overview" element={<Suspense fallback={fallback}><Overview /></Suspense>} />
         <Route path="/map" element={<Suspense fallback={fallback}><LiveMap /></Suspense>} />
         <Route path="/events" element={<Suspense fallback={fallback}><Events /></Suspense>} />
         <Route path="/events/:ref" element={<Suspense fallback={fallback}><EventPage /></Suspense>} />
+        <Route path="/events/:ref/cluster" element={<Suspense fallback={fallback}><ClusterPage /></Suspense>} />
+        <Route path="/compare" element={<Suspense fallback={fallback}><ComparePage /></Suspense>} />
         <Route path="/facilities" element={<Suspense fallback={fallback}><Facilities /></Suspense>} />
         <Route path="/facilities/:id" element={<Suspense fallback={fallback}><FacilityPage /></Suspense>} />
         <Route path="/alerts" element={<Suspense fallback={fallback}><Alerts /></Suspense>} />

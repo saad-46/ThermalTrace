@@ -520,7 +520,7 @@ def test_source_probe_records_real_outcomes_only(monkeypatch):
         def commit(self): ...
 
     monkeypatch.setattr("app.services.source_health.record_success", lambda db, sid, *a, **k: calls.append(("ok", sid)))
-    monkeypatch.setattr("app.services.source_health.record_failure", lambda db, sid, err: calls.append(("fail", sid, err)))
+    monkeypatch.setattr("app.services.source_health.record_failure", lambda db, sid, err, category=None: calls.append(("fail", sid, err)))
     checks = []
     monkeypatch.setattr("app.services.source_health.record_check",
                         lambda db, sid, cap, ok, latency=None, status=None, err=None: checks.append((sid, cap, ok, latency, status, err)))
@@ -710,7 +710,8 @@ def test_cdse_token_missing_invalid_and_valid_credentials(monkeypatch):
 
     def grant(provider, method, url, data=None, **kw):
         calls.append((url, data, kw.get("params"), kw.get("headers")))
-        return SimpleNamespace(response=SimpleNamespace(json=lambda: {"access_token": "tok", "expires_in": 600}), latency_ms=5.0)
+        body = {"access_token": "tok", "expires_in": 600}
+        return SimpleNamespace(response=SimpleNamespace(json=lambda: body), json=lambda: body, latency_ms=5.0)
 
     monkeypatch.setattr(sentinel, "request", grant)
     assert sentinel.verify_cdse_credentials() >= 0

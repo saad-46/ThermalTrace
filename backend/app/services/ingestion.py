@@ -103,8 +103,8 @@ def ingest_firms_nrt(db: Session, datasets: list[str] | None = None, window: str
         try:
             result = client.get_recent_detections(ds, window=window)
         except ProviderError as exc:
-            finish_run(run, "failed", started, str(exc))
-            source_health.record_failure(db, "firms", str(exc))
+            finish_run(run, "failed", started, f"[{source_health.error_category(exc)}] {exc}")
+            source_health.record_failure(db, "firms", exc)
             db.commit()
             summary[ds] = {"status": "failed", "error": str(exc)}
             continue
@@ -149,8 +149,8 @@ def ingest_firms_historical(db: Session, source: str, start: str, days: int, bbo
         try:
             result = client.get_historical_detections(source, bbox, win_start, n)
         except ProviderError as exc:
-            finish_run(run, "failed", started, str(exc))
-            source_health.record_failure(db, "firms", str(exc))
+            finish_run(run, "failed", started, f"[{source_health.error_category(exc)}] {exc}")
+            source_health.record_failure(db, "firms", exc)
             db.commit()
             logger.error("firms backfill %s stopped at %s: %s (%s)", source, win_start, exc, totals)
             raise

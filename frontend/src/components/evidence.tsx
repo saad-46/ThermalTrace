@@ -1,20 +1,29 @@
 import { ExternalLink } from "lucide-react";
 import { Link } from "react-router-dom";
 import { compass, coordsLabel, fmtDate, fmtDateTime, fmtDistance, fmtNum, fmtPct, locationLabel, relTime, titleCase } from "../lib/format";
-import { CLASS_META, CONFIDENCE_EXPLAINER, FACILITY_LABELS, KNOWLEDGE_LABELS, SOURCE_NAMES, confidenceNote } from "../lib/taxonomy";
-import type { EventDetail, EventSummary, Evidence } from "../lib/types";
+import { CLASS_META, CONFIDENCE_EXPLAINER, FACILITY_LABELS, FEATURE_LABELS, KNOWLEDGE_LABELS, SOURCE_NAMES, confidenceNote } from "../lib/taxonomy";
+import type { Contribution, EventDetail, EventSummary, Evidence } from "../lib/types";
 import { ContributionChart, EvolutionChart } from "./charts";
 import { PersistenceStrip } from "./triage";
 import { ClassLabel, Empty, Meter, PersistencePill, StatePill } from "./ui";
 
 const DIR_MARK: Record<Evidence["direction"], string> = { supports: "+", contradicts: "−", neutral: "·", missing: "?" };
 const COMPONENT_LABELS: Record<string, string> = {
-  model_probability: "Model probability", model_agreement: "Model agreement", context_support: "Context support",
+  model_probability: "Model class score", model_agreement: "Model agreement", context_support: "Context support",
   temporal_consistency: "Temporal consistency", sensor_agreement: "Sensor agreement", satellite: "Satellite imagery",
   weather: "Weather context", data_quality: "Data quality",
 };
 
 /** The product's core question set, answered in one block. */
+/** Why a piece of evidence is absent, from the server's evidence stage: failed, not requested and pending are never
+ *  shown as "none found". `noneFound` is used only when the provider answered without data. */
+function absent(ev: EventDetail, key: string, noneFound: string): string {
+  const st = ev.evidence_stages?.stages.find((s) => s.key === key);
+  if (!st) return "Not available";
+  if (st.state === "available" || st.state === "no_data") return noneFound;
+  return st.reason ? `${st.state_label}: ${st.reason}` : st.state_label;
+}
+
 export function AnswerGrid({ ev }: { ev: EventDetail }) {
   const top = ev.facilities[0];
   const pm = ev.persistence_metrics;
@@ -32,11 +41,11 @@ export function AnswerGrid({ ev }: { ev: EventDetail }) {
       <dt>What type</dt>
       <dd><ClassLabel cls={ev.classification} /> · <PersistencePill p={ev.persistence_class} /></dd>
       <dt>Nearby facility</dt>
-      <dd>{top ? <>{fmtDistance(top.distance_m)} {top.bearing_deg != null ? compass(top.bearing_deg) : ""} — {top.name ?? "unnamed"} ({FACILITY_LABELS[top.facility_type] ?? top.facility_type})</> : <span className="faint">None mapped within 10 km</span>}</dd>
+      <dd>{top ? <>{fmtDistance(top.distance_m)} {top.bearing_deg != null ? compass(top.bearing_deg) : ""} — {top.name ?? "unnamed"} ({FACILITY_LABELS[top.facility_type] ?? top.facility_type})</> : <span className="faint">{absent(ev, "facility_proximity", "None mapped within 10 km")}</span>}</dd>
       <dt>Satellite</dt>
-      <dd>{ev.satellite.length ? `${ev.satellite.length} Sentinel-2 scene(s), clearest ${fmtNum(Math.min(...ev.satellite.map((s) => s.cloud_cover ?? 100)), 0)}% cloud` : <span className="faint">{ev.enrichment_state?.satellite ? "No suitable scene" : "Not yet searched"}</span>}</dd>
+      <dd>{ev.satellite.length ? `${ev.satellite.length} Sentinel-2 scene(s), clearest ${fmtNum(Math.min(...ev.satellite.map((s) => s.cloud_cover ?? 100)), 0)}% cloud` : <span className="faint">{absent(ev, "satellite", "No suitable scene")}</span>}</dd>
       <dt>Weather</dt>
-      <dd>{ev.weather[0] ? `${ev.weather[0].condition ?? "—"}, wind ${fmtNum(ev.weather[0].wind_speed_ms)} m/s from ${compass(ev.weather[0].wind_direction_deg)}` : <span className="faint">Not available</span>}</dd>
+      <dd>{ev.weather[0] ? `${ev.weather[0].condition ?? "—"}, wind ${fmtNum(ev.weather[0].wind_speed_ms)} m/s from ${compass(ev.weather[0].wind_direction_deg)}` : <span className="faint">{absent(ev, "weather", "No weather for this time")}</span>}</dd>
       <dt>Confidence</dt>
       <dd><StatePill state={ev.display_state} /> <span className="num">{fmtNum(ev.confidence_score, 2)}</span>
         <div className="faint" style={{ fontSize: 11.5 }}>{confidenceNote(ev.display_state)}</div></dd>
@@ -250,7 +259,7 @@ export function ModelPanel({ ev }: { ev: EventDetail }) {
       {rule && (
         <div>
           <h4 style={{ marginBottom: 6 }}>Rule cascade · {rule.model_version_id}{primary === rule.model_version_id ? " · primary" : ""}</h4>
-          <div className="row" style={{ marginBottom: 6 }}><ClassLabel cls={rule.prediction} /><span className="num muted">p = {rule.probability.toFixed(2)}</span></div>
+          <div className="row" style={{ marginBottom: 6 }}><ClassLabel cls={rule.prediction} /><span className="num muted" title="Rule-cascade score for this class; not a probability of fire">class score {rule.probability.toFixed(2)}</span></div>
           <ol style={{ margin: 0, paddingLeft: 18, fontSize: 12.5 }}>{rule.explanation?.trace.map((t, i) => <li key={i}>{t}</li>)}</ol>
           {rule.explanation?.notes.map((n) => <div key={n} className="faint" style={{ fontSize: 11.5, marginTop: 4 }}>{n}</div>)}
         </div>
@@ -258,9 +267,19 @@ export function ModelPanel({ ev }: { ev: EventDetail }) {
       {gbm ? (
         <div>
           <h4 style={{ marginBottom: 6 }}>Gradient boosting · {gbm.model_version_id}{primary === gbm.model_version_id ? " · primary" : ""}</h4>
-          <div className="row" style={{ marginBottom: 8 }}><ClassLabel cls={gbm.prediction} /><span className="num muted">p = {gbm.probability.toFixed(2)}</span></div>
+          <div className="row" style={{ marginBottom: 8 }}><ClassLabel cls={gbm.prediction} /><span className="num muted" title="Model score for this class among the known classes; not a probability of fire">class score {gbm.probability.toFixed(2)}</span></div>
           <div className="label-sm" style={{ marginBottom: 6 }}>Model evidence (SHAP) — why the model leaned this way. Not causal proof.</div>
+          <ShapSummary items={gbm.explanation?.contributions ?? []} cls={gbm.prediction} />
           <ContributionChart items={gbm.explanation?.contributions ?? []} label="SHAP contributions" />
+          <details className="learn-more" style={{ marginTop: 8 }}>
+            <summary>How to read this</summary>
+            <p className="faint" style={{ fontSize: 12, margin: "6px 0 0" }}>
+              Each bar is one input to model {gbm.model_version_id}. A bar to the right (+) pushed the model towards
+              “{CLASS_META[gbm.prediction]?.label ?? gbm.prediction}”, a bar to the left (−) pushed it away; the length is how much.
+              The number next to the name is the input's value for this event. SHAP (SHapley Additive exPlanations) describes how the
+              model used the inputs. It does not show that an input caused the heat, and it cannot show anything the inputs do not contain.
+            </p>
+          </details>
           <ProbBars probs={gbm.probabilities} />
         </div>
       ) : (
@@ -270,11 +289,26 @@ export function ModelPanel({ ev }: { ev: EventDetail }) {
   );
 }
 
+/** One sentence a non-ML analyst can read: the strongest inputs towards and away from the predicted class. */
+function ShapSummary({ items, cls }: { items: Contribution[]; cls: string }) {
+  if (!items.length) return null;
+  const name = (f: string) => FEATURE_LABELS[f] ?? f.replace(/_/g, " ");
+  const toward = items.filter((c) => c.contribution > 0).sort((a, b) => b.contribution - a.contribution).slice(0, 3).map((c) => name(c.feature));
+  const away = items.filter((c) => c.contribution < 0).sort((a, b) => a.contribution - b.contribution).slice(0, 2).map((c) => name(c.feature));
+  const label = CLASS_META[cls as keyof typeof CLASS_META]?.label ?? cls;
+  return (
+    <p style={{ fontSize: 12.5, margin: "0 0 8px" }}>
+      {toward.length ? <>Mostly pushed towards <b>{label}</b> by {toward.join(", ")}.</> : <>No input pushed strongly towards {label}.</>}
+      {away.length ? <> Pushed away by {away.join(", ")}.</> : null}
+    </p>
+  );
+}
+
 function ProbBars({ probs }: { probs: Record<string, number> }) {
   const rows = Object.entries(probs).sort((a, b) => b[1] - a[1]).slice(0, 5);
   return (
     <div className="stack" style={{ gap: 4, marginTop: 10 }}>
-      <div className="label-sm">Class probabilities</div>
+      <div className="label-sm" title="The model's score for each class it knows; not the probability that a fire is burning or of its cause">Model class scores</div>
       {rows.map(([k, v]) => (
         <div key={k} style={{ display: "grid", gridTemplateColumns: "140px 1fr 40px", gap: 8, alignItems: "center", fontSize: 12 }}>
           <span>{CLASS_META[k as keyof typeof CLASS_META]?.short ?? k}</span>

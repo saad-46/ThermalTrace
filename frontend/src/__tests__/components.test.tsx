@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { ContributionChart } from "../components/charts";
-import { EvidenceChain, PersistenceStrip, PriorityPanel, PriorityPill } from "../components/triage";
+import { PersistenceStrip, PriorityPanel, PriorityPill } from "../components/triage";
 import { Boundary, Meter, StatePill } from "../components/ui";
 import { event } from "./fixture";
 
@@ -25,13 +25,6 @@ describe("triage components", () => {
   it("PriorityPanel handles events without a computed priority", () => {
     render(<PriorityPanel p={null} />);
     expect(screen.getByText(/not computed/i)).toBeTruthy();
-  });
-
-  it("EvidenceChain renders every stage with accessible list semantics", () => {
-    render(<EvidenceChain ev={event()} />);
-    const list = screen.getByRole("list", { name: "Evidence chain" });
-    expect(list.querySelectorAll("li")).toHaveLength(13);
-    expect(screen.getByText("No scene available")).toBeTruthy();
   });
 
   it("PersistenceStrip shows gap days explicitly", () => {
@@ -69,5 +62,22 @@ describe("shared ui", () => {
     console.error = orig;
     expect(screen.getByRole("alert").textContent).toMatch(/WebGL is unavailable/);
     expect(() => fireEvent.click(screen.getByText("Retry"))).not.toThrow();
+  });
+});
+
+describe("error states", () => {
+  it("names the kind of failure and offers retry only when it can help", async () => {
+    const { ApiError } = await import("../lib/api");
+    const { ErrorState } = await import("../components/ui");
+    const cases: [number, string, boolean][] = [
+      [401, "Signed out", false], [403, "Not permitted", false], [404, "Not found", false],
+      [400, "Request not accepted", false], [429, "Too many requests", true], [503, "Data source unavailable", true], [500, "Could not load data", true],
+    ];
+    for (const [status, title, retry] of cases) {
+      render(<ErrorState error={new ApiError(status, "x", "message")} retry={() => undefined} />);
+      expect(screen.getByText(title)).toBeTruthy();
+      expect(!!screen.queryByRole("button", { name: /Retry/ })).toBe(retry);
+      cleanup();
+    }
   });
 });

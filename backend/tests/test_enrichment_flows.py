@@ -176,9 +176,12 @@ def test_unknown_steps_are_rejected_and_demo_sessions_cannot_request(client, db,
 
 # ------------------------------------------------------------------ weather
 class _Res:
+    """Stands in for integrations.http.HttpResult (response, latency_ms and the checked json())."""
+
     def __init__(self, payload):
         self.response = SimpleNamespace(json=lambda: payload)
         self.latency_ms = 42.0
+        self.json = lambda: payload
 
 
 def _hourly(hour: str, temp=31.2, wind=18.0):

@@ -6,7 +6,9 @@ export type SourceClass =
 export type PersistenceClass = "transient" | "recurring" | "persistent";
 export type DisplayState =
   | "CONFIRMED" | "HIGH_CONFIDENCE" | "MODERATE_CONFIDENCE" | "LOW_CONFIDENCE" | "INSUFFICIENT_EVIDENCE"
-  | "UNDER_REVIEW" | "ANALYST_CONFIRMED" | "ANALYST_REJECTED";
+  | "UNDER_REVIEW" | "ANALYST_CONFIRMED" | "ANALYST_REJECTED" | "ANALYST_REVIEWED";
+/** thermal_events.review_status (backend processing/confidence.py REVIEW_STATUSES). */
+export type ReviewStatus = "unreviewed" | "under_review" | "escalated" | "reviewed" | "analyst_confirmed" | "analyst_rejected" | "false_positive";
 export type DataMode = "live" | "historical" | "demo";
 
 export interface User {
@@ -47,7 +49,7 @@ export interface EventSummary {
   frp_mean: number | null;
   night_fraction: number | null;
   status: "active" | "dormant" | "closed";
-  review_status: string;
+  review_status: ReviewStatus;
   persistence_class: PersistenceClass | null;
   persistence_score: number | null;
   classification: SourceClass | null;
@@ -88,7 +90,8 @@ export interface SearchResults {
   coordinates: { latitude: number; longitude: number } | null;
   events: { id: string; public_id: string; classification: SourceClass | null; confidence_state: DisplayState | null; review_status: string; admin_district: string | null; admin_state: string | null; distance_m: number | null }[];
   places: { admin_district: string | null; admin_state: string | null; events: number; latitude: number; longitude: number }[];
-  facilities: { id: string; name: string | null; facility_type: string; operator: string | null; latitude: number; longitude: number; primary_source: string }[];
+  facilities: { id: string; name: string | null; facility_type: string; operator: string | null; latitude: number; longitude: number; primary_source: string; match?: string; matched_value?: string | null }[];
+  states?: { state: string; events: number; latitude: number; longitude: number }[];
   classifications: { key: SourceClass; label: string }[];
 }
 
@@ -216,11 +219,15 @@ export interface Scene {
   bbox: number[] | null;
   retrieved_at: string;
 }
+/** What kind of knowledge a value is. `registry` is facility reference data (OSM, WRI, GEM, CEA), not an observation. */
+export type Knowledge = "observed" | "derived" | "inferred" | "analyst" | "registry";
 export interface TimelineItem {
   at: string;
-  kind: "first_seen" | "observation" | "satellite" | "weather" | "classification" | "review" | "alert" | "latest";
+  kind: "first_seen" | "observation" | "gap" | "clustered" | "facility" | "enrichment" | "satellite" | "weather" | "spectral"
+    | "classification" | "review" | "note" | "alert" | "latest";
   label: string;
   detail: string | null;
+  knowledge?: Knowledge;
 }
 export interface MatrixRow {
   type: string;
@@ -251,6 +258,8 @@ export interface Review {
   notes: string | null;
   system_source_class: string | null;
   system_confidence_score: number | null;
+  previous_status?: string | null;
+  new_status?: string | null;
   created_at: string;
   reviewer: string | null;
 }
@@ -281,7 +290,8 @@ export interface SpectralScene {
   valid_fraction: number;
 }
 export interface ImageryAnalysis {
-  status: "ok" | "unavailable";
+  /** ok · unavailable: no suitable data (reason says why) · failed: the provider could not be read */
+  status: "ok" | "unavailable" | "failed";
   reason: string | null;
   finding: "vegetation_loss_consistent" | "partial_change" | "no_change_detected" | null;
   window_m: number;
@@ -330,7 +340,133 @@ export interface EventDetail extends EventSummary {
   jobs?: EventJob[];
   /** Whether NDVI/NBR can be attempted from the stored scenes (same rule the API enforces). */
   imagery_readiness?: { ready: boolean; reason: string | null; max_cloud: number } | null;
+  /** The 13 evidence stages and how many are available (availability, not confidence). */
+  evidence_stages?: { stages: EvidenceStage[]; completeness: Completeness; freshness: EventFreshness } | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
+
+export type StageStatus = "available" | "pending" | "no_data" | "not_requested" | "failed" | "review";
+export interface EvidenceStage {
+  key: string;
+  title: string;
+  state: StageStatus;
+  state_label: string;
+  value: string;
+  detail: string | null;
+  reason: string | null;
+  source: string;
+  at: string | null;
+  contributes: string;
+  limitation: string;
+  knowledge: Knowledge;
+}
+/** Distinct times, never conflated: heat last observed, evidence last refreshed, record last changed. */
+export interface EventFreshness {
+  latest_observation_at: string | null;
+  latest_evidence_refresh_at: string | null;
+  processed_at: string | null;
+  record_updated_at: string | null;
+}
+export interface Completeness { available: number; total: number; by_state: Record<StageStatus, number>; note: string }
+
+export interface KeyCount { key: string; n: number }
+export interface ActivityCounts {
+  this_week: number; previous_week: number; last_30_days: number; previous_30_days: number; total: number;
+  first_activity: string | null; last_activity: string | null; detections: number; frp_max_mean: number | null;
+  frp_max: number | null; weekly_average: number; history_weeks: number;
+}
+export interface Recurrence { radius_km: number; activity: ActivityCounts; classifications: KeyCount[]; persistence: KeyCount[];
+  monthly: { month: string; events: number }[]; note: string }
+export interface ClusterEvent {
+  id: string; public_id: string; latitude: number; longitude: number; first_detected: string; last_detected: string;
+  observation_count: number; frp_max: number | null; classification: SourceClass | null; persistence_class: PersistenceClass | null;
+  confidence_state: DisplayState | null; review_status: string; priority_score: number | null; distance_m: number;
+}
+export interface Cluster {
+  cluster_id: string; anchor: { public_id: string; latitude: number; longitude: number; first_detected: string; last_detected: string };
+  radius_km: number; days: number;
+  summary: { events: number; detections: number; first_detected: string | null; last_detected: string | null; frp_max: number | null;
+    frp_mean: number | null; extent: GeoJSON.Geometry | null; max_distance_m: number | null; duration_hours: number };
+  classifications: KeyCount[]; persistence: KeyCount[]; landcover: KeyCount[];
+  facilities: { id: string; name: string | null; facility_type: string; latitude: number; longitude: number; events: number;
+    min_distance_m: number; attributed: number }[];
+  events: ClusterEvent[]; truncated: boolean; note: string;
+}
+export interface SimilarEvent extends EventSummary { fp_distance?: number | null; distance_m?: number | null; similarity_reasons?: string[] }
+export interface CompareRecord {
+  id: string; public_id: string; latitude: number; longitude: number; place: string | null; state: string | null;
+  first_detected: string; last_detected: string; classification: SourceClass | null; confidence_state: string | null;
+  confidence_score: number | null; display_state: DisplayState; priority_score: number | null; frp_max: number | null;
+  frp_mean: number | null; brightness_max: number | null; observation_count: number; persistence_class: PersistenceClass | null;
+  days_active: number;
+  facility: { name: string | null; type: string; distance_m: number; rank: number; attribution_score: number } | null;
+  landcover: { dominant: string; share: number | null } | null;
+  weather: { condition: string | null; temperature_c: number | null; wind_speed_ms: number | null; wind_direction_deg: number | null; observed_at: string } | null;
+  imagery: { scenes: number; spectral_status: string | null; finding: string | null; deltas: { ndvi: number; nbr: number } | null; reason: string | null };
+  shap_top: { feature: string; value: number | null; contribution: number }[] | null;
+  review_status: string;
+  completeness: Completeness;
+}
+export interface Compare { a: CompareRecord; b: CompareRecord; distance_m: number; note: string }
+
+export interface FacilityActivityProfile {
+  within_m: number;
+  counts: { within_2km: number; within_10km: number; attributed: number };
+  activity: ActivityCounts;
+  comparison: { current_week: number; previous_week: number; weekly_average: number; current_30_days: number; previous_30_days: number; note: string };
+  distributions: { frp: { from: number; to: number | null; n: number }[]; brightness: { from: number; to: number | null; n: number }[];
+    persistence: KeyCount[]; classifications: KeyCount[]; hour_of_day: { hour: number; daynight: string | null; n: number }[] };
+  weekly: { week: string; events: number; detections: number }[];
+  source_agreement: { sources: Record<string, { present: boolean; records: { source_id: string; external_id: string; name: string | null }[] }>;
+    count: number; note: string };
+  note: string;
+}
+
+export interface EvidenceCoverage {
+  events: number; detection: number; clustering: number; persistence: number; facility_proximity: number; facility_attribution: number;
+  landcover: number; weather: number; satellite: number; spectral: number; classification: number; explainability: number;
+  review: number; final_status: number; mean_stages: number | null; stages_total: number; note: string;
+}
+export interface AnalyticsOverview {
+  filters: { since: string; until: string; state: string | null; district: string | null; facility_id: string | null; classification: string[] };
+  totals: { events: number; detections: number; active: number; active_investigations: number; needs_review: number; confirmed: number;
+    rejected: number; reviewed: number; high_priority_queue: number; persistent: number };
+  recurring_facilities: number;
+  evidence_coverage: EvidenceCoverage;
+  processing: { running: number; queued: number; last_failure: string | null };
+  note: string;
+}
+export interface Recurring {
+  days: number; min_events: number;
+  facilities: { id: string; name: string | null; facility_type: string; latitude: number; longitude: number; state: string | null;
+    current: number; previous: number; frp_max: number | null; last_activity: string }[];
+  places: { latitude: number; longitude: number; place: string | null; state: string | null; current: number; previous: number;
+    frp_max: number | null; classification: string | null }[];
+  note: string;
+}
+export type LiveSourceStatus = "healthy" | "configured" | "optional" | "no_data" | "degraded" | "failed" | "not_configured";
+export interface LiveStatus {
+  sources: { id: string; name: string; kind: string; status: LiveSourceStatus; label: string; requires_credentials: boolean; optional: boolean;
+    last_success_at: string | null; last_failure_at: string | null }[];
+  sources_active: number; sources_total: number;
+  jobs: { running: number; queued: number; failed_24h: number; running_jobs: { kind: string; status: string; started_at: string }[] };
+  last_firms_update: string | null; last_weather_update: string | null; last_satellite_search: string | null;
+  last_failed_source: { id: string; name: string; at: string; category: string | null } | null;
+  worker_online: boolean;
+}
+export interface SourceDetail {
+  id: string; name: string; kind: string; purpose: string | null; access: string; authentication: string; optional: boolean;
+  optional_detail: string | null; status: LiveSourceStatus; label: string; reason: string; last_success_at: string | null;
+  last_failure_at: string | null; last_error_category: string | null; records_total: number; requests_total: number;
+  requests_failed: number; latency_ms: number | null; rate_limit: string; checks: Record<string, unknown> | null;
+}
+export interface AlertCondition { condition: string; label: string; threshold: string | number | null; observed: string | number | null;
+  previous?: number | null; result: string }
+export interface AlertExplanation { rule: string; rule_id?: string; rule_snapshot?: Record<string, unknown>; conditions: AlertCondition[]; summary: string; result: string; evaluated_at: string;
+  event: string; facility: string | null; facility_distance_m: number | null;
+  evidence: { classification: string | null; confidence_state: string | null; priority: number | null; evidence_stages: number | null; last_detected: string | null };
+  note: string }
 
 /** One enrichment step's recorded outcome: ok (provider answered), no_data (answered without an observation), failed. */
 export interface EnrichmentStep {
@@ -391,6 +527,8 @@ export interface FacilityRelationship {
   attribution_score: number | null;
   rule_radius_m: number;
   search_radius_m: number;
+  evidence?: { statement: string; direction: string; strength: number; knowledge_type: string }[];
+  temporal?: { around_event: number; total: number; first_activity: string | null; last_activity: string | null; note: string };
   note: string;
 }
 
@@ -415,6 +553,11 @@ export interface AlertRule {
   min_repeat_events: number | null;
   repeat_days: number;
   activity_increase: boolean;
+  increase_factor: number;
+  increase_window_days: number;
+  repeat_within_m: number | null;
+  min_active_days: number | null;
+  min_evidence_stages: number | null;
   last_notified_at: string | null;
   created_at: string;
   last_triggered_at: string | null;
@@ -493,7 +636,9 @@ export interface DataSource {
   status: string;
   last_success_at: string | null;
   last_failure_at: string | null;
+  /** raw provider message: administrators only (null for everyone else) */
   last_error: string | null;
+  last_error_category: string | null;
   last_record_at: string | null;
   records_total: number;
   requests_total: number;

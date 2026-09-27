@@ -32,8 +32,14 @@ DEMO_ACCOUNTS: dict[str, tuple[str, str]] = {
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 # Writes a demo session may still make: ending itself.
 DEMO_ALLOWED_WRITES = frozenset({"/api/v1/auth/logout"})
-# Reads refused to demo sessions because each call consumes a paid/limited external quota.
-_DEMO_BLOCKED_READS = (re.compile(r"^/api/v1/satellite/[^/]+/swir\.png$"),)
+# Reads refused to demo sessions: each call consumes a paid/limited external quota, calls a provider live, or exports
+# records that cannot be masked (a report PDF, the adjudicated training dataset).
+_DEMO_BLOCKED_READS = (
+    re.compile(r"^/api/v1/satellite/[^/]+/swir\.png$"),
+    re.compile(r"^/api/v1/weather/current$"),
+    re.compile(r"^/api/v1/reports/[^/]+/download$"),
+    re.compile(r"^/api/v1/ml/training-dataset$"),
+)
 
 
 def ensure_enabled() -> None:
@@ -69,9 +75,13 @@ def enforce_read_only(method: str, path: str) -> None:
     if method.upper() not in SAFE_METHODS and path not in DEMO_ALLOWED_WRITES:
         raise Forbidden("Changes are disabled in demo mode. Sign in with an account to make changes.", code="demo_read_only")
     if any(p.match(path) for p in _DEMO_BLOCKED_READS):
-        raise Forbidden("This view uses a limited external quota and is disabled in demo mode.", code="demo_quota_protected")
+        raise Forbidden("This is disabled in demo mode: it calls an external provider or exports records that cannot be "
+                        "anonymised. Sign in with an account to use it.", code="demo_quota_protected")
 
 
+# Keys that hold a person's name in API payloads; demo sessions see a role placeholder instead.
+_NAME_KEYS = {"full_name", "reviewer", "author", "assignee", "user_name", "created_by_name"}
+_HIDDEN_NAME = "(name hidden in demo)"
 _EMAIL = re.compile(r"([A-Za-z0-9._%+-])[A-Za-z0-9._%+-]*@([A-Za-z0-9.-]+\.[A-Za-z]{2,})")
 _IP_KEYS = {"ip", "client_ip", "remote_addr"}
 
@@ -82,11 +92,12 @@ def mask_email(value: str) -> str:
 
 
 def mask_pii(obj):
-    """Recursively mask e-mail addresses and IP addresses for demo sessions."""
+    """Recursively mask e-mail addresses, IP addresses and people's names for demo sessions (demo data is real)."""
     if isinstance(obj, str):
         return mask_email(obj)
     if isinstance(obj, dict):
-        return {k: ("hidden in demo mode" if k in _IP_KEYS and v else mask_pii(v)) for k, v in obj.items()}
+        return {k: ("hidden in demo mode" if k in _IP_KEYS and v else _HIDDEN_NAME if k in _NAME_KEYS and v else mask_pii(v))
+                for k, v in obj.items()}
     if isinstance(obj, list | tuple):
         return [mask_pii(v) for v in obj]
     return obj

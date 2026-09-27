@@ -49,7 +49,11 @@ def _owned_rule(db: Session, rule_id: uuid.UUID, user: User) -> AlertRule:
     return r
 
 
-def _apply_rule(r: AlertRule, body: AlertRuleIn) -> None:
+def _apply_rule(db: Session, r: AlertRule, body: AlertRuleIn) -> None:
+    if body.watchlist_id:
+        wl = db.get(Watchlist, body.watchlist_id)
+        if wl is None or wl.owner_id != r.owner_id:  # never another user's watchlist (also on update)
+            raise NotFound("Watchlist not found")
     if (body.latitude is None) != (body.longitude is None):
         raise AppError("Provide both latitude and longitude, or neither", code="invalid_center")
     if body.latitude is None and body.watchlist_id is None and not (
@@ -70,12 +74,8 @@ def list_rules(user: User = CurrentUser, db: Session = Depends(get_db)):
 
 @router.post("/alert-rules", response_model=AlertRuleOut, status_code=201, tags=["alerts"])
 def create_rule(body: AlertRuleIn, request: Request, user: User = AnalystUser, db: Session = Depends(get_db)):
-    if body.watchlist_id:
-        wl = db.get(Watchlist, body.watchlist_id)
-        if wl is None or wl.owner_id != user.id:
-            raise NotFound("Watchlist not found")
     r = AlertRule(owner_id=user.id)
-    _apply_rule(r, body)
+    _apply_rule(db, r, body)
     db.add(r)
     db.flush()
     audit.record(db, request, user.id, "alert_rule.create", "alert_rule", r.id)
@@ -94,7 +94,7 @@ def create_rule(body: AlertRuleIn, request: Request, user: User = AnalystUser, d
 def update_rule(rule_id: uuid.UUID, body: AlertRuleIn, request: Request, user: User = AnalystUser, db: Session = Depends(get_db)):
     r = _owned_rule(db, rule_id, user)
     before = _rule_out(db, r)
-    _apply_rule(r, body)
+    _apply_rule(db, r, body)
     db.flush()
     after = _rule_out(db, r)
     changed = {k: {"from": before[k], "to": after[k]} for k in after
@@ -107,8 +107,9 @@ def update_rule(rule_id: uuid.UUID, body: AlertRuleIn, request: Request, user: U
 @router.delete("/alert-rules/{rule_id}", status_code=204, tags=["alerts"])
 def delete_rule(rule_id: uuid.UUID, request: Request, user: User = AnalystUser, db: Session = Depends(get_db)):
     r = _owned_rule(db, rule_id, user)
+    snapshot = jsonable_encoder(_rule_out(db, r))
     db.delete(r)
-    audit.record(db, request, user.id, "alert_rule.delete", "alert_rule", rule_id)
+    audit.record(db, request, user.id, "alert_rule.delete", "alert_rule", rule_id, {"previous": snapshot})
     db.commit()
 
 
@@ -135,13 +136,15 @@ def unread(user: User = CurrentUser, db: Session = Depends(get_db)):
 
 
 @router.post("/alerts/{alert_id}/{action}", tags=["alerts"])
-def alert_action(alert_id: uuid.UUID, action: str, user: User = CurrentUser, db: Session = Depends(get_db)):
+def alert_action(alert_id: uuid.UUID, action: str, request: Request, user: User = CurrentUser, db: Session = Depends(get_db)):
     a = db.get(Alert, alert_id)
     if a is None or a.user_id != user.id:
         raise NotFound("Alert not found")
     if action not in ("acknowledge", "resolve"):
         raise NotFound("Unknown action")
+    previous = a.status
     a.status = "acknowledged" if action == "acknowledge" else "resolved"
+    audit.record(db, request, user.id, f"alert.{action}", "alert", a.id, {"previous_status": previous, "new_status": a.status})
     a.acknowledged_at = a.acknowledged_at or datetime.now(UTC)
     db.commit()
     return {"status": a.status}
@@ -290,18 +293,21 @@ def list_locations(user: User = CurrentUser, db: Session = Depends(get_db)):
 
 
 @router.post("/saved-locations", status_code=201, tags=["watchlists"])
-def save_location(body: SavedLocationIn, user: User = CurrentUser, db: Session = Depends(get_db)):
+def save_location(body: SavedLocationIn, request: Request, user: User = CurrentUser, db: Session = Depends(get_db)):
     loc = SavedLocation(user_id=user.id, name=body.name, zoom=body.zoom, geom=f"SRID=4326;POINT({body.longitude} {body.latitude})")
     db.add(loc)
+    db.flush()
+    audit.record(db, request, user.id, "saved_location.create", "saved_location", loc.id, {"name": body.name})
     db.commit()
     return {"id": loc.id}
 
 
 @router.delete("/saved-locations/{loc_id}", status_code=204, tags=["watchlists"])
-def delete_location(loc_id: uuid.UUID, user: User = CurrentUser, db: Session = Depends(get_db)):
+def delete_location(loc_id: uuid.UUID, request: Request, user: User = CurrentUser, db: Session = Depends(get_db)):
     loc = db.get(SavedLocation, loc_id)
     if loc is None or loc.user_id != user.id:
         raise NotFound("Saved location not found")
+    audit.record(db, request, user.id, "saved_location.delete", "saved_location", loc.id, {"name": loc.name})
     db.delete(loc)
     db.commit()
 
@@ -342,7 +348,7 @@ def get_report(report_id: uuid.UUID, user: User = CurrentUser, db: Session = Dep
 
 
 @router.get("/reports/{report_id}/download", tags=["reports"], response_class=FileResponse)
-def download_report(report_id: uuid.UUID, user: User = CurrentUser, db: Session = Depends(get_db)):
+def download_report(report_id: uuid.UUID, request: Request, user: User = CurrentUser, db: Session = Depends(get_db)):
     rep = db.get(Report, report_id)
     if rep is None or rep.status != "ready" or not rep.file_path:
         raise NotFound("Report is not available")
@@ -350,5 +356,6 @@ def download_report(report_id: uuid.UUID, user: User = CurrentUser, db: Session 
     if Path(settings.report_storage_dir).resolve() not in path.parents or not path.exists():
         raise NotFound("Report file missing")
     db.add(ReportExport(report_id=rep.id, user_id=user.id))
+    audit.record(db, request, user.id, "report.download", "report", rep.id, {"event_id": str(rep.event_id)})
     db.commit()
     return FileResponse(path, media_type="application/pdf", filename=f"{rep.title.replace(' ', '_')}.pdf")

@@ -21,8 +21,20 @@ export interface LayerState {
   imagery: boolean;
   heat: boolean;
   radius: boolean;
+  // basemap context from the CARTO vector tiles (OpenStreetMap data)
+  landcover: boolean;
+  industrial: boolean;
+  quarries: boolean;
+  roads: boolean;
+  rivers: boolean;
+  districts: boolean;
+  states: boolean;
 }
-export const DEFAULT_LAYERS: LayerState = { events: true, facilities: true, detections: true, dispersion: true, imagery: false, heat: false, radius: true };
+export const DEFAULT_LAYERS: LayerState = { events: true, facilities: true, detections: true, dispersion: true, imagery: false, heat: false, radius: true,
+  landcover: false, industrial: true, quarries: true, roads: true, rivers: true, districts: true, states: true };
+
+/** Map legend swatches for the OSM land-cover layer (OpenMapTiles `landcover` classes). */
+export const LANDCOVER_COLORS: Record<string, string> = { farmland: "#c9a227", wood: "#2f9e44", grass: "#94d82d", wetland: "#15aabf", sand: "#e9c46a", rock: "#868e96" };
 /** Rule "near" threshold (2 km) and backend facility search radius (ATTRIBUTION_RADIUS_M, 10 km). */
 export const RINGS_M = [2000, 10000];
 
@@ -90,9 +102,16 @@ export function enhanceBasemap(map: MLMap, dark: boolean) {
   const before = map.getStyle().layers.find((l) => l.type === "symbol")?.id;
   const road = dark ? "#6f6a63" : "#c8b8a4";
   const add = (layer: maplibregl.LayerSpecification) => { if (!map.getLayer(layer.id)) map.addLayer(layer, before); };
+  add({ id: "tt-landcover", type: "fill", source: "carto", "source-layer": "landcover", minzoom: 5, layout: { visibility: "none" },
+    filter: ["in", ["get", "class"], ["literal", Object.keys(LANDCOVER_COLORS)]],
+    paint: { "fill-color": ["match", ["get", "class"], ...Object.entries(LANDCOVER_COLORS).flat(), "#868e96"] as unknown as maplibregl.ExpressionSpecification,
+             "fill-opacity": dark ? 0.16 : 0.22 } });
   add({ id: "tt-landuse-industrial", type: "fill", source: "carto", "source-layer": "landuse", minzoom: 9,
-    filter: ["in", ["get", "class"], ["literal", ["industrial", "quarry"]]],
+    filter: ["==", ["get", "class"], "industrial"],
     paint: { "fill-color": dark ? "#8a5a2b" : "#e0b27a", "fill-opacity": ["interpolate", ["linear"], ["zoom"], 9, 0.12, 13, 0.2] } });
+  add({ id: "tt-landuse-quarry", type: "fill", source: "carto", "source-layer": "landuse", minzoom: 9,
+    filter: ["==", ["get", "class"], "quarry"],
+    paint: { "fill-color": dark ? "#6b5d52" : "#bfae9f", "fill-opacity": ["interpolate", ["linear"], ["zoom"], 9, 0.18, 13, 0.28] } });
   add({ id: "tt-districts", type: "line", source: "carto", "source-layer": "boundary", minzoom: 8.5,
     filter: ["all", ["==", ["get", "admin_level"], 5], ["==", ["get", "maritime"], 0]],
     paint: { "line-color": dark ? "#8b93a1" : "#9aa1ab", "line-dasharray": [3, 2], "line-opacity": ["interpolate", ["linear"], ["zoom"], 8.5, 0.25, 11, 0.5],
@@ -199,6 +218,7 @@ export default function MapCanvas({ filters, layers, theme, selectedId, focus, o
   const el = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MLMap | null>(null);
   const [ready, setReady] = useState(0);
+  const [basemapError, setBasemapError] = useState(false);
   const filtersKey = JSON.stringify(filters);
   const loadSeq = useRef(0);
   const lastFocus = useRef<string | null>(null);
@@ -226,6 +246,13 @@ export default function MapCanvas({ filters, layers, theme, selectedId, focus, o
       pitchWithRotate: false,
     });
     map.touchZoomRotate.disableRotation();
+    // basemap (CARTO / custom style) tiles or style that fail to load: say so instead of showing a blank map.
+    // Event and facility layers come from the ThermalTrace API and keep working without the basemap.
+    map.on("error", (e) => {
+      const src = (e as { sourceId?: string }).sourceId;
+      if (!src || src === "carto" || src === "openmaptiles") setBasemapError(true);
+    });
+    map.on("data", (e) => { if ((e as { sourceId?: string }).sourceId === "carto" && (e as { isSourceLoaded?: boolean }).isSourceLoaded) setBasemapError(false); });
     map.on("movestart", (e) => { if ((e as { originalEvent?: unknown }).originalEvent) keepView.current = true; });
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
     map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
@@ -308,6 +335,10 @@ export default function MapCanvas({ filters, layers, theme, selectedId, focus, o
       map.addLayer({ id: "fac-linked", type: "circle", source: "facilities", minzoom: 6, filter: ["in", ["get", "id"], ["literal", []]], paint: {
         "circle-radius": ["interpolate", ["linear"], ["zoom"], 6, 7, 12, 11], "circle-color": "rgba(90,162,240,0.12)",
         "circle-stroke-color": dark ? "#5aa2f0" : "#1c6fd1", "circle-stroke-width": 1.6 } });
+      // the facility whose card is open: a square outline, distinct from the event halo and the linked-facility ring
+      map.addLayer({ id: "fac-selected", type: "circle", source: "facilities", minzoom: 6, filter: ["==", ["get", "id"], ""], paint: {
+        "circle-radius": 13, "circle-color": "transparent", "circle-stroke-color": dark ? "#f1f3f5" : "#16181d", "circle-stroke-width": 2,
+        "circle-pitch-alignment": "map" } });
       map.addLayer({ id: "fac", type: "symbol", source: "facilities", minzoom: 6, layout: {
         "icon-image": ["coalesce", ["image", ["concat", "fac-", ["get", "type"]]], ["image", "fac-other"]],
         "icon-size": ["interpolate", ["linear"], ["zoom"], 6, 0.6, 10, 0.9, 14, 1.15],
@@ -348,7 +379,7 @@ export default function MapCanvas({ filters, layers, theme, selectedId, focus, o
         "circle-color": classColorExpr,
         "circle-opacity": ["case", ["==", ["get", "status"], "dormant"], 0.45, 0.9],
         "circle-stroke-width": 0.8,
-        "circle-stroke-color": ["match", ["get", "state"], ["INSUFFICIENT_EVIDENCE"], "#9aa1ab", ["ANALYST_CONFIRMED", "CONFIRMED"], "#2b8a3e", ["ANALYST_REJECTED"], "#c92a2a", dark ? "#16181d" : "#ffffff"] } });
+        "circle-stroke-color": ["match", ["get", "state"], ["INSUFFICIENT_EVIDENCE"], "#9aa1ab", ["ANALYST_CONFIRMED", "CONFIRMED"], "#2b8a3e", ["ANALYST_REJECTED"], "#c92a2a", ["ANALYST_REVIEWED"], "#1c7ed6", dark ? "#16181d" : "#ffffff"] } });
       map.addLayer({ id: "ev-selected-halo", type: "circle", source: "events", filter: ["==", ["get", "id"], ""], paint: {
         "circle-radius": 22, "circle-color": "#ff7a2e", "circle-opacity": 0.28, "circle-blur": 0.8 } }, "ev");
       map.addLayer({ id: "ev-selected", type: "circle", source: "events", filter: ["==", ["get", "id"], ""], paint: {
@@ -428,11 +459,21 @@ export default function MapCanvas({ filters, layers, theme, selectedId, focus, o
     const vis = (id: string, on: boolean) => map.getLayer(id) && map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
     ["clusters-halo", "clusters", "cluster-count", "ev", "ev-selected", "ev-selected-halo"].forEach((l) => vis(l, layers.events && !layers.heat));
     vis("heat", layers.heat);
-    ["fac", "fac-label", "fac-linked"].forEach((l) => vis(l, layers.facilities));
+    ["fac", "fac-label", "fac-linked", "fac-selected"].forEach((l) => vis(l, layers.facilities));
     ["focus-dets", "focus-footprint", "focus-footprint-line", "focus-links"].forEach((l) => vis(l, layers.detections));
     vis("focus-arrow", layers.dispersion);
     ["focus-rings", "focus-rings-label"].forEach((l) => vis(l, layers.radius));
     vis("imagery", layers.imagery);
+    // basemap context: our India-wide layers and the style's own layers for the same features
+    const style = map.getStyle().layers.map((l) => l.id);
+    const group = (on: boolean, match: (id: string) => boolean) => style.filter(match).forEach((id) => vis(id, on));
+    vis("tt-landcover", layers.landcover);
+    vis("tt-landuse-industrial", layers.industrial);
+    vis("tt-landuse-quarry", layers.quarries);
+    group(layers.roads, (id) => /^(tt-roads|road_|bridge_|tunnel_|roadname_)/.test(id));
+    group(layers.rivers, (id) => /^waterway/.test(id));
+    group(layers.districts, (id) => id === "tt-districts" || id === "boundary_county");
+    group(layers.states, (id) => id === "india-states" || id === "boundary_state");
   }, [ready, layers]);
 
   // --- selection + focus overlays ------------------------------------------------------------------
@@ -466,6 +507,10 @@ export default function MapCanvas({ filters, layers, theme, selectedId, focus, o
     return () => { popup.off("close", onClose); popup.remove(); };
   }, [pick]);
   useEffect(() => {
+    const map = mapRef.current;
+    if (map && ready && map.getLayer("fac-selected")) map.setFilter("fac-selected", ["==", ["get", "id"], pick ? String(pick.p.id) : ""]);
+  }, [pick, ready]);
+  useEffect(() => {
     if (!pick) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setPick(null); };
     window.addEventListener("keydown", onKey);
@@ -496,6 +541,9 @@ export default function MapCanvas({ filters, layers, theme, selectedId, focus, o
   return (
     <>
       <div ref={el} className="map" role="region" aria-label="Thermal events map" />
+      {basemapError && (
+        <div className="map-notice" role="status">Basemap unavailable: the map tiles could not be loaded. Events and facilities are still shown.</div>
+      )}
       {card && (pick!.sheet
         // phones: a bottom sheet above every panel and the tab bar (event panels also sit at the bottom of the map)
         ? createPortal(<div className="fac-sheet" style={{ bottom: (document.querySelector(".m-nav")?.getBoundingClientRect().height ?? 0) + 8 }}>{card}</div>, document.body)

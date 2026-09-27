@@ -105,7 +105,7 @@ class WeatherClient:
                 timeout=20,
             )
             try:
-                return _pick_hour(res.response.json(), when, "Open-Meteo Archive (ERA5 reanalysis)", res.latency_ms)
+                return _pick_hour(res.json(), when, "Open-Meteo Archive (ERA5 reanalysis)", res.latency_ms)
             except WeatherNoData:
                 if age > timedelta(days=FORECAST_MAX_PAST_DAYS):
                     raise  # older than the Forecast API keeps: the archive is the only source
@@ -116,7 +116,7 @@ class WeatherClient:
                     "forecast_days": 1, "timezone": "UTC"},
             timeout=20,
         )
-        return _pick_hour(res.response.json(), when, "Open-Meteo Forecast (recent hourly model)", res.latency_ms)
+        return _pick_hour(res.json(), when, "Open-Meteo Forecast (recent hourly model)", res.latency_ms)
 
     def current(self, lat: float, lon: float) -> WeatherSample:
         now = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)

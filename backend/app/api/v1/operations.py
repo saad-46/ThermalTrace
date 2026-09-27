@@ -7,9 +7,11 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session
 
+from app.api.v1.intelligence import error_category_text
 from app.core.config import settings
 from app.core.deps import AdminUser, CurrentUser, Page, SupervisorUser, pagination
 from app.core.errors import AppError, NotFound
+from app.db import like as like_pattern
 from app.db.session import get_db
 from app.models.auth import User
 from app.models.ml import ModelVersion
@@ -88,7 +90,7 @@ def diurnal(days: int = Query(30, ge=1, le=3650), user: User = CurrentUser, db: 
 
 @router.get("/analytics/persistent-sources", tags=["analytics"],
             summary="Locations repeatedly producing thermal anomalies — ranked by evidence, not a threat ranking")
-def persistent_sources(limit: int = Query(25, le=200), user: User = CurrentUser, db: Session = Depends(get_db)):
+def persistent_sources(limit: int = Query(25, ge=1, le=200), user: User = CurrentUser, db: Session = Depends(get_db)):
     from app.repositories.events import _LIST_COLS, _with_display
 
     rows = db.execute(text(f"""
@@ -172,9 +174,17 @@ def sources(user: User = CurrentUser, db: Session = Depends(get_db)):
             status_ = "not_configured"
         eff = source_health.effective_state(s.id, s.status, s.access, s.last_success_at is not None, cfg, s.health_detail)
         req = source_health.REQUIREMENTS.get(s.id, {})
-        out.append({**{c.key: getattr(s, c.key) for c in DataSource.__table__.columns}, "status": status_,
+        row = {c.key: getattr(s, c.key) for c in DataSource.__table__.columns}
+        # the failure category is for everyone; the raw provider message (may hold URLs) only for administrators
+        row["last_error_category"] = error_category_text(s.last_error)
+        run = dict(runs[s.id]) if s.id in runs else None
+        if user.role != "admin" or user.is_demo:
+            row["last_error"] = None
+            if run:
+                run["error_detail"] = None
+        out.append({**row, "status": status_,
                     "error_rate": round(err_rate, 3) if err_rate is not None else None,
-                    "configuration": state, "last_run": runs.get(s.id),
+                    "configuration": state, "last_run": run,
                     "state": eff["state"], "state_reason": eff["reason"], "requirement": eff["requirement"],
                     "requirement_env": req.get("env"), "requirement_how": req.get("how"),
                     "registry": registries.get(s.id)})
@@ -229,7 +239,7 @@ def trigger(body: IngestionTriggerIn, request: Request, user: User = SupervisorU
             raise AppError(f"days must be an integer between 1 and {MAX_BACKFILL_DAYS}", code="invalid_days")
     job_id = enqueue(db, body.kind, body.payload, dedupe_key=f"manual:{body.kind}:{sorted(body.payload.items())}",
                      priority=15, created_by=user.id)
-    audit.record(db, request, user.id, "job.trigger", "job", job_id, {"kind": body.kind})
+    audit.record(db, request, user.id, "job.trigger", "job", job_id, {"kind": body.kind, "payload": body.payload})
     db.commit()
     return db.get(Job, job_id)
 
@@ -244,7 +254,17 @@ def jobs(status: str | None = None, kind: str | None = None, page: Page = Depend
         q = q.where(Job.kind == kind)
     total = db.execute(select(func.count()).select_from(q.subquery())).scalar_one()
     items = db.execute(q.order_by(Job.created_at.desc()).limit(page.limit).offset(page.offset)).scalars().all()
-    return {"items": items, "total": total, "limit": page.limit, "offset": page.offset}
+    return {"items": [_job_view(j, user) for j in items], "total": total, "limit": page.limit, "offset": page.offset}
+
+
+def _job_view(j: Job, user: User) -> dict:
+    out = JobOut.model_validate(j).model_dump()
+    if user.is_demo:
+        out["error"] = "hidden in demo mode" if out.get("error") else None
+    elif user.role != "admin" and out.get("error"):
+        lines = [ln for ln in out["error"].strip().splitlines() if ln.strip()]
+        out["error"] = lines[-1][:300] if lines else None
+    return out
 
 
 @router.get("/jobs/{job_id}", response_model=JobOut, tags=["sources"])
@@ -252,7 +272,7 @@ def job(job_id: uuid.UUID, user: User = CurrentUser, db: Session = Depends(get_d
     j = db.get(Job, job_id)
     if j is None:
         raise NotFound("Job not found")
-    return j
+    return _job_view(j, user)
 
 
 # --- models ----------------------------------------------------------------------------------------------
@@ -270,11 +290,13 @@ def activate(model_id: str, request: Request, admin: User = AdminUser, db: Sessi
     mv = db.get(ModelVersion, model_id)
     if mv is None or mv.kind != "lightgbm":
         raise NotFound("Trainable model version not found")
+    previous = db.execute(select(ModelVersion.id).where(ModelVersion.kind == "lightgbm", ModelVersion.is_active.is_(True))).scalar()
     db.execute(update(ModelVersion).where(ModelVersion.kind == "lightgbm").values(is_active=False))
     mv.is_active = True
-    audit.record(db, request, admin.id, "model.activate", "model_version", model_id)
+    audit.record(db, request, admin.id, "model.activate", "model_version", model_id,
+                 {"previous_active": previous, "new_active": model_id})
     db.commit()
-    enqueue(db, "process_events", {"reanalyse_all": True}, dedupe_key="process_events", priority=40)
+    enqueue(db, "process_events", {"reanalyse_all": True}, dedupe_key="process_events:reanalyse", priority=40)
     return {"active": model_id}
 
 
@@ -284,10 +306,12 @@ def deactivate(model_id: str, request: Request, admin: User = AdminUser, db: Ses
     mv = db.get(ModelVersion, model_id)
     if mv is None or mv.kind != "lightgbm":
         raise NotFound("Trainable model version not found")
+    was_active = mv.is_active
     mv.is_active = False
-    audit.record(db, request, admin.id, "model.deactivate", "model_version", model_id)
+    audit.record(db, request, admin.id, "model.deactivate", "model_version", model_id,
+                 {"was_active": was_active, "classifier_of_record": "rule cascade"})
     db.commit()
-    enqueue(db, "process_events", {"reanalyse_all": True}, dedupe_key="process_events", priority=40)
+    enqueue(db, "process_events", {"reanalyse_all": True}, dedupe_key="process_events:reanalyse", priority=40)
     return {"active": None}
 
 
@@ -353,7 +377,7 @@ def audit_log(action: str | None = None, page: Page = Depends(pagination), admin
     where = "WHERE a.action LIKE :action" if action else ""
     rows = db.execute(text(f"""SELECT a.*, u.email FROM audit_logs a LEFT JOIN users u ON u.id = a.user_id {where}
                                ORDER BY a.id DESC LIMIT :limit OFFSET :offset"""),
-                      {"action": f"{action}%", "limit": page.limit, "offset": page.offset}).mappings().all()
+                      {"action": like_pattern.prefix(action or ""), "limit": page.limit, "offset": page.offset}).mappings().all()
     out = [dict(r) for r in rows]
     if admin.is_demo:
         from app.services.explore import mask_pii

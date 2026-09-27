@@ -1,5 +1,5 @@
 /** Product language shared by desktop and mobile: labels, colours, descriptions. */
-import type { DisplayState, PersistenceClass, SourceClass } from "./types";
+import type { DisplayState, PersistenceClass, ReviewStatus, SourceClass } from "./types";
 
 export const CLASS_META: Record<SourceClass, { label: string; short: string; color: string; hint: string }> = {
   flare: { label: "Gas flare", short: "Flare", color: "#f76707", hint: "Persistent combustion at oil & gas infrastructure" },
@@ -19,7 +19,7 @@ export const PERSISTENCE_META: Record<PersistenceClass, { label: string; hint: s
   persistent: { label: "Persistent", hint: "Active on most days across the observed span" },
 };
 
-export type Tone = "confirmed" | "high" | "moderate" | "low" | "insufficient" | "review" | "rejected";
+export type Tone = "confirmed" | "high" | "moderate" | "low" | "insufficient" | "review" | "reviewed" | "rejected";
 export const STATE_META: Record<DisplayState, { label: string; tone: Tone; hint: string }> = {
   CONFIRMED: { label: "Confirmed", tone: "confirmed", hint: "Multi-source corroboration incl. imagery analysis" },
   HIGH_CONFIDENCE: { label: "High confidence", tone: "high", hint: "Strong, consistent evidence — not independently verified" },
@@ -29,7 +29,22 @@ export const STATE_META: Record<DisplayState, { label: string; tone: Tone; hint:
   UNDER_REVIEW: { label: "Under review", tone: "review", hint: "An analyst is investigating" },
   ANALYST_CONFIRMED: { label: "Analyst confirmed", tone: "confirmed", hint: "Confirmed by an analyst" },
   ANALYST_REJECTED: { label: "Analyst rejected", tone: "rejected", hint: "Rejected or marked false positive" },
+  ANALYST_REVIEWED: { label: "Analyst reviewed", tone: "reviewed", hint: "Reviewed by an analyst; the interpretation was neither confirmed nor rejected" },
 };
+
+/** Review status of an event (the analyst workflow), shown with a symbol and text so it never relies on colour. */
+export const REVIEW_META: Record<ReviewStatus, { label: string; symbol: string; tone: Tone | ""; hint: string }> = {
+  unreviewed: { label: "Not reviewed", symbol: "○", tone: "", hint: "No analyst has acted on this event" },
+  under_review: { label: "Under review", symbol: "◐", tone: "review", hint: "Opened, assigned or more evidence requested" },
+  escalated: { label: "Escalated", symbol: "▲", tone: "review", hint: "Escalated for a senior decision" },
+  reviewed: { label: "Reviewed", symbol: "●", tone: "reviewed", hint: "Reviewed and closed without confirming or rejecting the interpretation" },
+  analyst_confirmed: { label: "Analyst confirmed", symbol: "✓", tone: "confirmed", hint: "The interpretation was confirmed (or reclassified) by an analyst" },
+  analyst_rejected: { label: "Analyst rejected", symbol: "✕", tone: "rejected", hint: "The interpretation was rejected by an analyst" },
+  false_positive: { label: "False positive", symbol: "✕", tone: "rejected", hint: "Marked as not a real thermal source" },
+};
+export const REVIEW_ORDER = Object.keys(REVIEW_META) as ReviewStatus[];
+export const reviewLabel = (s: string | null | undefined): string =>
+  REVIEW_META[(s ?? "unreviewed") as ReviewStatus]?.label ?? (s ?? "").replace(/_/g, " ");
 
 /** How to read a confidence state. Confidence describes the evidence behind a classification; it is never a
  *  probability that a fire is burning, and nothing is "confirmed" by the model alone. */
@@ -42,6 +57,7 @@ export function confidenceNote(state: DisplayState | null | undefined): string {
     case "ANALYST_REJECTED": return "Rejected by analyst review.";
     case "CONFIRMED": return "Confirmed by multi-source corroboration including an imagery check.";
     case "UNDER_REVIEW": return "An analyst is reviewing this event.";
+    case "ANALYST_REVIEWED": return "Reviewed by an analyst; the automated interpretation was neither confirmed nor rejected.";
     default: return "Supporting evidence, not proof. Confirmed only after imagery confirmation or analyst review.";
   }
 }

@@ -1,7 +1,7 @@
-from alembic import context
 from geoalchemy2 import alembic_helpers
 
 import app.models  # noqa: F401  (registers tables)
+from alembic import context
 from app.db.session import Base, engine
 
 target_metadata = Base.metadata

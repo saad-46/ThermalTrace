@@ -66,7 +66,9 @@ export default function SystemHealth() {
                 {v.kind === "lightgbm" && v.is_active && <button className="btn sm" onClick={() => deactivate(v.id)}>Deactivate</button>}</div>
               <div className="muted" style={{ fontSize: 12.5, marginTop: 4 }}>{v.description}</div>
               <div style={{ fontSize: 12.5 }}><b>Labels:</b> {v.label_provenance}</div>
-              {v.metrics && "macro_f1_holdout" in v.metrics && <div style={{ fontSize: 12.5 }}><b>Hold-out macro-F1:</b> {String(v.metrics.macro_f1_holdout ?? "n/a")} <span className="faint">— {String(v.metrics.caveat ?? "")}</span></div>}
+              {v.metrics && "macro_f1_holdout" in v.metrics && <div style={{ fontSize: 12.5 }}><b>Hold-out macro-F1:</b> {String(v.metrics.macro_f1_holdout ?? "n/a")} <span className="faint">— {String(v.metrics.caveat ?? "")}</span>
+                <div><b>Against analyst labels only:</b> {v.metrics.macro_f1_holdout_analyst != null ? String(v.metrics.macro_f1_holdout_analyst) : "not available"}
+                  <span className="faint"> — {String(v.metrics.caveat_analyst ?? "the only estimate independent of the rule cascade")}</span></div></div>}
             </div>
           ))}
           <details className="section"><summary style={{ cursor: "pointer" }}>Feature pipeline ({m.features.length} features)</summary>

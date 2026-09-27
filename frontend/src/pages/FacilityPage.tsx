@@ -5,6 +5,8 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { HBars } from "../components/charts";
 import { ExtLink } from "../components/evidence";
 import { FacilityContextMap } from "../components/FacilityContextMap";
+import { FacilityProfileSections, RelationshipContext } from "../components/facilityIntel";
+import { KnowledgeBadge } from "../components/workspace";
 import { PriorityPill } from "../components/triage";
 import { Async, ClassLabel, Empty, ErrorState, errText, PersistencePill, Skeleton, StatePill, useToast } from "../components/ui";
 import { api } from "../lib/api";
@@ -12,12 +14,12 @@ import { fmtDate, fmtDateTime, fmtDistance, fmtNum, relTime } from "../lib/forma
 import { actions, useWatchlists } from "../lib/hooks";
 import { useSession, useTheme } from "../lib/session";
 import { FACILITY_LABELS, SOURCE_NAMES, STATE_META } from "../lib/taxonomy";
-import type { DisplayState, Facility, FacilityProfile, FacilityRelationship, PersistenceClass, SourceClass } from "../lib/types";
+import type { DisplayState, ReviewStatus, Facility, FacilityProfile, FacilityRelationship, PersistenceClass, SourceClass } from "../lib/types";
 
 interface FacEvent {
   id: string; public_id: string; first_detected: string; last_detected: string; classification: SourceClass; persistence_class: PersistenceClass;
   persistence_score: number | null; confidence_state: DisplayState; confidence_score: number | null; priority_score: number | null;
-  review_status: string; status: string; observation_count: number; frp_max: number | null; brightness_max: number | null;
+  review_status: ReviewStatus; display_state: DisplayState; status: string; observation_count: number; frp_max: number | null; brightness_max: number | null;
   distance_m: number; attribution_score: number; rank: number;
 }
 interface FacEvents {
@@ -29,8 +31,6 @@ interface FacEvents {
 }
 const PAGE = 50;
 
-const displayState = (e: FacEvent) =>
-  (e.review_status === "analyst_confirmed" ? "ANALYST_CONFIRMED" : ["analyst_rejected", "false_positive"].includes(e.review_status) ? "ANALYST_REJECTED" : e.confidence_state) as DisplayState;
 
 export default function FacilityPage() {
   const { id } = useParams();
@@ -63,6 +63,7 @@ export default function FacilityPage() {
         <>
           <div className="page-head">
             <div style={{ minWidth: 0 }}>
+              <div className="faint" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em" }}>Facility intelligence profile</div>
               <h1 data-testid="facility-name" style={{ overflowWrap: "anywhere" }}>{f.name ?? "Unnamed facility"}</h1>
               <div className="sub">{[FACILITY_LABELS[f.facility_type] ?? f.facility_type, f.subtype, f.status].filter(Boolean).join(" · ")}</div>
             </div>
@@ -78,7 +79,7 @@ export default function FacilityPage() {
 
           {eventRef && (
             <section className="panel" style={{ marginBottom: 12 }} data-testid="facility-relationship">
-              <div className="panel-head"><h2>Investigation relationship</h2></div>
+              <div className="panel-head"><h2>Investigation relationship</h2><span className="right"><KnowledgeBadge k="inferred" /></span></div>
               <div className="panel-body">
                 {rel.isLoading ? <Skeleton lines={2} /> : rel.error ? <ErrorState error={rel.error} retry={() => rel.refetch()} /> : rel.data && (
                   <div className="stack" style={{ gap: 8 }}>
@@ -87,6 +88,7 @@ export default function FacilityPage() {
                       <dt>Distance</dt><dd className="num">{fmtDistance(rel.data.distance_m)}{rel.data.bearing_deg != null ? ` (bearing ${fmtNum(rel.data.bearing_deg, 0)}°)` : ""} · {rel.data.distance_m <= rel.data.rule_radius_m ? `within the ${rel.data.rule_radius_m / 1000} km rule radius` : rel.data.distance_m <= rel.data.search_radius_m ? `within the ${rel.data.search_radius_m / 1000} km search radius` : "outside the search radius"}</dd>
                       <dt>Attribution</dt><dd>{rel.data.linked ? `Candidate #${rel.data.rank} for this event, score ${rel.data.attribution_score?.toFixed(2)}` : "Not an attribution candidate for this event"}</dd>
                     </dl>
+                    <RelationshipContext rel={rel.data} />
                     <div className="faint" style={{ fontSize: 12 }}>{rel.data.note}</div>
                   </div>
                 )}
@@ -95,7 +97,7 @@ export default function FacilityPage() {
           )}
 
           <div className="grid fac-grid">
-            <section className="panel"><div className="panel-head"><h2>Overview</h2></div><div className="panel-body">
+            <section className="panel"><div className="panel-head"><h2>Overview</h2><span className="right"><KnowledgeBadge k="registry" /></span></div><div className="panel-body">
               <dl className="kv">
                 <dt>Type</dt><dd>{FACILITY_LABELS[f.facility_type] ?? f.facility_type}{f.subtype ? ` · ${f.subtype}` : ""}</dd>
                 <dt>Operator</dt><dd>{f.operator ?? "—"}</dd>
@@ -109,7 +111,7 @@ export default function FacilityPage() {
                 ))}
               </dl>
             </div></section>
-            <section className="panel"><div className="panel-head"><h2>Map context</h2></div><div className="panel-body" style={{ padding: 0 }}>
+            <section className="panel"><div className="panel-head"><h2>Map context</h2><span className="right"><KnowledgeBadge k="registry" /></span></div><div className="panel-body" style={{ padding: 0 }}>
               {mapFacility && <FacilityContextMap facility={mapFacility} event={mapEvent} distanceM={rel.data?.distance_m} theme={theme} />}
               <div className="faint" style={{ fontSize: 11.5, padding: "8px 12px" }}>
                 Rings: {eventRef ? "around the selected event" : "around the facility"}: 2 km (rule "near" threshold) and 10 km (facility search radius).
@@ -117,7 +119,9 @@ export default function FacilityPage() {
             </div></section>
           </div>
 
-          <section className="panel" style={{ marginTop: 12 }}><div className="panel-head"><h2>Provenance</h2></div><div className="panel-body">
+          <div style={{ marginTop: 12 }}><FacilityProfileSections id={f.id} /></div>
+
+          <section className="panel" style={{ marginTop: 12 }}><div className="panel-head"><h2>Provenance</h2><span className="right"><KnowledgeBadge k="registry" /></span></div><div className="panel-body">
             <div className="faint" style={{ fontSize: 12, marginBottom: 8 }}>
               {f.source_count} independent source{f.source_count > 1 ? "s" : ""} list this facility. Agreement between sources raises confidence in its identity and location; it is not certainty that the facility is operating or emitting.
             </div>
@@ -132,7 +136,7 @@ export default function FacilityPage() {
             </div>
           </div></section>
 
-          <section className="panel" style={{ marginTop: 12 }}><div className="panel-head"><h2>Thermal activity within 3 km</h2></div><div className="panel-body">
+          <section className="panel" style={{ marginTop: 12 }}><div className="panel-head"><h2>Thermal activity within 3 km</h2><span className="right"><KnowledgeBadge k="observed" /></span></div><div className="panel-body">
             <Async q={hist} empty={(h) => (h.events.length ? null : <Empty title="No thermal events linked">No FIRMS event has been attributed within 3 km in the loaded history.</Empty>)}>{(h) => (
               <div className="stack" style={{ gap: 12 }}>
                 <div className="metrics">
@@ -159,7 +163,7 @@ export default function FacilityPage() {
                         <td className="right num">{e.frp_max == null ? "—" : `${fmtNum(e.frp_max, 1)} MW`}</td>
                         <td className="right num">{e.brightness_max == null ? "—" : `${fmtNum(e.brightness_max, 0)} K`}</td>
                         <td><ClassLabel cls={e.classification} short /></td>
-                        <td><StatePill state={displayState(e)} title={STATE_META[e.confidence_state]?.hint} />{e.confidence_score != null && <span className="faint num" style={{ fontSize: 11 }}> {e.confidence_score.toFixed(2)}</span>}</td>
+                        <td><StatePill state={e.display_state} title={STATE_META[e.confidence_state]?.hint} />{e.confidence_score != null && <span className="faint num" style={{ fontSize: 11 }}> {e.confidence_score.toFixed(2)}</span>}</td>
                         <td><PriorityPill score={e.priority_score} /></td>
                       </tr>
                     ))}</tbody></table>

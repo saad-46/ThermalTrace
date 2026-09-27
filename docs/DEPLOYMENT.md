@@ -55,12 +55,29 @@ The API image sets `ENVIRONMENT=production`. Outside development the API refuses
 - `CORS_ORIGINS` lists at least one non-localhost origin;
 - `DEMO_MODE` is off (production only).
 
-docker-compose sets `ENVIRONMENT=development` explicitly for local use.
+docker-compose sets `ENVIRONMENT=development` explicitly for local use. Independently of `ENVIRONMENT`, the development
+`SECRET_KEY` is refused as soon as `CORS_ORIGINS` names a public origin.
+
+## Configuration classes
+
+The three root templates (`.env.example`, `.env.development.example`, `.env.production.example`) list every setting of
+`backend/app/core/config.py`; `frontend/.env.example` lists the web build variables. Each line is tagged:
+
+| Class | Variables |
+|---|---|
+| Required in production | `ENVIRONMENT`, `DATABASE_URL`, `SECRET_KEY`, `CORS_ORIGINS`, `VITE_API_BASE_URL`, `POSTGRES_*` (compose) |
+| Optional, provider credentials (features degrade to *not configured*, never to fake data) | `FIRMS_MAP_KEY`, `COPERNICUS_CLIENT_ID` / `_SECRET`, `SMTP_*`, `VAPID_*` |
+| Optional, operations | `LOG_LEVEL`, `LOG_JSON`, `SENTRY_DSN` (API and workers; startup never depends on it), rate limits, `FIRMS_POLL_MINUTES`, `ALERT_MAX_EVENT_AGE_HOURS`, advanced tuning block (pool sizes, clustering radius / gap, attribution radius, provider endpoints, storage directories) |
+| Public browser configuration (compiled into the bundle; never a secret) | `VITE_API_BASE_URL`, `VITE_MAP_STYLE_LIGHT` / `_DARK`, `VITE_CARTO_API_KEY` (restrict it to your origins in CARTO) |
+| Development only | `VITE_DEV_API_PROXY`; `DEMO_MODE` (synthetic data, refused in production) |
+| Demo only | `EXPLORE_MODE_ENABLED`, `EXPLORE_SESSION_MINUTES` (read-only guided sessions; keep off unless a public demo is intended) |
+| Public landing | `PUBLIC_LANDING_ENABLED` (aggregates only) |
 
 ## Checklist
 
 1. **Secrets**: `SECRET_KEY` must be at least 32 random characters. Set a DB password. Optionally set `FIRMS_MAP_KEY`, Copernicus, SMTP, VAPID and Sentry. See [Credentials](#credentials) below.
-2. **Migrate**: run `alembic upgrade head`.
+2. **Migrate**: run `alembic upgrade head` when no processing pass is running (0013 adds a unique index on
+   `classifications` that briefly blocks writes to it).
 3. **First admin**: `python -m app.cli create-user --role admin`.
 4. **Health checks**:
    - `GET /health` (liveness)

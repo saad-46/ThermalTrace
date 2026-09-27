@@ -97,3 +97,11 @@ export function fmtBytes(n: number | null | undefined): string {
   if (n == null) return "—";
   return n > 1_048_576 ? `${(n / 1_048_576).toFixed(1)} MB` : `${Math.ceil(n / 1024)} KB`;
 }
+
+/** A share as a percentage that never hides a small non-zero count as 0% or an incomplete one as 100%. */
+export function sharePct(share: number): string {
+  const r = Math.round(share * 100);
+  if (share > 0 && r === 0) return "<1%";
+  if (share < 1 && r === 100) return ">99%";
+  return `${r}%`;
+}

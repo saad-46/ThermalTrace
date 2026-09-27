@@ -1,7 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, del, post, put } from "./api";
 import type {
-  Alert, AlertRule, DataSource, EventDetail, EventSummary, Facility, Job, Page, Report, SystemStatus, Watchlist,
+  Alert, AlertRule, DataSource, EventDetail, EventSummary, Facility, Job, Page, Report, SimilarEvent, SystemStatus, Watchlist,
 } from "./types";
 
 export interface EventFilters {
@@ -50,7 +50,7 @@ export const useEvent = (ref: string | undefined) =>
   });
 
 export const useSimilar = (ref: string | undefined) =>
-  useQuery({ queryKey: ["similar", ref], queryFn: () => api<EventSummary[]>(`/events/${ref}/similar`), enabled: !!ref });
+  useQuery({ queryKey: ["similar", ref], queryFn: () => api<SimilarEvent[]>(`/events/${ref}/similar`), enabled: !!ref });
 
 export const useFacilities = (params: Record<string, unknown>) =>
   useQuery({
@@ -66,6 +66,8 @@ export const useUnread = () =>
   useQuery({ queryKey: ["alerts-unread"], queryFn: () => api<{ count: number }>("/alerts/unread-count"), refetchInterval: 60_000 });
 
 export const useRules = () => useQuery({ queryKey: ["rules"], queryFn: () => api<AlertRule[]>("/alert-rules") });
+export const useDirectory = (enabled = true) =>
+  useQuery({ queryKey: ["directory"], queryFn: () => api<{ id: string; full_name: string; role: string }[]>("/users/directory"), enabled, staleTime: 300_000 });
 export const useWatchlists = () => useQuery({ queryKey: ["watchlists"], queryFn: () => api<Watchlist[]>("/watchlists") });
 export const useReports = (eventId?: string) =>
   useQuery({
@@ -93,6 +95,7 @@ export const actions = {
   enrichSteps: (ref: string, steps: string[]) => () =>
     api<{ job_id: string; steps: string[] }>(`/events/${ref}/enrich`, { method: "POST", query: { steps } }),
   imageryAnalysis: (ref: string) => () => post<{ job_id: string }>(`/events/${ref}/imagery-analysis`),
+  assign: (ref: string) => (body: { user_id: string | null; priority: "low" | "normal" | "high" }) => post(`/events/${ref}/assign`, body),
   report: () => (eventId: string) => post<Report>("/reports", { event_id: eventId }),
   createRule: () => (body: Record<string, unknown>) => post<AlertRule>("/alert-rules", body),
   updateRule: (id: string) => (body: Record<string, unknown>) => put<AlertRule>(`/alert-rules/${id}`, body),

@@ -35,11 +35,37 @@ SATELLITE_LOOKBACK_DAYS = 45
 SATELLITE_AFTER_DAYS = 60
 
 
+# Provider failures worth retrying automatically; authentication or malformed replies need a person instead.
+RETRYABLE_CATEGORIES = ("timeout", "rate_limited", "service_unavailable")
+RETRYABLE_SQL = "(" + ", ".join(f"'{c}'" for c in RETRYABLE_CATEGORIES) + ")"
+MAX_STEP_ATTEMPTS = 5
+
+
 def _mark(ev: ThermalEvent, step: str, status: str, detail: str | None = None, **extra) -> None:
+    """Record one step's outcome: ok (provider answered with data), no_data (answered, nothing there) or failed (with a
+    `category`; consecutive failures are counted in `attempts` for the backfill's backoff)."""
     state = dict(ev.enrichment_state or {})
+    prev = state.get(step) or {}
+    if status == "failed":
+        extra.setdefault("attempts", int(prev.get("attempts") or 1) + 1 if prev.get("status") == "failed" else 1)
     state[step] = {"status": status, "at": datetime.now(UTC).isoformat(), "detail": detail, **extra}
     ev.enrichment_state = state
     flag_modified(ev, "enrichment_state")
+
+
+def _failed(ev: ThermalEvent, step: str, exc: Exception) -> None:
+    """A provider failure: the category is shown to users; the raw message (which may hold URLs) goes to the log only."""
+    category = source_health.error_category(exc)
+    logger.warning("%s for %s failed: %s", step, ev.public_id, exc)
+    _mark(ev, step, "failed", category.replace("_", " "), category=category)
+
+def _retry_due(step: str) -> str:
+    """SQL: the step failed with a transient category and its exponential backoff (1 h x 2^attempts) has passed."""
+    s = f"enrichment_state->'{step}'"
+    return (f"({s}->>'status' = 'failed' AND COALESCE({s}->>'category', 'service_unavailable') IN {RETRYABLE_SQL} "
+            f"AND COALESCE(({s}->>'attempts')::int, 1) < {MAX_STEP_ATTEMPTS} "
+            f"AND ({s}->>'at')::timestamptz < now() - make_interval(hours => power(2, COALESCE(({s}->>'attempts')::int, 1))::int))")
+
 
 
 def _cell(lat: float, lon: float) -> tuple[int, int]:
@@ -87,9 +113,9 @@ def enrich_osm(db: Session, events: list[ThermalEvent]) -> dict:
                     feats, endpoint, latency = client.query_around(clat, clon, fac_radius, LAND_RADIUS_M, land_points=points)
             except ProviderError as exc:
                 stats["failed"] += 1
-                source_health.record_failure(db, "osm", str(exc))
+                source_health.record_failure(db, "osm", exc)
                 for ev in cell_events:
-                    _mark(ev, "osm", "failed", f"{exc.kind}: {exc}")
+                    _failed(ev, "osm", exc)
                 db.commit()
                 continue
             source_health.record_success(db, "osm", latency, len(feats))
@@ -127,7 +153,7 @@ def enrich_weather(db: Session, ev: ThermalEvent) -> None:
         return
     except ProviderError as exc:
         logger.warning("weather lookup failed for %s: %s", ev.public_id, exc)
-        source_health.record_failure(db, "open_meteo", str(exc))
+        source_health.record_failure(db, "open_meteo", exc)
         _mark(ev, "weather", "failed", f"{exc.kind}: {exc}", category=source_health.error_category(exc))
         return
     source_health.record_success(db, "open_meteo", w.latency_ms, 1, w.observed_at)
@@ -161,7 +187,7 @@ def enrich_satellite(db: Session, ev: ThermalEvent) -> None:
         latency = (lat_a + lat_b) / 2
     except ProviderError as exc:
         logger.warning("Sentinel-2 search failed for %s: %s", ev.public_id, exc)
-        source_health.record_failure(db, "earth_search", str(exc))
+        source_health.record_failure(db, "earth_search", exc)
         _mark(ev, "satellite", "failed", f"{exc.kind}: {exc}", category=source_health.error_category(exc), **window)
         return
     source_health.record_success(db, "earth_search", latency, len(scenes), scenes[0].acquired_at if scenes else None)
@@ -190,16 +216,16 @@ def enrich_geocode(db: Session, ev: ThermalEvent) -> None:
                           params={"lat": ev.latitude, "lon": ev.longitude, "format": "jsonv2", "zoom": 10,
                                   "accept-language": "en"}, timeout=15, max_attempts=2, min_interval_s=1.1)
             data = res.response.json()
-        except (ProviderError, ValueError) as exc:
-            source_health.record_failure(db, "nominatim", str(exc))
-            _mark(ev, "geocode", "failed", str(exc))
+        except ProviderError as exc:
+            source_health.record_failure(db, "nominatim", exc)
+            _failed(ev, "geocode", exc)
             return
         source_health.record_success(db, "nominatim", res.latency_ms, 1)
         cache.put(db, key, data, timedelta(days=90))
     addr = data.get("address") or {}
     if not addr:
-        ev.country = "Offshore / unaddressed"
-        _mark(ev, "geocode", "ok", "no address (likely offshore)")
+        # no address is an absence of data, not a place name: nothing is written to the event
+        _mark(ev, "geocode", "no_data", "no address at this location (likely offshore)")
         return
     ev.country = addr.get("country")
     ev.admin_state = addr.get("state") or addr.get("region")
@@ -237,7 +263,7 @@ def enrichment_priority(db: Session, limit: int) -> list:
     """Events most worth enriching first: not yet enriched, multi-observation / high FRP / recent."""
     return list(db.execute(text(
         """SELECT id FROM thermal_events
-           WHERE NOT (enrichment_state ? 'osm') OR enrichment_state->'osm'->>'status' <> 'ok'
+           WHERE NOT (enrichment_state ? 'osm') OR """ + _retry_due("osm") + """
            ORDER BY (observation_count >= 3) DESC, observation_count DESC, frp_max DESC NULLS LAST, last_detected DESC
            LIMIT :n"""), {"n": limit}).scalars())
 
@@ -246,7 +272,7 @@ def landcover_backfill_ids(db: Session, limit: int) -> list:
     """Events that have not had a land-cover lookup yet, most review-worthy first (triage priority)."""
     return list(db.execute(text(
         """SELECT id FROM thermal_events
-           WHERE NOT (enrichment_state ? 'landcover')
+           WHERE NOT (enrichment_state ? 'landcover') OR """ + _retry_due("landcover") + """
            ORDER BY priority_score DESC NULLS LAST, last_detected DESC
            LIMIT :n"""), {"n": limit}).scalars())
 
@@ -257,6 +283,7 @@ def context_backfill_ids(db: Session, limit: int) -> list:
     return list(db.execute(text(
         """SELECT id FROM thermal_events
            WHERE in_india IS NOT FALSE AND data_mode <> 'demo'
-             AND (NOT (enrichment_state ? 'weather') OR NOT (enrichment_state ? 'satellite'))
+             AND (NOT (enrichment_state ? 'weather') OR NOT (enrichment_state ? 'satellite')
+                  OR """ + _retry_due("weather") + " OR " + _retry_due("satellite") + """)
            ORDER BY priority_score DESC NULLS LAST, last_detected DESC
            LIMIT :n"""), {"n": limit}).scalars())

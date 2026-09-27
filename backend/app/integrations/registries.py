@@ -139,7 +139,11 @@ class WRIGPPDClient:
                          "upstream_source": row.get("source"), "geolocation_source": row.get("geolocation_source")},
                 )
             )
-        return RegistryImport(self.source_id, "GPPD v1.3.0", date(2021, 6, 2), origin, facilities, rejected)
+        # the default source is the archived WRI repository, whose final release is v1.3.0 (2021-06-02); any other file
+        # is labelled as operator-supplied rather than given a version it may not have
+        official = origin == WRI_GPPD_URL
+        return RegistryImport(self.source_id, "GPPD v1.3.0" if official else "GPPD (operator-supplied file)",
+                              date(2021, 6, 2) if official else None, origin, facilities, rejected)
 
 
 # ---------------------------------------------------------------------------------------------

@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Request
@@ -84,7 +85,12 @@ def directory(user: User = CurrentUser, db: Session = Depends(get_db)):
     rows = db.execute(select(User.id, User.full_name, User.role).where(User.is_active.is_(True), User.role != "viewer",
                                                                      User.is_demo.is_(False))
                       .order_by(User.full_name)).all()
-    return [{"id": r.id, "full_name": r.full_name, "role": r.role} for r in rows]
+    out = [{"id": r.id, "full_name": r.full_name, "role": r.role} for r in rows]
+    if user.is_demo:
+        from app.services.explore import mask_pii
+
+        out = mask_pii(out)
+    return out
 
 
 @router.get("/admin/users", response_model=PageOut[UserOut], tags=["admin"])
@@ -114,18 +120,19 @@ def create_user(body: UserCreate, request: Request, admin: User = AdminUser, db:
 
 
 @router.patch("/admin/users/{user_id}", response_model=UserOut, tags=["admin"])
-def update_user(user_id: str, body: UserUpdate, request: Request, admin: User = AdminUser, db: Session = Depends(get_db)):
+def update_user(user_id: uuid.UUID, body: UserUpdate, request: Request, admin: User = AdminUser, db: Session = Depends(get_db)):
     user = db.get(User, user_id)
     if user is None:
         raise NotFound("User not found")
     changes = body.model_dump(exclude_none=True)
     if user.id == admin.id and ("role" in changes or changes.get("is_active") is False):
         raise Conflict("Admins cannot change their own role or deactivate themselves")
+    previous = {k: getattr(user, k) for k in changes}
     for k, v in changes.items():
         setattr(user, k, v)
     if changes.get("is_active") is False:
         for s in db.execute(select(UserSession).where(UserSession.user_id == user.id, UserSession.revoked_at.is_(None))).scalars():
             s.revoked_at = datetime.now(UTC)
-    audit.record(db, request, admin.id, "user.update", "user", user.id, changes)
+    audit.record(db, request, admin.id, "user.update", "user", user.id, {"previous": previous, "new": changes})
     db.commit()
     return user

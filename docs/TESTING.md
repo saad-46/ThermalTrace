@@ -84,3 +84,43 @@ Every check below ran in a **fresh clone** of `production-consolidation`. The cl
 Viewport query: Bitmap Index Scan on ix_events_geom … 5.5 ms
 Facility attribution (10 km): Index Scan using ix_facilities_geom … 62 ms
 ```
+
+## Advanced intelligence phase and stabilisation — 2026-09-27
+
+- Backend: 132 passed, 0 skipped (unit + PostGIS integration on the disposable `thermaltrace_test` database), including
+  `test_stabilization.py`: one evidence definition across page / alerts / analytics, `reviewed` status, demo sessions
+  refused on all 24 write routes, owner scoping of rules / alerts / watchlists / saved locations, literal search input,
+  analytics validation, alert rule snapshots, report conclusion.
+- Migration 0012: downgrade to 0011 and upgrade to head on the test database; `alembic check` no drift on test and dev.
+- Frontend: `tsc` clean, Vitest 68 passed, production build clean, no credentials from `.env` in the bundle except the
+  browser-side CARTO basemap key (`VITE_CARTO_API_KEY`, by design; restrict it to the app's domains in CARTO).
+- Browser (dev data): no horizontal overflow and no error states on event, share view, compare, analytics, overview,
+  facility, events, alerts and sources at 360, 390, 430, 768 and 1440 px; every analyst (24) and admin (17) tour target
+  mounted on its route; status and knowledge labels ≥ 4.5:1 contrast in light and dark themes.
+- The acceptance E2E spec records a review and a note on the featured event, so it was not run against the development
+  database; run it against a disposable database.
+
+## Final release validation — 2026-09-28
+
+- Backend: ruff clean, **144 passed** (unit + PostGIS integration on the disposable test database), migrations at 0013 on
+  the development and test databases, `alembic check` no drift, worker startup and orphaned-job recovery checked.
+- Frontend: `tsc` clean, Vitest **68 passed**, production build clean, `npm audit --omit=dev` 0 vulnerabilities.
+- `pip-audit` (installed environment): no application dependency affected; the advisories reported are for the `pip`
+  tool of the local virtual environment only.
+- E2E: **22 passed** against a disposable copy of the development database (the acceptance spec records a review), with
+  the API and an interactive worker pointed at the copy; the copy was dropped afterwards. On the first run against the
+  freshly cloned (cold) database three checks timed out waiting for slow first queries and one layout check measured a
+  panel while it was still loading; all passed on rerun with a warm cache. The E2E locator for the event *Review* tab was
+  made exact (evidence-stage buttons also contain the word).
+- Docker: API and web images build; the import check passes and the image refuses to start with development defaults.
+- UI smoke: demo admin views (system health with workers, model versions and audit log; data sources; settings;
+  analytics; facilities; reports) and the event page at 375 px, without console errors or horizontal overflow.
+
+## Production hardening pass — 2026-09-28 (lightweight checks only)
+
+The comprehensive suite was deliberately not re-run in this pass. Checked: ruff clean, `tsc` clean, backend unit files
+(`test_units`, `test_landcover_imagery`, `test_ml`, new `test_hardening`) 86 passed, Vitest 68 passed, migration 0013
+upgrade / downgrade / upgrade and `alembic check` on the disposable test database, PDF build from two real bundles,
+similar-events results identical to a full scan on 22 real events. Still to run in the final verification phase: the
+PostGIS integration suites (including `test_stabilization.py`), E2E, Docker build, bundle secret scan, and applying
+0013 to the development database when no processing pass is running.

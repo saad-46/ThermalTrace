@@ -1,6 +1,6 @@
 """Typed request/response schemas for /api/v1."""
 import uuid
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
@@ -56,8 +56,15 @@ class TokenOut(BaseModel):
 class UserCreate(BaseModel):
     email: EmailStr
     full_name: str = Field(min_length=1, max_length=200)
-    password: str = Field(min_length=12, max_length=200)
+    password: str = Field(min_length=12, max_length=72)  # bcrypt reads at most 72 bytes; see _password_bytes
     role: Literal["viewer", "analyst", "supervisor", "admin"] = "viewer"
+
+    @field_validator("password")
+    @classmethod
+    def _password_bytes(cls, v: str) -> str:
+        if len(v.encode("utf-8")) > 72:
+            raise ValueError("password must be at most 72 bytes (UTF-8); longer passwords would be silently truncated")
+        return v
 
 
 class UserUpdate(BaseModel):
@@ -143,10 +150,19 @@ class EventDetail(EventSummary):
     evidence_matrix: list[dict]
     jobs: list[dict] = []
     imagery_readiness: dict | None = None
+    evidence_stages: dict | None = None  # the 13 evidence stages + availability (not confidence)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class SimilarEvent(EventSummary):
+    fp_distance: float | None = None
+    distance_m: float | None = None
+    similarity_reasons: list[str] = []
 
 
 class ReviewIn(BaseModel):
-    decision: Literal["confirm", "reject", "false_positive", "escalate", "reclassify", "note"]
+    decision: Literal["confirm", "reject", "false_positive", "escalate", "reclassify", "note", "mark_reviewed", "request_evidence"]
     source_class: SourceClass | None = None
     persistence_class: PersistenceClass | None = None
     false_positive_reason: str | None = None
@@ -220,7 +236,12 @@ class AlertRuleIn(BaseModel):
     min_repeat_events: int | None = Field(None, ge=2, le=1000,
                                           description="nearest facility has at least this many events within repeat_days")
     repeat_days: int = Field(30, ge=1, le=365)
-    activity_increase: bool = Field(False, description="nearest facility: >= 3 events in the last 7 days and >= 2x the prior 7 days")
+    activity_increase: bool = Field(False, description="nearest facility: >= 3 events in the current window and >= increase_factor x the previous window")
+    increase_factor: float = Field(2.0, ge=1.0, le=20.0)
+    increase_window_days: int = Field(7, ge=1, le=90)
+    repeat_within_m: float | None = Field(None, gt=0, le=10_000, description="count repeated activity within this distance of the facility")
+    min_active_days: int | None = Field(None, ge=1, le=365, description="persistence: at least this many days with detections")
+    min_evidence_stages: int | None = Field(None, ge=1, le=13, description="evidence availability (stages available), not confidence")
 
 
 class AlertRuleOut(AlertRuleIn):
@@ -319,13 +340,6 @@ class IngestionTriggerIn(BaseModel):
 class PushSubscriptionIn(BaseModel):
     endpoint: str = Field(max_length=2000)
     keys: dict[str, str]
-
-
-class RegistryImportIn(BaseModel):
-    source: Literal["gem", "cea", "wri_gppd"]
-    path: str | None = None
-    dataset_version: str | None = None
-    published_at: date | None = None
 
 
 ALL_CLASSES = SOURCE_CLASSES

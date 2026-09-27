@@ -56,7 +56,10 @@ class RegistryStation(Base):
     and `coordinate_source` says which source supplied them; the registry itself is never credited with them."""
 
     __tablename__ = "registry_stations"
-    __table_args__ = (UniqueConstraint("source_id", "station_key", name="uq_registry_station"),)
+    __table_args__ = (
+        UniqueConstraint("source_id", "station_key", name="uq_registry_station"),
+        Index("ix_registry_stations_name_trgm", "name", postgresql_using="gin", postgresql_ops={"name": "gin_trgm_ops"}),
+    )
     id: Mapped[uuid.UUID] = uuid_pk()
     source_id: Mapped[str] = mapped_column(String(32), ForeignKey("data_sources.id"), nullable=False)
     station_key: Mapped[str] = mapped_column(String(200), nullable=False)

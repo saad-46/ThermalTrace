@@ -47,7 +47,7 @@ def run_import(db: Session, source: str, path: str | None = None, dataset_versio
             raise AppError(f"Unknown registry source {source}")
     except (ProviderError, AppError, ValueError) as exc:
         finish_run(run, "failed", started, str(exc))
-        source_health.record_failure(db, source, str(exc))
+        source_health.record_failure(db, source, exc)
         db.commit()
         raise
 
@@ -89,7 +89,7 @@ def _run_cea_pdf(db: Session, path: str, dataset_version: str | None, published_
     except (AppError, ValueError) as exc:
         db.rollback()
         finish_run(run, "failed", started, str(exc))
-        source_health.record_failure(db, "cea", str(exc))
+        source_health.record_failure(db, "cea", exc)
         db.commit()
         raise
     run.records_fetched = report["stations"]

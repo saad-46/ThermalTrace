@@ -205,6 +205,14 @@ facility layer combines OpenStreetMap, WRI GPPD, Global Energy Monitor and the o
 stations are matched to located facilities with the coordinate source recorded. See [docs/CEA_REGISTRY.md](docs/CEA_REGISTRY.md)
 and [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md).
 
+## Investigation intelligence
+
+Each event opens as an investigation workspace: a status strip, 13 evidence stages with their state, source, time and
+limitation, evidence availability (not confidence), a timeline with playback, activity charts, an explainable
+classification, recurring activity, similar events, clusters and side-by-side comparison. Facilities have an
+intelligence profile (observed activity, thermal profile, registry agreement). Alerts explain their calculation; the
+dashboard and analytics use server-side filters. See docs/FEATURES.md and docs/API.md.
+
 ## Landing page
 
 Signed-out visitors see a landing page with the sign-in form at the top, and below it live figures (detections, events,
@@ -277,7 +285,7 @@ npm run build
 E2E_EMAIL=analyst@example.org E2E_PASSWORD=… npm run test:e2e
 ```
 
-Current results: backend **123 passed**, Vitest **64 passed**, Playwright **3 passed** acceptance (desktop, tablet, mobile), **1 passed** investigation path (imagery, weather, facility), **7 passed** guided exploration and **11 passed** landing page. `pip-audit` and `npm audit --omit=dev` are clean (remaining dev-tool advisories: [docs/SECURITY.md](docs/SECURITY.md)). CI (`.github/workflows/ci.yml`) runs lint, the backend tests against PostGIS, typecheck, the frontend tests, the build, both audits and the image builds. Details: [docs/TESTING.md](docs/TESTING.md).
+Current results (2026-09-28): backend **144 passed** (unit + PostGIS integration), Vitest **68 passed**, Playwright **22 passed**: 3 acceptance (desktop, tablet, mobile; run against a disposable copy of the database because it records a review), 1 investigation path, 7 guided exploration, 11 landing page. `pip-audit` and `npm audit --omit=dev` are clean (remaining dev-tool advisories: [docs/SECURITY.md](docs/SECURITY.md)). CI (`.github/workflows/ci.yml`) runs lint, the backend tests against PostGIS, typecheck, the frontend tests, the build, both audits and the image builds. Details: [docs/TESTING.md](docs/TESTING.md).
 
 ## Docker and deployment
 

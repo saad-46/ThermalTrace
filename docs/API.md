@@ -100,6 +100,57 @@ GET  /api/v1/reports/{id}/download
 | GET | `/api/v1/auth/me` | Me |
 | GET | `/api/v1/users/directory` | Minimal user directory for assignment pickers |
 
+### investigation intelligence (advanced phase)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/v1/events/compare?a=&b=` | Two events side by side (facts only, no ranking) |
+| GET | `/api/v1/events/{ref}/cluster?radius_km=&days=` | Events within the radius and time window of an event: summary, extent, distributions, facilities, events |
+| GET | `/api/v1/events/{ref}/recurrence?radius_km=` | Recurring activity around the event location: this / previous week, 30-day windows, weekly average, monthly |
+| GET | `/api/v1/facilities/{id}/profile?within_m=` | Facility activity profile: counts (2 km / 10 km / attributed), comparison, FRP / brightness / persistence / hour distributions, source agreement |
+| GET | `/api/v1/analytics/overview` | Dashboard figures for the filters (events, investigations, review queue, confirmed, high-priority queue, recurring facilities, evidence coverage, processing) |
+| GET | `/api/v1/analytics/series` | Events and detections per day / week / month by classification |
+| GET | `/api/v1/analytics/distributions` | Classification, persistence, confidence state, FRP and duration distributions |
+| GET | `/api/v1/analytics/geography` | Events by state, district and 1° cell |
+| GET | `/api/v1/analytics/evidence-coverage` | Events with each evidence stage (availability, not confidence) |
+| GET | `/api/v1/analytics/facility-activity` | Facilities with most events within 2 km |
+| GET | `/api/v1/analytics/filter-options[?state=]` | States, or a state's districts, for the filters |
+| GET | `/api/v1/analytics/recurring?days=&min_events=` | Facilities and places with repeated observed activity |
+| GET | `/api/v1/status/live` | Every source's live state, job queue, last FIRMS / weather / satellite updates, last failing source |
+| GET | `/api/v1/sources/{id}/detail` | One provider: purpose, authentication requirement, health, freshness, error category, optional |
+
+Analytics filters (all optional): `days` or `since`/`until`, `state`, `district`, `facility_id`, `classification` (repeatable).
+Aggregates are cached in process per filter set (range rounded to the minute) for 60 s. The data is the same for every role, so
+the cache is not per user. Unknown `classification` values return 400 `invalid_classification`.
+`evidence-coverage` returns one count per evidence stage (`detection`, `clustering`, `persistence`, `facility_proximity`,
+`facility_attribution`, `landcover`, `weather`, `satellite`, `spectral`, `classification`, `explainability`, `review`,
+`final_status`) by the same rules as the event page and alerts. The overview `totals` include `reviewed`.
+All endpoints are read-only and available to every signed-in role.
+
+The event bundle (`GET /events/{ref}`) also carries `evidence_stages` (`stages[]`, `completeness`, `freshness`: `latest_observation_at`,
+`latest_evidence_refresh_at`, `processed_at`, `record_updated_at`), `created_at`, `updated_at`
+and a timeline built from stored timestamps with explicit gaps (`knowledge`: observed / derived / inferred / analyst).
+`GET /events/{ref}/similar` adds `similarity_reasons`. `GET /facilities/{id}/relationship` adds `evidence` and `temporal`.
+Reviews accept `mark_reviewed` and `request_evidence` (notes required) and store `previous_status` / `new_status`.
+Alert rules accept `increase_factor`, `increase_window_days`, `repeat_within_m`, `min_active_days`, `min_evidence_stages`;
+each alert's `reason.explanation` holds every condition with its threshold and observed value, the `rule_id` and a
+`rule_snapshot` of the rule's conditions at the time, so it stays reproducible after the rule changes.
+`GET /events?review_status=` accepts `unreviewed`, `under_review`, `escalated`, `reviewed`, `analyst_confirmed`,
+`analyst_rejected`, `false_positive` (anything else: 400 `invalid_review_status`). `display_state` adds `ANALYST_REVIEWED`.
+Search input is matched literally: `%` and `_` are not wildcards.
+
+Hardening (2026-09-28):
+- `GET /events/{ref}`: `alerts` holds only the caller's own alerts; `evidence_matrix[].availability` is one of
+  `available`, `no data`, `not requested`, `failed` (plus `rules only` for the ML row); for demo sessions people's
+  names are masked. `imagery_analysis.status` is `ok`, `unavailable` or `failed`.
+- `GET /events/{ref}/detections.geojson` returns at most the 5,000 most recent pixels (`truncated` says so).
+- `GET /sources` adds `last_error_category`; the raw `last_error` and run `error_detail` are for administrators only.
+- `GET /jobs`, `/jobs/{id}`: `error` is the full traceback for administrators, its last line for others, hidden in demo.
+- `GET /weather/current` is cached for 10 minutes per ~1 km cell; refused to demo sessions, as are
+  `/reports/{id}/download`, `/ml/training-dataset` and SWIR renders (`demo_quota_protected`).
+- `GET /satellite/{id}/swir.png` needs the analyst role.
+- `GET /events/{ref}/similar`: the same results as before, from an index walk (~0.2 s instead of 1–5 s).
+
 ### events
 
 | Method | Path | Summary |
@@ -169,7 +220,7 @@ GET  /api/v1/reports/{id}/download
 
 | Method | Path | Summary |
 |---|---|---|
-| GET | `/api/v1/search` | Search events, places, facilities, classifications and coordinates |
+| GET | `/api/v1/search` | Grouped search: events (id prefix uses the btree index), facilities (name, operator, registry id, CEA station), locations (states, districts, places), classifications, coordinates |
 
 ### sources
 

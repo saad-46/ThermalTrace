@@ -26,6 +26,11 @@ def record_success(db: Session, source_id: str, latency_ms: float | None = None,
             _EWMA_ALPHA * latency_ms + (1 - _EWMA_ALPHA) * src.latency_ms_ewma)
 
 
+# The categories every provider failure is reduced to (stored, shown in the UI; mirrored in the frontend ERROR_TEXT).
+ERROR_CATEGORIES = ("authentication_failed", "timeout", "rate_limited", "service_unavailable", "unsupported_data",
+                    "processing_failure", "invalid_request")
+
+
 def error_category(exc: Exception) -> str:
     """A provider error as a category shown to users (never the raw message, which may contain URLs)."""
     kind = getattr(exc, "kind", None)
@@ -65,14 +70,19 @@ def record_check(db: Session, source_id: str, capability: str, ok: bool, latency
     src.health_detail = detail  # new object so the JSONB change is persisted
 
 
-def record_failure(db: Session, source_id: str, error: str) -> None:
+def record_failure(db: Session, source_id: str, error: "str | Exception", category: str | None = None) -> None:
+    """Record a failed request. Pass the exception: its category (see error_category) is stored as a `[category]`
+    prefix so every reader shows the same classification; the raw message stays for administrators and logs."""
+    if isinstance(error, Exception):
+        category = category or error_category(error)
+        error = str(error)
     src = db.get(DataSource, source_id)
     if src is None:
         return
     src.requests_total += 1
     src.requests_failed += 1
     src.last_failure_at = datetime.now(UTC)
-    src.last_error = error[:1000]
+    src.last_error = (f"[{category}] {error}" if category and not error.startswith("[") else error)[:1000]
     recent_success = src.last_success_at and (src.last_failure_at - src.last_success_at).total_seconds() < 3600
     src.status = "degraded" if recent_success else "down"
 

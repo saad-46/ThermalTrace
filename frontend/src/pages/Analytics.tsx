@@ -1,18 +1,21 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
 import { Link } from "react-router-dom";
+import { AdvancedAnalytics } from "../components/advancedAnalytics";
+import { AnalyticsFilterBar, useAnalyticsFilters } from "../components/analyticsFilters";
 import { HBars, StackedBars } from "../components/charts";
 import { Async, ClassLabel, Empty, errText, PersistencePill, StatePill, useToast } from "../components/ui";
 import { api, downloadFile } from "../lib/api";
 import { useSession } from "../lib/session";
-import { fmtDistance, locationLabel, relTime, titleCase } from "../lib/format";
+import { fmtDistance, locationLabel, relTime, sharePct, titleCase } from "../lib/format";
 import { CLASS_META, FACILITY_LABELS, FP_REASONS } from "../lib/taxonomy";
 import type { EventSummary } from "../lib/types";
 
 export default function Analytics() {
   const { can } = useSession();
   const toast = useToast();
-  const [days, setDays] = useState(30);
+  const f = useAnalyticsFilters(30);
+  // the legacy panels below take a whole number of days: the selected range, or the span of a custom range
+  const days = f.q.days ?? Math.max(1, Math.ceil((Date.parse(f.q.until ?? new Date().toISOString()) - Date.parse(f.q.since!)) / 86_400_000));
   const trends = useQuery({ queryKey: ["trends", days], queryFn: () => api<{ rows: { bucket: string; classification: string; detections: number }[] }>("/analytics/trends", { query: { days } }) });
   const hotspots = useQuery({ queryKey: ["hotspots", days], queryFn: () => api<{ districts: { admin_state: string; admin_district: string; events: number; detections: number; persistent: number; industrial: number }[]; facility_types: { facility_type: string; events: number; facilities: number }[]; note: string }>("/analytics/hotspots", { query: { days } }) });
   const sensors = useQuery({ queryKey: ["sensors", days], queryFn: () => api<{ per_sensor: { dataset: string; satellite: string; n: number; frp_mean: number; conf_mean: number }[]; multi_sensor_agreement: { sensor_count: number; n: number }[] }>("/analytics/sensors", { query: { days } }) });
@@ -36,9 +39,11 @@ export default function Analytics() {
     <div className="page">
       <div className="page-head">
         <div><h1>Analytics</h1><div className="sub">Operational patterns in the loaded FIRMS history. Everything reflects satellite detections, not verified incidents.</div></div>
-        <div className="actions"><div className="seg">{[7, 30, 90, 365].map((d) => <button key={d} className={days === d ? "on" : ""} onClick={() => setDays(d)}>{d} d</button>)}</div></div>
       </div>
+      <AnalyticsFilterBar f={f} />
       <div className="stack" style={{ gap: 12 }}>
+        <AdvancedAnalytics q={f.q} queryKey={f.queryKey} />
+        <h2 className="section-title">Sensors, persistence and analyst feedback <span className="faint" style={{ fontSize: 12, fontWeight: 400 }}>(time range only)</span></h2>
         <section className="panel"><div className="panel-head"><h2>Thermal activity by classification</h2><span className="right faint">daily detections</span></div>
           <div className="panel-body"><Async q={trends} empty={() => (buckets.length ? null : <Empty title="No data in range" />)}>{() => (
             <StackedBars buckets={buckets} series={[...Object.keys(CLASS_META), "unclassified"]} colors={{ ...Object.fromEntries(Object.entries(CLASS_META).map(([k, v]) => [k, v.color])), unclassified: "#ced4da" }} />
@@ -75,7 +80,7 @@ export default function Analytics() {
               </div>
             )}</Async></div></section>
           <section className="panel"><div className="panel-head"><h2>Night-time share by platform</h2><span className="right faint">persistent industrial sources are visible at night</span></div><div className="panel-body">
-            <Async q={diurnal} empty={() => (nightShare.length ? null : <Empty title="No data" />)}>{() => <HBars rows={nightShare} color="#862e9c" format={(v) => `${Math.round(v * 100)}%`} />}</Async>
+            <Async q={diurnal} empty={() => (nightShare.length ? null : <Empty title="No data" />)}>{() => <HBars rows={nightShare} color="#862e9c" format={sharePct} />}</Async>
           </div></section>
         </div>
 

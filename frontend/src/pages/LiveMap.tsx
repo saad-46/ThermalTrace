@@ -4,7 +4,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { EventRowMini } from "../components/evidence";
 import { DEFAULT_FILTERS, FilterButton, TimeRange, toQuery, type FilterState } from "../components/filters";
 import { EventActions, EventHeader, Investigation } from "../components/investigation";
-import MapCanvas, { DEFAULT_LAYERS, type LayerState } from "../components/MapCanvas";
+import MapCanvas, { DEFAULT_LAYERS, LANDCOVER_COLORS, type LayerState } from "../components/MapCanvas";
 import { Boundary, Empty, ErrorState, Skeleton } from "../components/ui";
 import { fmtDateTime } from "../lib/format";
 import { useEvent, useEvents } from "../lib/hooks";
@@ -12,15 +12,52 @@ import { useTheme } from "../lib/session";
 import { CLASS_META, CLASS_ORDER } from "../lib/taxonomy";
 import type { EventDetail } from "../lib/types";
 
-const LAYER_LABELS: [keyof LayerState, string, string][] = [
-  ["events", "Thermal events", "Clustered FIRMS events, coloured by classification"],
-  ["heat", "Activity density", "Heatmap of events in view (replaces markers)"],
-  ["facilities", "Industrial facilities", "OSM + registries, zoom ≥ 6"],
-  ["detections", "Event pixels & footprint", "Selected event's FIRMS pixels (purple = night)"],
-  ["dispersion", "Potential dispersion direction", "Down-wind vector from weather at detection time"],
-  ["radius", "Attribution radius", "2 km (rule threshold) and 10 km (facility search) rings around the selected event"],
-  ["imagery", "Satellite basemap", "Sentinel-2 cloudless 2021 mosaic (EOX)"],
+/** Map layers by purpose; the default map stays clean (progressive disclosure). */
+const LAYER_GROUPS: { title: string; items: [keyof LayerState, string, string][] }[] = [
+  { title: "Thermal activity", items: [
+    ["events", "Thermal events", "Clustered FIRMS events (circles), coloured by classification"],
+    ["heat", "Thermal activity density", "Density of observed events in view (replaces markers); observed activity, not fire risk"],
+  ] },
+  { title: "Selected event", items: [
+    ["detections", "Event pixels & footprint", "Selected event's FIRMS pixels (purple = night)"],
+    ["radius", "2 km and 10 km rings", "Rule threshold and facility search radius around the selected event"],
+    ["dispersion", "Potential dispersion direction", "Down-wind vector from weather at detection time (not plume tracking)"],
+  ] },
+  { title: "Infrastructure", items: [
+    ["facilities", "Facilities", "OSM and registries (squares), zoom ≥ 6"],
+    ["industrial", "Industrial areas", "OpenStreetMap landuse=industrial, zoom ≥ 9"],
+    ["quarries", "Quarries and mines", "OpenStreetMap landuse=quarry, zoom ≥ 9"],
+  ] },
+  { title: "Geography", items: [
+    ["states", "State boundaries", "Natural Earth states (India point of view)"],
+    ["districts", "District boundaries", "OpenStreetMap admin level 5, zoom ≥ 8.5"],
+    ["roads", "Roads", "National roads from zoom 4.5, then primary and secondary"],
+    ["rivers", "Rivers", "OpenStreetMap waterways"],
+    ["landcover", "Land cover (OpenStreetMap)", "Farmland, wood, grass, wetland, sand. Event evidence uses ESA WorldCover"],
+    ["imagery", "Satellite basemap", "Sentinel-2 cloudless 2021 mosaic (EOX), context only"],
+  ] },
 ];
+
+function MapLegend({ layers, selected }: { layers: LayerState; selected: boolean }) {
+  return (
+    <details className="float legend" open aria-label="Legend" data-tour-id="map-legend">
+      <summary>Legend</summary>
+      {layers.events && !layers.heat && <>
+        {CLASS_ORDER.map((c) => <div key={c} className="item"><span className="sw" style={{ background: CLASS_META[c].color }} />{CLASS_META[c].short}</div>)}
+        <div className="item faint note">Circles = thermal events · size = peak FRP · grey ring = insufficient evidence</div>
+      </>}
+      {layers.heat && <div className="item note"><span className="ramp" aria-hidden /> Observed activity density (not risk)</div>}
+      {layers.facilities && <div className="item note"><span className="sw sq" aria-hidden /> Squares = facilities · blue ring = linked to the selected event</div>}
+      {(layers.industrial || layers.quarries) && <div className="item note">
+        {layers.industrial && <><span className="sw sq" style={{ background: "#8a5a2b" }} aria-hidden /> Industrial </>}
+        {layers.quarries && <><span className="sw sq" style={{ background: "#6b5d52" }} aria-hidden /> Quarry</>}</div>}
+      {layers.landcover && <div className="item note">
+        <div className="faint" style={{ width: "100%" }}>Land cover · OpenStreetMap (map context; event evidence uses ESA WorldCover)</div>
+        {Object.entries(LANDCOVER_COLORS).map(([k, c]) => <span key={k} className="lc-chip"><span className="sw sq" style={{ background: c }} aria-hidden />{k}</span>)}</div>}
+      {selected && layers.radius && <div className="item faint note">Dashed rings: 2 km and 10 km around the selected event</div>}
+    </details>
+  );
+}
 
 function Replay({ ev, onFrame }: { ev: EventDetail; onFrame: (t: string | null) => void }) {
   const times = useMemo(() => [...new Set(ev.detections.map((d) => d.acq_datetime))].sort(), [ev]);
@@ -49,7 +86,8 @@ export default function LiveMap() {
   const [params, setParams] = useSearchParams();
   const selected = params.get("event");
   const [theme] = useTheme();
-  const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
+  // ?days= carries the dashboard's time range to the map
+  const [filters, setFilters] = useState<FilterState>(() => ({ ...DEFAULT_FILTERS, days: params.get("days") ? Number(params.get("days")) : DEFAULT_FILTERS.days }));
   const [layers, setLayers] = useState<LayerState>(DEFAULT_LAYERS);
   const [showLayers, setShowLayers] = useState(false);
   const [vp, setVp] = useState<{ count: number; truncated: boolean; loading: boolean; error: string | null }>({ count: 0, truncated: false, loading: true, error: null });
@@ -84,21 +122,24 @@ export default function LiveMap() {
           <div style={{ position: "relative" }}>
             <button className="btn" onClick={() => setShowLayers((v) => !v)} aria-expanded={showLayers}><Layers size={14} /> Layers</button>
             {showLayers && (
-              <div className="float layers" style={{ position: "absolute", top: "110%", left: 0 }}>
+              <div className="float layers" style={{ position: "absolute", top: "110%", left: 0 }} data-tour-id="map-layers">
                 <h4>Map layers</h4>
-                {LAYER_LABELS.map(([k, label, hint]) => (
-                  <label key={k} className="check" title={hint}>
-                    <input type="checkbox" checked={layers[k]} onChange={(e) => setLayers({ ...layers, [k]: e.target.checked })} /> {label}
-                  </label>
+                {LAYER_GROUPS.map((g) => (
+                  <div key={g.title} className="layer-group">
+                    <div className="layer-group-title">{g.title}</div>
+                    {g.items.map(([k, label, hint]) => (
+                      <label key={k} className="check" title={hint}>
+                        <input type="checkbox" checked={layers[k]} onChange={(e) => setLayers({ ...layers, [k]: e.target.checked })} /> {label}
+                      </label>
+                    ))}
+                  </div>
                 ))}
+                <button className="btn ghost sm" onClick={() => setLayers(DEFAULT_LAYERS)}>Reset to defaults</button>
               </div>
             )}
           </div>
         </div>
-        <div className="float legend" aria-label="Legend">
-          {CLASS_ORDER.map((c) => <div key={c} className="item"><span className="sw" style={{ background: CLASS_META[c].color }} />{CLASS_META[c].short}</div>)}
-          <div className="item faint note">Size = peak FRP · grey ring = insufficient evidence</div>
-        </div>
+        <MapLegend layers={layers} selected={!!selected} />
         </div>
         <div className="map-overlay float map-status" role="status">
           {vp.loading ? "Loading events in view…" : vp.error ? <span style={{ color: "var(--bad)" }}>Events unavailable: {vp.error}</span>

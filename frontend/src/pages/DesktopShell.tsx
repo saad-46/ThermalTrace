@@ -3,6 +3,7 @@ import {
 } from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
 import GlobalSearch from "../components/GlobalSearch";
+import { LiveStatusButton } from "../components/liveStatus";
 import ExploreBanner from "../tour/ExploreBanner";
 import { DemoBanner, Freshness } from "../components/ui";
 import { useUnread } from "../lib/hooks";
@@ -70,6 +71,7 @@ export default function DesktopShell() {
         <GlobalSearch />
         <span className="spacer" />
         <Freshness />
+        <LiveStatusButton />
       </header>
       <main className="main" style={{ display: "flex", flexDirection: "column" }}>
         <ExploreBanner />

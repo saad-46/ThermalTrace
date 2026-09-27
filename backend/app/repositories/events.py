@@ -1,12 +1,13 @@
 """Event queries. All spatial/aggregate SQL for events lives here — routers never build SQL."""
 import math
+import re
 import uuid
-from datetime import datetime
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.errors import NotFound
+from app.db import like as like_pattern
 from app.processing.confidence import display_state
 
 SORTS = {
@@ -74,10 +75,12 @@ def _filters(p: dict) -> tuple[str, dict]:
     if p.get("region", "india") == "india":
         # Known to be outside India's boundary: excluded. NULL (not yet classified / no boundary) is kept.
         clauses.append("e.in_india IS NOT FALSE")
-    if p.get("q"):
+    if p.get("q") and not re.sub(r"[\W_]+", "", p["q"]):
+        clauses.append("false")  # only punctuation / wildcards: matches no id or name
+    elif p.get("q"):
         clauses.append("(e.public_id ILIKE :q OR e.admin_district ILIKE :q OR e.admin_state ILIKE :q OR f.name ILIKE :q "
                        "OR e.place_name ILIKE :q OR e.place_admin1 ILIKE :q)")
-        params["q"] = f"%{p['q']}%"
+        params["q"] = like_pattern.contains(p["q"])
     return " AND ".join(clauses), params
 
 
@@ -138,7 +141,7 @@ def events_geojson(db: Session, p: dict, limit: int) -> dict:
 def _event_row(db: Session, event_id: uuid.UUID) -> dict:
     row = db.execute(text(f"SELECT {_LIST_COLS}, e.persistence_metrics, e.confidence_components, e.data_quality_detail, "
                           "e.fingerprint, e.priority_components, e.enrichment_state, e.datasets, e.frp_sum, e.frp_std, e.confidence_mean, "
-                          "e.processed_at, e.processing_version, ST_AsGeoJSON(e.footprint::geometry)::json AS footprint "
+                          "e.processed_at, e.processing_version, e.created_at, e.updated_at, ST_AsGeoJSON(e.footprint::geometry)::json AS footprint "
                           "FROM thermal_events e LEFT JOIN facilities f ON f.id = e.nearest_facility_id "
                           "WHERE e.id = :id"), {"id": event_id}).mappings().first()
     if row is None:
@@ -156,7 +159,7 @@ def resolve_event_id(db: Session, ref: str) -> uuid.UUID:
         return eid
 
 
-def get_bundle(db: Session, event_id: uuid.UUID) -> dict:
+def get_bundle(db: Session, event_id: uuid.UUID, user_id: uuid.UUID | None = None) -> dict:
     """The full investigation bundle: event, observations, facilities, land, weather, satellite,
     predictions, classification, evidence, reviews, timeline."""
     ev = _event_row(db, event_id)
@@ -170,7 +173,7 @@ def get_bundle(db: Session, event_id: uuid.UUID) -> dict:
                                 spread_m FROM thermal_observations WHERE event_id = :id ORDER BY obs_date""")
     ev["facilities"] = q("""SELECT f.id, f.name, f.facility_type, f.operator, f.status, f.capacity_value, f.capacity_unit,
                               f.confidence, f.primary_source, f.source_count, f.latitude, f.longitude,
-                              l.distance_m, l.bearing_deg, l.rank, l.attribution_score,
+                              l.distance_m, l.bearing_deg, l.rank, l.attribution_score, l.computed_at,
                               (SELECT json_agg(json_build_object('source', s.source_id, 'external_id', s.external_id,
                                   'url', s.source_url, 'dataset_version', s.dataset_version,
                                   'published_at', s.published_at, 'retrieved_at', s.retrieved_at))
@@ -211,13 +214,16 @@ def get_bundle(db: Session, event_id: uuid.UUID) -> dict:
                             WHEN 'facility' THEN 4 WHEN 'land' THEN 5 WHEN 'landcover' THEN 6 WHEN 'weather' THEN 7
                             WHEN 'satellite' THEN 8 ELSE 9 END, strength DESC""")
     ev["reviews"] = q("""SELECT r.id, r.decision, r.source_class, r.persistence_class, r.false_positive_reason, r.notes,
-                           r.system_source_class, r.system_confidence_score, r.created_at, u.full_name AS reviewer
+                           r.system_source_class, r.system_confidence_score, r.previous_status, r.new_status, r.created_at,
+                           u.full_name AS reviewer
                          FROM analyst_reviews r LEFT JOIN users u ON u.id = r.user_id WHERE r.event_id = :id
-                         ORDER BY r.created_at DESC""")
+                         ORDER BY r.created_at DESC LIMIT 200""")
     ev["notes"] = q("""SELECT n.id, n.kind, n.body, n.url, n.created_at, u.full_name AS author FROM investigation_notes n
-                       LEFT JOIN users u ON u.id = n.user_id WHERE n.event_id = :id ORDER BY n.created_at DESC""")
+                       LEFT JOIN users u ON u.id = n.user_id WHERE n.event_id = :id ORDER BY n.created_at DESC LIMIT 200""")
+    # alerts belong to the user whose rule raised them: only the caller's own (none when no user, e.g. a PDF report)
     ev["alerts"] = q("""SELECT a.id, a.title, a.severity, a.triggered_at, a.status, r.name AS rule_name FROM alerts a
-                        JOIN alert_rules r ON r.id = a.rule_id WHERE a.event_id = :id ORDER BY a.triggered_at DESC""")
+                        JOIN alert_rules r ON r.id = a.rule_id WHERE a.event_id = :id AND a.user_id = :uid
+                        ORDER BY a.triggered_at DESC""", uid=user_id) if user_id else []
     ev["investigation"] = (q("""SELECT i.id, i.status, i.priority, i.summary, i.opened_at, i.closed_at, i.assigned_to,
                                    u.full_name AS assignee FROM investigations i LEFT JOIN users u ON u.id = i.assigned_to
                                  WHERE i.event_id = :id""") or [None])[0]
@@ -232,6 +238,11 @@ def get_bundle(db: Session, event_id: uuid.UUID) -> dict:
                               AND kind IN ('enrich_event', 'imagery_analysis') AND created_at > now() - interval '7 days') j
                       ORDER BY kind, steps, created_at DESC""")
     ev["imagery_readiness"] = imagery_readiness(ev)
+    from app.services import evidence_rules, investigation
+
+    stages = investigation.stages(ev, evidence_rules.availability(db, eid))
+    ev["evidence_stages"] = {"stages": stages, "completeness": investigation.completeness(stages),
+                             "freshness": investigation.freshness(ev)}
     ev["timeline"] = build_timeline(ev)
     ev["evidence_matrix"] = evidence_matrix(ev)
     return ev
@@ -249,38 +260,25 @@ def imagery_readiness(ev: dict) -> dict:
 
 
 def build_timeline(ev: dict) -> list[dict]:
-    items: list[dict] = [{"at": ev["first_detected"], "kind": "first_seen", "label": "First detected",
-                          "detail": f"{ev['detections'][0]['satellite']} ({ev['detections'][0]['dataset']})" if ev["detections"] else None}]
-    for o in ev["observations"]:
-        items.append({"at": o["first_at"], "kind": "observation",
-                      "label": f"{o['detection_count']} detection(s)",
-                      "detail": f"{', '.join(o['sensors'])}; max FRP {o['frp_max'] or 0:.1f} MW"})
-    for s in ev["satellite"]:
-        items.append({"at": s["acquired_at"], "kind": "satellite",
-                      "label": f"Sentinel-2 scene ({s['relation']})",
-                      "detail": f"{s['platform']}, {s['cloud_cover']:.0f}% cloud" if s["cloud_cover"] is not None else s["platform"]})
-    for w in ev["weather"]:
-        items.append({"at": w["observed_at"], "kind": "weather", "label": "Weather context",
-                      "detail": f"{w['condition'] or '—'}, wind {w['wind_speed_ms'] if w['wind_speed_ms'] is not None else '—'} m/s "
-                                f"from {w['wind_direction_deg'] if w['wind_direction_deg'] is not None else '—'}° ({w['dataset']})"})
-    for c in ev["classification_history"][:5]:
-        items.append({"at": c["created_at"], "kind": "classification",
-                      "label": f"Classified: {c['source_class']} / {c['persistence_class']}",
-                      "detail": f"{c['confidence_state']} ({c['confidence_score']:.2f}) by {c['primary_model_id']}"})
-    for r in ev["reviews"]:
-        items.append({"at": r["created_at"], "kind": "review", "label": f"Analyst: {r['decision']}",
-                      "detail": (r["reviewer"] or "") + (f" — {r['notes'][:120]}" if r["notes"] else "")})
-    for a in ev["alerts"]:
-        items.append({"at": a["triggered_at"], "kind": "alert", "label": f"Alert ({a['severity']})", "detail": a["rule_name"]})
-    items.append({"at": ev["last_detected"], "kind": "latest", "label": "Latest detection", "detail": None})
-    return sorted(items, key=lambda i: i["at"] if isinstance(i["at"], datetime) else datetime.fromisoformat(str(i["at"])))
+    from app.services.investigation import timeline
+
+    return timeline(ev)
 
 
-def _landcover_row(wc: dict | None, status: str | None) -> dict:
+def _missing(status: str | None, category: str | None, none_found: str, not_yet: str) -> tuple[str, str]:
+    """Availability and detail for evidence that is not present, from the step's recorded outcome. A provider failure
+    is "failed", an answer without data is "no data", and a step never run is "not requested"; never mixed up."""
+    if status == "failed":
+        return "failed", f"provider failure ({(category or 'error').replace('_', ' ')})"
+    if status in ("ok", "no_data"):
+        return "no data", none_found
+    return "not requested", not_yet
+
+
+def _landcover_row(wc: dict | None, step: dict) -> dict:
     if wc is None:
-        return {"type": "Land cover", "availability": "failed" if status == "failed" else ("checked" if status == "ok" else "pending"),
-                "strength": 0, "detail": "no WorldCover data here" if status == "ok" else
-                ("retrieval failed" if status == "failed" else "not yet retrieved")}
+        avail, detail = _missing(step.get("status"), step.get("category"), "no WorldCover data here", "not yet retrieved")
+        return {"type": "Land cover", "availability": avail, "strength": 0, "detail": detail}
     share = (wc["fractions"] or {}).get(wc["dominant"], 0)
     return {"type": "Land cover", "availability": "available", "strength": round(share, 2),
             "detail": f"{(wc['dominant'] or '').replace('_', ' ')} {share:.0%} (ESA WorldCover 2021)"}
@@ -290,8 +288,10 @@ def _imagery_row(ia: dict | None) -> dict:
     if ia is None:
         return {"type": "Spectral change", "availability": "not requested", "strength": 0,
                 "detail": "NDVI/NBR change not computed (request it from the imagery tab)"}
+    if ia["status"] == "failed":
+        return {"type": "Spectral change", "availability": "failed", "strength": 0, "detail": ia["reason"]}
     if ia["status"] != "ok":
-        return {"type": "Spectral change", "availability": "unavailable", "strength": 0, "detail": ia["reason"]}
+        return {"type": "Spectral change", "availability": "no data", "strength": 0, "detail": ia["reason"]}
     d = ia["deltas"] or {}
     return {"type": "Spectral change", "availability": "available",
             "strength": {"vegetation_loss_consistent": 0.8, "partial_change": 0.4}.get(ia["finding"], 0.1),
@@ -299,11 +299,15 @@ def _imagery_row(ia: dict | None) -> dict:
 
 
 def evidence_matrix(ev: dict) -> list[dict]:
-    """Evidence Type | Availability | Strength — the analyst's at-a-glance evidence quality grid."""
+    """Evidence Type | Availability | Strength — the analyst's at-a-glance evidence quality grid. Availability is one
+    of available / no data / not requested / failed (see _missing); strength is not a probability."""
     state = ev.get("enrichment_state") or {}
 
-    def st(step):
-        return (state.get(step) or {}).get("status")
+    def step(name):
+        return state.get(name) or {}
+
+    def missing(name, none_found, not_yet):
+        return _missing(step(name).get("status"), step(name).get("category"), none_found, not_yet)
 
     comps = {c["name"]: c for c in ((ev.get("confidence_components") or {}).get("components") or [])}
     top_fac = ev["facilities"][0] if ev["facilities"] else None
@@ -311,25 +315,22 @@ def evidence_matrix(ev: dict) -> list[dict]:
     best_cloud = min((s["cloud_cover"] for s in scenes if s["cloud_cover"] is not None), default=None)
     pm = ev.get("persistence_metrics") or {}
     gbm = next((p for p in ev["predictions"] if p["model_version_id"].startswith("lgbm")), None)
+    fac_a, fac_d = ("available", f"{top_fac['name'] or top_fac['facility_type']} at {top_fac['distance_m']:.0f} m") if top_fac         else missing("osm", "none mapped within 10 km", "not yet retrieved")
+    sat_a, sat_d = ("available", f"{len(scenes)} scene(s)" + (f", best {best_cloud:.0f}% cloud" if best_cloud is not None else ""))         if scenes else missing("satellite", "no suitable scene under the cloud limit", "not yet searched")
+    w_a, w_d = ("available", ev["weather"][0]["dataset"]) if ev["weather"] else missing("weather", "no weather for this time", "not yet retrieved")
     return [
         {"type": "FIRMS", "availability": "available", "strength": comps.get("sensor_agreement", {}).get("value", 0),
          "detail": f"{ev['observation_count']} detections, {ev['sensor_count']} platform(s)"},
-        {"type": "Facility", "availability": "available" if top_fac else ("checked" if st("osm") == "ok" else "pending"),
-         "strength": round(top_fac["attribution_score"] / 0.6, 2) if top_fac else 0,
-         "detail": f"{top_fac['name'] or top_fac['facility_type']} at {top_fac['distance_m']:.0f} m" if top_fac
-         else ("none mapped within 10 km" if st("osm") == "ok" else "not yet retrieved")},
-        {"type": "Satellite", "availability": "available" if scenes else ("checked" if st("satellite") == "ok" else "pending"),
-         "strength": comps.get("satellite", {}).get("value", 0),
-         "detail": f"{len(scenes)} scene(s), best {best_cloud:.0f}% cloud" if scenes and best_cloud is not None
-         else ("no clear scene" if st("satellite") == "ok" else "not yet searched")},
-        _landcover_row(ev.get("landcover"), st("landcover")),
+        {"type": "Facility", "availability": fac_a, "strength": round(top_fac["attribution_score"] / 0.6, 2) if top_fac else 0,
+         "detail": fac_d},
+        {"type": "Satellite", "availability": sat_a, "strength": comps.get("satellite", {}).get("value", 0), "detail": sat_d},
+        _landcover_row(ev.get("landcover"), step("landcover")),
         _imagery_row(ev.get("imagery_analysis")),
-        {"type": "Weather", "availability": "available" if ev["weather"] else ("failed" if st("weather") == "failed" else "pending"),
-         "strength": 1.0 if ev["weather"] else 0, "detail": ev["weather"][0]["dataset"] if ev["weather"] else "not available"},
+        {"type": "Weather", "availability": w_a, "strength": 1.0 if ev["weather"] else 0, "detail": w_d},
         {"type": "History", "availability": "available", "strength": ev.get("persistence_score") or 0,
          "detail": f"{pm.get('active_days', '–')} active day(s) of {pm.get('history_window_days', '–')} in history"},
         {"type": "ML", "availability": "available" if gbm else "rules only", "strength": ev.get("classification_probability") or 0,
-         "detail": f"{ev.get('classification')} (p={ev.get('classification_probability') or 0:.2f})"},
+         "detail": f"{ev.get('classification')} (class score {ev.get('classification_probability') or 0:.2f})"},
     ]
 
 
@@ -362,25 +363,39 @@ def similar_events(db: Session, event_id: uuid.UUID, limit: int = 8) -> list[dic
     params = {"id": event_id, "t": ftype, "limit": limit, **{f"v{i}": v for i, v in enumerate(vec)}}
     target = "cube(ARRAY[:v0, :v1, :v2, :v3, :v4]::float8[])"
 
-    def nearest(same_type: bool) -> list[dict]:
-        return [dict(r) for r in db.execute(text(f"""
-            SELECT e.id, e.last_detected, {_FP_CUBE} <-> {target} AS d5
-            FROM thermal_events e
-            WHERE e.fingerprint IS NOT NULL AND e.id <> :id AND {_FP_TYPE} {"=" if same_type else "<>"} :t
-            ORDER BY {_FP_CUBE} <-> {target}, e.last_detected DESC
-            LIMIT :limit"""), params).mappings().all()]
+    def walk(same_type: bool) -> list[dict]:
+        # Walk the KNN index in pure distance order (a secondary sort key or a "<>" filter would force a scan of every
+        # event: ~1 s warm, several cold), in growing pages, until `limit` rows of the wanted type are found and every
+        # tie at the cut-off is included; ties are then ordered by recency. Same result as the full scan.
+        type_filter = f"AND {_FP_TYPE} = :t" if same_type else ""
+        n = max(64, limit * 8)
+        while True:
+            rows = [dict(r) for r in db.execute(text(f"""
+                SELECT e.id, e.last_detected, {_FP_TYPE} AS t, {_FP_CUBE} <-> {target} AS d5
+                FROM thermal_events e WHERE e.fingerprint IS NOT NULL AND e.id <> :id {type_filter}
+                ORDER BY {_FP_CUBE} <-> {target} LIMIT :n"""), {**params, "n": n}).mappings().all()]
+            keep = sorted((r for r in rows if (r["t"] == ftype) == same_type),
+                          key=lambda r: (r["d5"], -r["last_detected"].timestamp()))
+            if len(rows) < n or (len(keep) >= limit and rows[-1]["d5"] > keep[limit - 1]["d5"]):
+                return keep[:limit]
+            n *= 4
 
-    cands = [{**c, "fp_distance": c["d5"]} for c in nearest(True)]
-    cands += [{**c, "fp_distance": math.sqrt(c["d5"] ** 2 + _FP_TYPE_PENALTY)} for c in nearest(False)]
+    cands = [{**c, "fp_distance": c["d5"]} for c in walk(True)]
+    cands += [{**c, "fp_distance": math.sqrt(c["d5"] ** 2 + _FP_TYPE_PENALTY)} for c in walk(False)]
     cands.sort(key=lambda c: (c["fp_distance"], -c["last_detected"].timestamp()))
     top = cands[:limit]
     if not top:
         return []
     rows = {r["id"]: dict(r) for r in db.execute(text(f"""
-        SELECT {_LIST_COLS}, ST_Distance(e.geom, (SELECT geom FROM thermal_events WHERE id = :id)) AS distance_m
+        SELECT {_LIST_COLS}, e.fingerprint, ST_Distance(e.geom, (SELECT geom FROM thermal_events WHERE id = :id)) AS distance_m
         FROM thermal_events e LEFT JOIN facilities f ON f.id = e.nearest_facility_id
         WHERE e.id = ANY(:ids)"""), {"id": event_id, "ids": [c["id"] for c in top]}).mappings().all()}
-    return [_with_display({**rows[c["id"]], "fp_distance": c["fp_distance"]}) for c in top if c["id"] in rows]
+    from app.services.investigation import similarity_reasons
+
+    mine = db.execute(text("SELECT fingerprint, persistence_class, classification FROM thermal_events WHERE id = :id"),
+                      {"id": event_id}).mappings().one()
+    return [_with_display({**rows[c["id"]], "fp_distance": c["fp_distance"],
+                           "similarity_reasons": similarity_reasons(dict(mine), rows[c["id"]])}) for c in top if c["id"] in rows]
 
 
 # Evidence a walkthrough event should have, with the weight used to rank candidates (then triage priority).

@@ -44,6 +44,10 @@ engine = create_engine(
     pool_pre_ping=True,
     json_serializer=json_serializer,
     future=True,
+    # PostgreSQL's JIT compiles queries whose cost estimate is high even when they touch few rows (correlated
+    # sub-selects over indexed lookups): ~1.2 s of compilation for a 70 ms query. The application's queries are short
+    # and index-driven, so JIT only adds latency.
+    connect_args={"options": "-c jit=off"},
 )
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 

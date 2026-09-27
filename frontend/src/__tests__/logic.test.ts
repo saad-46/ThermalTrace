@@ -2,9 +2,7 @@ import { describe, expect, it } from "vitest";
 import { qs } from "../lib/api";
 import { compass, fmtCoord, fmtDistance, fmtDuration, relTime } from "../lib/format";
 import { qualitative } from "../components/evidence";
-import { buildEvidenceChain } from "../components/triage";
 import { CLASS_META, STATE_META } from "../lib/taxonomy";
-import { event } from "./fixture";
 
 describe("format", () => {
   it("formats distances, durations and bearings", () => {
@@ -54,37 +52,6 @@ describe("qualitative confidence decomposition", () => {
   });
 });
 
-describe("evidence chain", () => {
-  it("builds all stages from real bundle fields and flags missing ones", () => {
-    const chain = buildEvidenceChain(event());
-    expect(chain.map((s) => s.key)).toEqual(["detection", "clustering", "location", "facility", "landcover", "persistence", "satellite",
-      "weather", "classification", "confidence", "explainability", "review", "status"]);
-    // Every stage names its source and what it contributes; none presents confidence as a probability of fire.
-    for (const s of chain) {
-      expect(s.source.length).toBeGreaterThan(0);
-      expect(s.contribution.length).toBeGreaterThan(0);
-    }
-    expect(chain.find((s) => s.key === "confidence")!.contribution).toContain("not the probability of a fire");
-    expect(chain.find((s) => s.key === "status")!.contribution).toBe("Confirmed only after imagery confirmation or analyst review.");
-    expect(chain.find((s) => s.key === "facility")!.summary).toContain("ArcelorMittal");
-    expect(chain.find((s) => s.key === "satellite")!.state).toBe("missing");
-    expect(chain.find((s) => s.key === "satellite")!.summary).toBe("No scene available");
-  });
-
-  it("never claims a facility when OSM was not checked", () => {
-    const ev = event({ facilities: [], enrichment_state: {} });
-    const f = buildEvidenceChain(ev).find((s) => s.key === "facility")!;
-    expect(f.state).toBe("missing");
-    expect(f.summary).toBe("Not yet retrieved");
-  });
-
-  it("an unreviewed event says so instead of implying confirmation", () => {
-    const chain = buildEvidenceChain(event({ reviews: [] }));
-    expect(chain.find((s) => s.key === "review")!.summary).toBe("Not reviewed yet");
-    expect(chain.find((s) => s.key === "review")!.state).toBe("missing");
-  });
-});
-
 describe("query-key stability", () => {
   it("sinceFromDays is stable within a minute (prevents refetch loops)", async () => {
     const { sinceFromDays } = await import("../lib/hooks");
@@ -117,5 +84,16 @@ describe("location label", () => {
     expect(locationLabel({ place_name: null, place_distance_m: 148000 })).toBe("");
     expect(coordsLabel({ latitude: 23.7912, longitude: 86.4304 })).toBe("23.791, 86.430");
     expect(coordsLabel({ latitude: 23.7912, longitude: 86.4304 }, 2)).toBe("23.79, 86.43");
+  });
+});
+
+describe("share percentages", () => {
+  it("never shows a small non-zero share as 0% or an incomplete one as 100%", async () => {
+    const { sharePct } = await import("../lib/format");
+    expect(sharePct(3 / 2593)).toBe("<1%");
+    expect(sharePct(0)).toBe("0%");
+    expect(sharePct(2592 / 2593)).toBe(">99%");
+    expect(sharePct(1)).toBe("100%");
+    expect(sharePct(0.6)).toBe("60%");
   });
 });

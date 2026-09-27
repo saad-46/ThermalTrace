@@ -132,6 +132,15 @@ def train(rows: list[dict], model_dir: Path) -> tuple[GradientBoostingClassifier
             y[test_mask], pred, labels=list(range(len(classes))), target_names=classes, output_dict=True, zero_division=0)
         metrics["caveat"] = ("Hold-out labels are mostly weak (rule-derived); this F1 measures agreement with the rule "
                              "cascade, not accuracy against ground truth.")
+        # the only labels independent of the rule cascade: analyst decisions in the held-out spatial blocks
+        analyst = np.array([r["origin"] == "analyst" for r in rows]) & test_mask
+        metrics["n_test_analyst"] = int(analyst.sum())
+        if analyst.sum() >= 10:
+            metrics["macro_f1_holdout_analyst"] = round(float(f1_score(y[analyst], eval_model.predict(X[analyst]), average="macro")), 3)
+        else:
+            metrics["macro_f1_holdout_analyst"] = None
+            metrics["caveat_analyst"] = (f"Only {int(analyst.sum())} analyst-adjudicated label(s) in the held-out blocks "
+                                         "(10 needed); there is no independent accuracy estimate yet.")
     else:
         metrics["macro_f1_holdout"] = None
         metrics["caveat"] = "Too few spatial blocks for a hold-out evaluation."

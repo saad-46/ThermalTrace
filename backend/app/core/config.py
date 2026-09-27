@@ -116,6 +116,10 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _guard_production(self) -> "Settings":
+        insecure = self.secret_key.get_secret_value() == _INSECURE_DEV_SECRET
+        if insecure and any(not _is_local_origin(o) for o in self.cors_origin_list):
+            raise ValueError("SECRET_KEY is the public development secret but CORS_ORIGINS lists a public origin; "
+                             "set a random SECRET_KEY of at least 32 characters (and ENVIRONMENT=production)")
         if self.environment in ("staging", "production"):
             if self.secret_key.get_secret_value() == _INSECURE_DEV_SECRET or len(self.secret_key.get_secret_value()) < 32:
                 raise ValueError("SECRET_KEY must be set to a random value of at least 32 characters outside development")

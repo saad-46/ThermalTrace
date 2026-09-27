@@ -151,9 +151,9 @@ def test_review_alert_report_workflow(client, db, auth_headers):
     assert detail["facilities"][0]["name"] == "Test Refinery"
     assert {m["type"] for m in detail["evidence_matrix"]} == {
         "FIRMS", "Facility", "Land cover", "Spectral change", "Satellite", "Weather", "History", "ML"}
-    assert detail["landcover"] is None and detail["imagery_analysis"] is None  # not retrieved: shown as pending, not invented
+    assert detail["landcover"] is None and detail["imagery_analysis"] is None  # not retrieved: shown as not requested, not invented
     lc_row = next(m for m in detail["evidence_matrix"] if m["type"] == "Land cover")
-    assert lc_row["availability"] == "pending" and lc_row["strength"] == 0
+    assert lc_row["availability"] == "not requested" and lc_row["strength"] == 0  # nothing queued: not "pending"
     geo = client.get("/api/v1/events/geojson", headers=h, params={"bbox": "60,0,70,30"}).json()
     assert len(geo["features"]) == 1 and geo["features"][0]["properties"]["classification"] == "flare"
 
@@ -355,7 +355,7 @@ def test_model_activation_is_an_audited_admin_decision(client, db, auth_headers)
     from app.ml.registry import train_and_register
     from app.models.ml import ModelVersion
 
-    assert inspect.signature(train_and_register).parameters["activate"].default is False
+    assert "activate" not in inspect.signature(train_and_register).parameters  # training can never activate
     db.add(ModelVersion(id="lgbm-test", kind="lightgbm", is_active=False, feature_names=[], classes=[], description="t",
                         label_provenance="t", training_summary={}, metrics={}))
     db.commit()

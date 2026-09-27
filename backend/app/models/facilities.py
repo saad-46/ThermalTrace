@@ -37,6 +37,7 @@ class Facility(Base):
         Index("ix_facilities_geom", "geom", postgresql_using="gist"),
         Index("ix_facilities_type", "facility_type"),
         Index("ix_facilities_name_trgm", "name", postgresql_using="gin", postgresql_ops={"name": "gin_trgm_ops"}),
+        Index("ix_facilities_operator_trgm", "operator", postgresql_using="gin", postgresql_ops={"operator": "gin_trgm_ops"}),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
@@ -65,7 +66,11 @@ class Facility(Base):
 
 class FacilitySource(Base):
     __tablename__ = "facility_sources"
-    __table_args__ = (UniqueConstraint("source_id", "external_id", name="uq_facility_source_external"),)
+    __table_args__ = (
+        UniqueConstraint("source_id", "external_id", name="uq_facility_source_external"),
+        # registry-id search (GEM / WRI / CEA / OSM identifiers)
+        Index("ix_facility_sources_external_trgm", "external_id", postgresql_using="gin", postgresql_ops={"external_id": "gin_trgm_ops"}),
+    )
 
     id: Mapped[uuid.UUID] = uuid_pk()
     facility_id: Mapped[uuid.UUID] = mapped_column(
