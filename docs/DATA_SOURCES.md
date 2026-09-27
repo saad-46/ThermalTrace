@@ -45,6 +45,33 @@ SWIR renders also record Copernicus health. Unconfigured providers are skipped, 
 | NASA FIRMS historical / area API | `FIRMS_MAP_KEY` (NRT files work without it) | firms.modaps.eosdis.nasa.gov/api/map_key/ |
 | CEA | A station list with coordinates transcribed from a named CEA publication (`data/datasets/cea_template.csv`) | `python -m app.cli import-registry --source cea ...`; the monthly *Installed Capacity* report and `IC_allocation_*.xlsx` hold only totals and cannot be imported as facilities |
 
+## India boundary and the India-only view
+
+- **Boundary**: Natural Earth 1:10m Admin 0, **India point of view** (`ne_10m_admin_0_countries_ind`, public domain):
+  mainland India as India officially depicts it, plus Lakshadweep and the Andaman & Nicobar Islands (35 polygons).
+  States/UTs: Natural Earth 1:10m Admin 1, clipped to that outline. Committed (simplified, ~200 m) in
+  `backend/app/gis/data/`, loaded into PostGIS by migration 0010 (`boundaries`, `boundary_parts`, `admin_areas`).
+- **Spatial filter**: every event gets `in_india` by point-in-polygon against subdivided, GiST-indexed pieces of the
+  boundary (never a latitude/longitude box). Points within 1.5 km of the outline count as India unless they fall in a
+  neighbouring country: FIRMS pixels are 375 m-1 km and the 1:10m outline is off by up to ~1.4 km on the smallest islands
+  (Minicoy, Campbell Bay). Land borders keep the 1:10m precision (~1 km).
+- **Effect**: the dashboard, map, lists, analytics, search and public figures show only events inside India
+  (`region=india`, default; `region=all` on the events API returns everything). On 27 Sep 2026: 226,544 events
+  (556,368 detections) inside India, 115,206 events (278,576 detections) outside and excluded.
+- **Map**: the live map masks everything outside India, draws the outline with a subtle glow and the state lines, and
+  fits India's extent including the islands. The outline never depends on the fire data (it shows with zero events).
+
+## Copernicus Data Space checks
+
+Health is recorded from real calls only (`data_sources.health_detail`), never inferred from configuration:
+- **Authentication**: the `source_probe` job (every 6 h, interactive lane) requests a fresh OAuth token (client
+  credentials; no processing units). Result, time, latency, HTTP status and an error category (authentication failed,
+  timeout, service unavailable, rate limited, invalid request, ...) are stored; tokens and secrets are not.
+- **Satellite preview**: every SWIR render records the same fields.
+- **State**: credentials missing -> *Credentials required*; configured but never verified, or last success older than
+  13 h -> *Not verified*; latest authentication failed, or two consecutive preview failures -> *Degraded*; otherwise
+  *Active*.
+
 ## Place names for events (GeoNames)
 
 Nominatim allows about one request per second, so it cannot name hundreds of thousands of events. `import-places` loads GeoNames populated places (500 inhabitants or more) for the region into a GiST-indexed PostGIS table, and every event gets its nearest place with one KNN query.

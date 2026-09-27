@@ -466,10 +466,14 @@ export interface DataSource {
 }
 
 /** GET /public/landing: safe public aggregates for the landing page (no identifiers or personal data). */
-export type PublicSourceState = "active" | "degraded" | "unavailable" | "credentials_required" | "import_required" | "not_used";
+export type PublicSourceState = "active" | "degraded" | "unavailable" | "credentials_required" | "import_required" | "not_used" | "unverified";
+/** One recorded check of a capability (e.g. Copernicus authentication or SWIR preview). */
+export interface CapabilityCheck { ok: boolean; checked_at: string; latency_ms: number | null; error: string | null; last_success_at: string | null }
+export interface RegistrySummary { stations: number; located: number; ambiguous: number; unmatched: number; facilities: number; units: number; capacity_mw: number; imported_at: string; coordinate_sources: string[] }
 export interface PublicLanding {
-  counts: { detections: number; events: number; events_recent: number; facilities: number };
-  sources: { id: string; name: string; kind: string; state: PublicSourceState; reason: string; requirement: string | null; last_success_at: string | null }[];
+  counts: { detections: number; events: number; events_recent: number; facilities: number; events_outside_india: number };
+  sources: { id: string; name: string; kind: string; state: PublicSourceState; reason: string; requirement: string | null; last_success_at: string | null;
+    checks?: Record<string, CapabilityCheck> | null; dataset_version?: string | null; dataset_published_at?: string | null; registry?: RegistrySummary | null }[];
   sources_active: number;
   sources_total: number;
   latest_detection: string | null;

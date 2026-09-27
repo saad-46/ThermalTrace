@@ -49,6 +49,7 @@ class RegistryFacility:
     state: str | None = None
     district: str | None = None
     source_url: str | None = None
+    subtype: str | None = None
     raw: dict = field(default_factory=dict)
 
 
@@ -124,6 +125,7 @@ class WRIGPPDClient:
                     external_id=row["gppd_idnr"],
                     name=row.get("name"),
                     facility_type=_fuel_to_type(fuel),
+                    subtype=(fuel or "").strip().lower() or None,
                     source_type=f"power plant ({fuel})",
                     latitude=lat,
                     longitude=lon,
@@ -168,6 +170,18 @@ def _coords(row: dict) -> tuple[float | None, float | None]:
     return lat, lon
 
 
+# Plant status from its units: the most "physically present" unit status wins.
+GEM_STATUS_PRECEDENCE = ("operating", "construction", "mothballed", "retired", "permitted", "pre-permit", "announced",
+                         "shelved", "cancelled")
+# Units in these states exist (or existed) on the ground; the others were never built.
+GEM_BUILT = {"operating", "construction", "mothballed", "retired"}
+
+
+def plant_status(unit_statuses: list[str]) -> str | None:
+    s = {str(u).strip().lower() for u in unit_statuses if u}
+    return next((p for p in GEM_STATUS_PRECEDENCE if p in s), sorted(s)[0] if s else None)
+
+
 class GlobalEnergyMonitorClient:
     source_id = "gem"
 
@@ -181,6 +195,7 @@ class GlobalEnergyMonitorClient:
             raise ValueError(f"{path.name}: unrecognised GEM tracker layout (headers: {sorted(headers)[:12]}...)")
         label, _, resolve_type, name_cols, cap_col, unit = profile
         plants: dict[str, RegistryFacility] = {}
+        units: dict[str, list[tuple[str | None, float | None, str | None]]] = {}
         rejected: list[tuple[dict, str]] = []
         for row in rows:
             row_country = _first(row, "Country/Area", "Country", "Country/area")
@@ -193,10 +208,9 @@ class GlobalEnergyMonitorClient:
             name = _first(row, *name_cols)
             ext_id = str(_first(row, "GEM location ID", "GEM Plant ID", "Plant ID", "GEM Mine ID", "Unit ID", "GEM unit/phase ID") or f"{name}@{lat:.4f},{lon:.4f}")
             cap = _num(row.get(cap_col)) if cap_col else None
-            # Trackers are unit-level; aggregate to one facility per location id, summing capacity.
+            # Trackers are unit-level: one facility per location id, status and capacity derived from all its units.
+            units.setdefault(ext_id, []).append((_first(row, "Status", "Operating status"), cap, _first(row, "Location accuracy")))
             if ext_id in plants:
-                if cap is not None:
-                    plants[ext_id].capacity_value = (plants[ext_id].capacity_value or 0) + cap
                 continue
             plants[ext_id] = RegistryFacility(
                 source_id=self.source_id,
@@ -215,6 +229,21 @@ class GlobalEnergyMonitorClient:
                 source_url=_first(row, "Wiki URL", "GEM wiki page", "GEM Wiki Page (ENG)"),
                 raw={k: (str(v) if v is not None else None) for k, v in list(row.items())[:40]},
             )
+        for ext_id, plant in plants.items():
+            us = units.get(ext_id, [])
+            by_status: dict[str, float] = {}
+            for st, cap, _ in us:
+                k = str(st or "unknown").strip().lower()
+                by_status[k] = round(by_status.get(k, 0.0) + (cap or 0.0), 3)
+            status = plant_status([st for st, _, _ in us])
+            plant.status = status
+            if cap_col:
+                built = sum(v for k, v in by_status.items() if k in GEM_BUILT)
+                plant.capacity_value = (by_status.get("operating") or built or by_status.get(status or "", None)
+                                        or sum(by_status.values()) or None)
+            acc = {str(a).strip().lower() for _, _, a in us if a}
+            plant.raw = {**plant.raw, "unit_count": len(us), "unit_status_mw": by_status, "plant_status": status,
+                         "location_accuracy": "exact" if acc == {"exact"} else ("approximate" if acc else None)}
         return RegistryImport(self.source_id, f"{label} {dataset_version}", published_at, str(path.name), list(plants.values()), rejected)
 
 

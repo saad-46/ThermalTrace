@@ -1,4 +1,5 @@
 """Facilities, satellite imagery, weather and push-subscription endpoints."""
+import time
 import uuid
 
 from fastapi import APIRouter, Depends, Query
@@ -66,11 +67,19 @@ def list_facilities(bbox: str | None = None, facility_type: list[str] | None = Q
 def facilities_geojson(bbox: str = Query(...), facility_type: list[str] | None = Query(None), limit: int = Query(4000, le=10000),
                        user: User = CurrentUser, db: Session = Depends(get_db)):
     where, params = _fac_filters(bbox, facility_type, None, None)
-    rows = db.execute(text(f"SELECT {_FAC_COLS} FROM facilities f WHERE {where} LIMIT :limit"), {**params, "limit": limit + 1}).mappings().all()
+    rows = db.execute(text(f"SELECT {_FAC_COLS}, f.subtype, f.attributes->'registries'->0 AS registry "
+                           f"FROM facilities f WHERE {where} LIMIT :limit"), {**params, "limit": limit + 1}).mappings().all()
     return {"type": "FeatureCollection", "truncated": len(rows) > limit, "features": [
         {"type": "Feature", "geometry": {"type": "Point", "coordinates": [r["longitude"], r["latitude"]]},
          "properties": {"id": str(r["id"]), "name": r["name"], "type": r["facility_type"], "source": r["primary_source"],
-                        "sources": r["source_count"], "confidence": r["confidence"]}} for r in rows[:limit]]}
+                        "sources": r["source_count"], "confidence": r["confidence"], "status": r["status"],
+                        "subtype": r["subtype"], "capacity": r["capacity_value"], "capacity_unit": r["capacity_unit"],
+                        "operator": r["operator"],
+                        # CEA registry entry (identity) and where its coordinates came from
+                        "registry": r["registry"].get("source") if r["registry"] else None,
+                        "registry_station": r["registry"].get("station") if r["registry"] else None,
+                        "coordinate_source": r["registry"].get("coordinate_source") if r["registry"] else None}}
+        for r in rows[:limit]]}
 
 
 @router.get("/facilities/{facility_id}", response_model=FacilityOut, tags=["facilities"])
@@ -127,13 +136,17 @@ def swir(observation_id: uuid.UUID, user: User = CurrentUser, db: Session = Depe
     if not SatellitePreviewService.swir_available():
         raise ProviderNotConfigured("SWIR rendering requires COPERNICUS_CLIENT_ID and COPERNICUS_CLIENT_SECRET")
     ev = db.execute(text("SELECT latitude, longitude FROM thermal_events WHERE id = :id"), {"id": obs.event_id}).one()
+    t0 = time.perf_counter()
     try:
         png = SatellitePreviewService().render_swir(ev.latitude, ev.longitude, obs.acquired_at)
     except ProviderError as exc:
-        source_health.record_failure(db, "cdse", f"{exc.kind}: {exc}")
+        category = source_health.error_category(exc)
+        source_health.record_failure(db, "cdse", category)
+        source_health.record_check(db, "cdse", "preview", False, (time.perf_counter() - t0) * 1000, exc.status, category)
         db.commit()
         raise SourceUnavailable(f"Copernicus processing unavailable: {exc.kind}") from None
-    source_health.record_success(db, "cdse")
+    source_health.record_success(db, "cdse", (time.perf_counter() - t0) * 1000)
+    source_health.record_check(db, "cdse", "preview", True, (time.perf_counter() - t0) * 1000, 200)
     db.commit()
     return Response(png, media_type="image/png", headers={"cache-control": "private, max-age=86400"})
 

@@ -93,4 +93,5 @@ export const SOURCE_STATE_LABEL: Record<string, string> = {
   credentials_required: "Credentials required",
   import_required: "Import required",
   not_used: "Not currently used",
+  unverified: "Not verified",
 };

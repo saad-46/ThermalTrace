@@ -41,7 +41,14 @@ export function withCartoKey(url: string, key: string = CARTO_KEY): string {
 }
 
 const STYLE_DARK = (import.meta.env.VITE_MAP_STYLE_DARK as string) || "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
-const INDIA: LngLatBoundsLike = [[68, 6.5], [97.5, 35.7]];
+const INDIA: LngLatBoundsLike = [[68.1, 6.7], [97.4, 37.1]]; // replaced by the loaded boundary's extent
+
+interface IndiaBoundary {
+  india: GeoJSON.Feature;
+  mask: GeoJSON.Feature;
+  states: GeoJSON.FeatureCollection;
+  bbox: [number, number, number, number];
+}
 const EMPTY: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
 const classColorExpr: maplibregl.ExpressionSpecification = [
@@ -139,6 +146,28 @@ export default function MapCanvas({ filters, layers, theme, selectedId, focus, o
     map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-right");
     map.addControl(new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: false }, trackUserLocation: false }), "bottom-right");
     map.on("load", () => {
+      // India only: a mask hides everything outside India's boundary (Natural Earth, India point of view), then the
+      // outline and state lines. Loaded from the backend, which also uses it for spatial filtering.
+      map.addSource("india-mask", { type: "geojson", data: EMPTY });
+      map.addSource("india", { type: "geojson", data: EMPTY, attribution: "Boundary: Natural Earth (India point of view)" });
+      map.addSource("india-states", { type: "geojson", data: EMPTY });
+      map.addLayer({ id: "india-mask", type: "fill", source: "india-mask",
+        paint: { "fill-color": theme === "dark" ? "#0b0c0f" : "#eef0f3", "fill-opacity": 1 } });
+      map.addLayer({ id: "india-states", type: "line", source: "india-states",
+        paint: { "line-color": theme === "dark" ? "#8a93a3" : "#868e96", "line-width": 0.6, "line-opacity": 0.35 } });
+      map.addLayer({ id: "india-glow", type: "line", source: "india",
+        paint: { "line-color": "#ff8a3d", "line-width": 6, "line-blur": 5, "line-opacity": theme === "dark" ? 0.28 : 0.18 } });
+      map.addLayer({ id: "india-outline", type: "line", source: "india",
+        paint: { "line-color": theme === "dark" ? "#ffb454" : "#e8590c", "line-width": ["interpolate", ["linear"], ["zoom"], 3, 1, 8, 1.6] } });
+      api<IndiaBoundary>("/public/boundary", { query: { detail: "map" } }).then((b) => {
+        if (!map.getSource("india")) return;
+        (map.getSource("india") as GeoJSONSource).setData(b.india);
+        (map.getSource("india-mask") as GeoJSONSource).setData(b.mask);
+        (map.getSource("india-states") as GeoJSONSource).setData(b.states);
+        if (!prev) map.fitBounds([[b.bbox[0], b.bbox[1]], [b.bbox[2], b.bbox[3]]], { padding: 24, duration: 0 });
+        map.getContainer().dataset.india = "loaded";
+      }).catch(() => { map.getContainer().dataset.india = "unavailable"; }); // the map still works without it
+
       map.addSource("imagery", { type: "raster", tileSize: 256, maxzoom: 15,
         tiles: ["https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2021_3857/default/g/{z}/{y}/{x}.jpg"],
         attribution: "Sentinel-2 cloudless 2021 by EOX IT Services (Contains modified Copernicus Sentinel data 2021)" });
@@ -209,9 +238,15 @@ export default function MapCanvas({ filters, layers, theme, selectedId, focus, o
       map.on("click", "fac", (e) => {
         const p = e.features?.[0]?.properties;
         if (!p) return;
-        new maplibregl.Popup({ closeButton: false, maxWidth: "260px" }).setLngLat(e.lngLat)
-          .setHTML(`<b>${(p.name || "Unnamed facility").replace(/</g, "&lt;")}</b><br/>${FACILITY_LABELS[p.type] ?? p.type}<br/><span style="color:var(--text-3)">source: ${p.source}${p.sources > 1 ? ` (+${p.sources - 1})` : ""} · confidence ${(+p.confidence).toFixed(2)}</span>`)
-          .addTo(map);
+        const esc = (v: unknown) => String(v ?? "").replace(/[<&"]/g, (c) => ({ "<": "&lt;", "&": "&amp;", '"': "&quot;" })[c]!);
+        const lines = [
+          `<b>${esc(p.name || "Unnamed facility")}</b>`,
+          `${esc(FACILITY_LABELS[p.type] ?? p.type)}${p.subtype && p.subtype !== "null" ? ` · ${esc(p.subtype)}` : ""}${p.status && p.status !== "null" ? ` · ${esc(p.status)}` : ""}`,
+          p.capacity && p.capacity !== "null" ? `${esc(Math.round(+p.capacity))} ${esc(p.capacity_unit === "null" ? "" : p.capacity_unit || "MW")}${p.operator && p.operator !== "null" ? ` · ${esc(p.operator)}` : ""}` : "",
+          p.registry && p.registry !== "null" ? `<span>Registry: ${esc(p.registry)} (${esc(p.registry_station)})</span>` : "",
+          `<span style="color:var(--text-3)">location: ${esc(p.coordinate_source && p.coordinate_source !== "null" ? p.coordinate_source : p.source)}${p.sources > 1 ? ` · ${esc(p.sources)} sources` : ""} · confidence ${(+p.confidence).toFixed(2)}</span>`,
+        ].filter(Boolean);
+        new maplibregl.Popup({ closeButton: false, maxWidth: "280px" }).setLngLat(e.lngLat).setHTML(lines.join("<br/>")).addTo(map);
       });
       for (const l of ["ev", "clusters", "fac"]) {
         map.on("mouseenter", l, () => (map.getCanvas().style.cursor = "pointer"));

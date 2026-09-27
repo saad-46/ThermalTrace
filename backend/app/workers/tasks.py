@@ -129,7 +129,11 @@ def housekeeping(db: Session, payload: dict, job: Job) -> dict:
 
     purged = cache.purge_expired(db)
     db.commit()
-    return {"cache_purged": purged}
+    # Events not yet classified against India's boundary (e.g. created before it was loaded): a bounded batch per run.
+    from app.gis import boundaries
+
+    regions = boundaries.classify_events(db, batch=20000, max_batches=2)
+    return {"cache_purged": purged, "events_classified": regions["classified"]}
 
 
 def source_probe(db: Session, payload: dict, job: Job) -> dict:
@@ -145,9 +149,12 @@ def source_probe(db: Session, payload: dict, job: Job) -> dict:
         try:
             latency = verify_cdse_credentials()
             source_health.record_success(db, "cdse", latency)
+            source_health.record_check(db, "cdse", "auth", True, latency, 200)
             out["cdse"] = "ok"
         except ProviderError as exc:
-            source_health.record_failure(db, "cdse", f"{exc.kind}: {exc}")
+            category = source_health.error_category(exc)
+            source_health.record_failure(db, "cdse", category)
+            source_health.record_check(db, "cdse", "auth", False, None, exc.status, category)
             out["cdse"] = f"failed ({exc.kind})"
     else:
         out["cdse"] = "not configured"

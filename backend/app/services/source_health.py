@@ -26,6 +26,45 @@ def record_success(db: Session, source_id: str, latency_ms: float | None = None,
             _EWMA_ALPHA * latency_ms + (1 - _EWMA_ALPHA) * src.latency_ms_ewma)
 
 
+def error_category(exc: Exception) -> str:
+    """A provider error as a category shown to users (never the raw message, which may contain URLs)."""
+    kind = getattr(exc, "kind", None)
+    status = getattr(exc, "status", None)
+    if kind == "auth":
+        return "authentication_failed"
+    if kind == "timeout":
+        return "timeout"
+    if kind == "rate_limited":
+        return "rate_limited"
+    if kind in ("server", "network"):
+        return "service_unavailable"
+    if kind == "not_found":
+        return "unsupported_data"
+    if kind == "malformed":
+        return "processing_failure"
+    if status in (400, 422):
+        return "invalid_request"
+    return "processing_failure"
+
+
+def record_check(db: Session, source_id: str, capability: str, ok: bool, latency_ms: float | None = None,
+                 http_status: int | None = None, error: str | None = None) -> None:
+    """Record the outcome of a real check of one capability (e.g. Copernicus `auth`, `preview`). No secrets or tokens."""
+    src = db.get(DataSource, source_id)
+    if src is None:
+        return
+    detail = dict(src.health_detail or {})
+    prev = detail.get(capability) or {}
+    now = datetime.now(UTC).isoformat()
+    detail[capability] = {
+        "ok": ok, "checked_at": now, "latency_ms": round(latency_ms) if latency_ms is not None else None,
+        "http_status": http_status, "error": None if ok else error,
+        "last_success_at": now if ok else prev.get("last_success_at"),
+        "consecutive_failures": 0 if ok else int(prev.get("consecutive_failures") or 0) + 1,
+    }
+    src.health_detail = detail  # new object so the JSONB change is persisted
+
+
 def record_failure(db: Session, source_id: str, error: str) -> None:
     src = db.get(DataSource, source_id)
     if src is None:
@@ -55,7 +94,7 @@ def configuration_state() -> dict[str, dict]:
 
 # What a source needs beyond network access. `label` is safe to show publicly; `env` and `how` only to signed-in users.
 REQUIREMENTS: dict[str, dict] = {
-    "cdse": {"type": "credentials", "label": "Copernicus Data Space OAuth client",
+    "cdse": {"type": "credentials", "label": "Copernicus Data Space OAuth client", "checks": ("auth", "preview"),
              "env": ["COPERNICUS_CLIENT_ID", "COPERNICUS_CLIENT_SECRET"],
              "how": "Register at dataspace.copernicus.eu, then create an OAuth client under User settings (Sentinel Hub dashboard)."},
     "firms": {"type": "credentials", "label": "NASA FIRMS MAP_KEY (historical and area API; NRT files work without it)",
@@ -71,6 +110,7 @@ REQUIREMENTS: dict[str, dict] = {
 }
 
 STATE_REASONS = {
+    "unverified": "Configured, not verified recently",
     "active": "Connected",
     "degraded": "Recent requests are failing",
     "unavailable": "Not responding",
@@ -80,13 +120,45 @@ STATE_REASONS = {
 }
 
 
+# Capability checks older than this no longer count as current (the probe runs every 6 h).
+CHECK_STALE_HOURS = 13
+
+
+def _age_hours(iso: str | None) -> float | None:
+    if not iso:
+        return None
+    return (datetime.now(UTC) - datetime.fromisoformat(iso)).total_seconds() / 3600
+
+
+def _capability_state(req: dict, configured: bool | None, detail: dict) -> tuple[str, str]:
+    """Sources verified by explicit checks (Copernicus): authentication, then the service actually used."""
+    if configured is False:
+        return "credentials_required", "Credentials required"
+    auth = detail.get("auth")
+    if not auth:
+        return "unverified", "Credentials configured, not verified yet"
+    if not auth.get("ok"):
+        return "degraded", f"Authentication failing ({(auth.get('error') or 'error').replace('_', ' ')})"
+    age = _age_hours(auth.get("checked_at"))
+    if age is None or age > CHECK_STALE_HOURS:
+        return "unverified", f"Not verified in the last {CHECK_STALE_HOURS} h"
+    preview = detail.get("preview") or {}
+    if int(preview.get("consecutive_failures") or 0) >= 2:
+        return "degraded", f"Satellite preview failing ({(preview.get('error') or 'error').replace('_', ' ')})"
+    return "active", "Authentication healthy"
+
+
 def effective_state(source_id: str, status: str | None, access: str | None, ever_succeeded: bool,
-                    cfg: dict | None = None) -> dict:
+                    cfg: dict | None = None, detail: dict | None = None) -> dict:
     """The single definition of a source's displayed state, derived from recorded health and configuration.
     A source is `active` only after a real request to it succeeded; nothing is assumed."""
     cfg = cfg if cfg is not None else configuration_state()
     req = REQUIREMENTS.get(source_id, {})
     configured = cfg.get(source_id, {}).get("configured")
+    if req.get("checks"):
+        state, reason = _capability_state(req, configured, detail or {})
+        return {"state": state, "reason": reason, "requirement": req.get("label") if state == "credentials_required" else None,
+                "requirement_type": req.get("type")}
     if status == "healthy":
         state = "active"
     elif status == "degraded":

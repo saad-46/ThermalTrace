@@ -197,6 +197,14 @@ docker compose up -d --build        # db → migrate → api, worker (bulk + sch
 docker compose exec api python -m app.cli create-user --email you@example.org --name "Your Name" --role admin
 ```
 
+## India-only view and facility registries
+
+The dashboard is India-focused: events are tested against India's boundary (Natural Earth, India point of view, with
+Lakshadweep and the Andaman & Nicobar Islands) and events outside it are excluded; the map shows only India. The
+facility layer combines OpenStreetMap, WRI GPPD, Global Energy Monitor and the official CEA power-station list, whose
+stations are matched to located facilities with the coordinate source recorded. See [docs/CEA_REGISTRY.md](docs/CEA_REGISTRY.md)
+and [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md).
+
 ## Landing page
 
 Signed-out visitors see a landing page with the sign-in form at the top, and below it live figures (detections, events,
@@ -269,7 +277,7 @@ npm run build
 E2E_EMAIL=analyst@example.org E2E_PASSWORD=… npm run test:e2e
 ```
 
-Current results: backend **98 passed**, Vitest **51 passed**, Playwright **3 passed** acceptance (desktop, tablet, mobile), **7 passed** guided exploration and **11 passed** landing page. `pip-audit` and `npm audit --omit=dev` are clean (remaining dev-tool advisories: [docs/SECURITY.md](docs/SECURITY.md)). CI (`.github/workflows/ci.yml`) runs lint, the backend tests against PostGIS, typecheck, the frontend tests, the build, both audits and the image builds. Details: [docs/TESTING.md](docs/TESTING.md).
+Current results: backend **108 passed**, Vitest **53 passed**, Playwright **3 passed** acceptance (desktop, tablet, mobile), **7 passed** guided exploration and **11 passed** landing page. `pip-audit` and `npm audit --omit=dev` are clean (remaining dev-tool advisories: [docs/SECURITY.md](docs/SECURITY.md)). CI (`.github/workflows/ci.yml`) runs lint, the backend tests against PostGIS, typecheck, the frontend tests, the build, both audits and the image builds. Details: [docs/TESTING.md](docs/TESTING.md).
 
 ## Docker and deployment
 

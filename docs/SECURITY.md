@@ -39,6 +39,9 @@ days. It returns no event ids, individual coordinates, users, notes, reviews or 
 data, is computed at most every 5 minutes and is rate-limited per IP like every anonymous request. A test asserts that
 no e-mail addresses or event ids appear in it. Turn it off with `PUBLIC_LANDING_ENABLED=false`.
 
+`GET /api/v1/public/boundary` serves India's outline, the mask of everything else and state lines (public-domain
+geometry, cached); it exposes no application data.
+
 ## Guided exploration (demo sessions)
 
 `EXPLORE_MODE_ENABLED` adds credential-free, read-only demo sessions. Every non-GET request from them is refused

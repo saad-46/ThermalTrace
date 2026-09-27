@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from sqlalchemy import delete, select, text, update
 from sqlalchemy.orm import Session
 
+from app.gis import boundaries
 from app.integrations.raster import group_fractions
 from app.ml import registry
 from app.ml.base import Prediction
@@ -37,6 +38,8 @@ def analyse_event(db: Session, event_id: uuid.UUID, history_days: int | None = N
         raise ValueError(f"event {event_id} not found")
     window = history_days if history_days is not None else persistence.history_window_days(db)
 
+    ev.in_india = db.execute(text(f"SELECT {boundaries.IN_INDIA_SQL.format(geom='e.geom')} FROM thermal_events e WHERE e.id = :id"),
+                             {"id": ev.id}).scalar()
     pm = persistence.compute_for_event(db, ev.id, ev.sensor_count, window)
     ev.persistence_class, ev.persistence_score, ev.persistence_metrics = pm.persistence_class, pm.score, pm.as_dict()
     db.flush()

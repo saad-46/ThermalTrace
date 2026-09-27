@@ -39,7 +39,7 @@ def status(user: User = CurrentUser, db: Session = Depends(get_db)):
                (SELECT max(retrieved_at) FROM satellite_observations) AS satellite_update,
                (SELECT max(acquired_at) FROM satellite_observations) AS latest_scene,
                (SELECT count(*) FROM thermal_detections WHERE data_mode='demo') AS demo_detections,
-               (SELECT count(*) FROM thermal_events WHERE status='active') AS active_events,
+               (SELECT count(*) FROM thermal_events WHERE status='active' AND in_india IS NOT FALSE) AS active_events,
                (SELECT max(last_seen_at) FROM worker_heartbeats) AS worker_seen
     """)).mappings().one()
     worker_ok = r["worker_seen"] is not None and r["worker_seen"] > datetime.now(UTC) - timedelta(minutes=3)
@@ -58,11 +58,11 @@ def summary(days: int = Query(30, ge=1, le=3650), user: User = CurrentUser, db: 
                count(*) FILTER (WHERE review_status IN ('analyst_confirmed')) confirmed,
                count(*) FILTER (WHERE review_status IN ('analyst_rejected','false_positive')) rejected,
                COALESCE(sum(observation_count),0) detections
-        FROM thermal_events WHERE last_detected >= :since"""), p).mappings().one()
+        FROM thermal_events WHERE last_detected >= :since AND in_india IS NOT FALSE"""), p).mappings().one()
     by_class = db.execute(text("""SELECT COALESCE(classification,'unclassified') k, count(*) n FROM thermal_events
-                                  WHERE last_detected >= :since GROUP BY 1 ORDER BY 2 DESC"""), p).mappings().all()
+                                  WHERE last_detected >= :since AND in_india IS NOT FALSE GROUP BY 1 ORDER BY 2 DESC"""), p).mappings().all()
     by_state = db.execute(text("""SELECT COALESCE(confidence_state,'UNPROCESSED') k, count(*) n FROM thermal_events
-                                  WHERE last_detected >= :since GROUP BY 1 ORDER BY 2 DESC"""), p).mappings().all()
+                                  WHERE last_detected >= :since AND in_india IS NOT FALSE GROUP BY 1 ORDER BY 2 DESC"""), p).mappings().all()
     return {"window_days": days, "totals": dict(totals), "by_classification": [dict(r) for r in by_class],
             "by_confidence_state": [dict(r) for r in by_state]}
 
@@ -74,7 +74,7 @@ def trends(days: int = Query(30, ge=1, le=3650), bucket: str = Query("day", patt
         SELECT date_trunc('{bucket}', d.acq_datetime) AS bucket, COALESCE(e.classification, 'unclassified') AS classification,
                count(*) AS detections, count(DISTINCT d.event_id) AS events, round(sum(d.frp)::numeric, 1) AS frp_sum
         FROM thermal_detections d LEFT JOIN thermal_events e ON e.id = d.event_id
-        WHERE d.acq_datetime >= :since GROUP BY 1, 2 ORDER BY 1"""), {"since": _window(days)}).mappings().all()
+        WHERE d.acq_datetime >= :since AND e.in_india IS NOT FALSE GROUP BY 1, 2 ORDER BY 1"""), {"since": _window(days)}).mappings().all()
     return {"bucket": bucket, "rows": [dict(r) for r in rows]}
 
 
@@ -95,7 +95,7 @@ def persistent_sources(limit: int = Query(25, le=200), user: User = CurrentUser,
         SELECT {_LIST_COLS}, (e.persistence_metrics->>'recurrence_count')::int AS recurrence_count,
                (e.persistence_metrics->>'active_days')::int AS active_days_m
         FROM thermal_events e LEFT JOIN facilities f ON f.id = e.nearest_facility_id
-        WHERE e.persistence_class IN ('persistent','recurring')
+        WHERE e.persistence_class IN ('persistent','recurring') AND e.in_india IS NOT FALSE
         ORDER BY (e.persistence_class = 'persistent') DESC, e.persistence_score DESC, e.sensor_count DESC, e.observation_count DESC
         LIMIT :limit"""), {"limit": limit}).mappings().all()
     return [_with_display(dict(r)) for r in rows]
@@ -108,12 +108,12 @@ def hotspots(days: int = Query(30, ge=1, le=3650), user: User = CurrentUser, db:
         SELECT admin_state, admin_district, count(*) events, sum(observation_count) detections,
                count(*) FILTER (WHERE persistence_class='persistent') persistent,
                count(*) FILTER (WHERE classification IN ('flare','process_heat','coal_seam_fire','industrial_fire')) industrial
-        FROM thermal_events WHERE last_detected >= :since AND admin_district IS NOT NULL
+        FROM thermal_events WHERE last_detected >= :since AND admin_district IS NOT NULL AND in_india IS NOT FALSE
         GROUP BY 1,2 ORDER BY events DESC LIMIT 25"""), p).mappings().all()
     ftypes = db.execute(text("""
         SELECT f.facility_type, count(DISTINCT e.id) events, count(DISTINCT f.id) facilities
         FROM thermal_events e JOIN event_facility_links l ON l.event_id = e.id AND l.rank = 1 AND l.distance_m <= 2000
-        JOIN facilities f ON f.id = l.facility_id WHERE e.last_detected >= :since GROUP BY 1 ORDER BY 2 DESC"""), p).mappings().all()
+        JOIN facilities f ON f.id = l.facility_id WHERE e.last_detected >= :since AND e.in_india IS NOT FALSE GROUP BY 1 ORDER BY 2 DESC"""), p).mappings().all()
     return {"districts": [dict(r) for r in districts], "facility_types": [dict(r) for r in ftypes],
             "note": "Districts are only known for geocoded (enriched) events."}
 
@@ -124,7 +124,7 @@ def sensors(days: int = Query(30, ge=1, le=3650), user: User = CurrentUser, db: 
     per = db.execute(text("""SELECT dataset, satellite, count(*) n, round(avg(frp)::numeric,1) frp_mean,
                                round(avg(confidence_pct)::numeric,1) conf_mean
                              FROM thermal_detections WHERE acq_datetime >= :since GROUP BY 1,2 ORDER BY 3 DESC"""), p).mappings().all()
-    agreement = db.execute(text("""SELECT sensor_count, count(*) n FROM thermal_events WHERE last_detected >= :since
+    agreement = db.execute(text("""SELECT sensor_count, count(*) n FROM thermal_events WHERE last_detected >= :since AND in_india IS NOT FALSE
                                    GROUP BY 1 ORDER BY 1"""), p).mappings().all()
     return {"per_sensor": [dict(r) for r in per], "multi_sensor_agreement": [dict(r) for r in agreement]}
 
@@ -162,7 +162,7 @@ def sources(user: User = CurrentUser, db: Session = Depends(get_db)):
             status_ = "enabled" if settings.demo_mode else "disabled"
         elif state.get("configured") is False and s.status in ("unknown",):
             status_ = "not_configured"
-        eff = source_health.effective_state(s.id, s.status, s.access, s.last_success_at is not None, cfg)
+        eff = source_health.effective_state(s.id, s.status, s.access, s.last_success_at is not None, cfg, s.health_detail)
         req = source_health.REQUIREMENTS.get(s.id, {})
         out.append({**{c.key: getattr(s, c.key) for c in DataSource.__table__.columns}, "status": status_,
                     "error_rate": round(err_rate, 3) if err_rate is not None else None,

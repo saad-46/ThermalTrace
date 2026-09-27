@@ -7,19 +7,29 @@ import type { PublicLanding } from "../lib/types";
 const startDemo = vi.fn(() => Promise.resolve());
 const login = vi.fn(() => Promise.resolve());
 let landingResponse: () => Promise<PublicLanding> = () => new Promise(() => {});
+// Test fixture geometry (a square "mainland" and two small islands); the real boundary comes from the backend.
+const BOUNDARY = {
+  india: { type: "Feature", properties: {}, geometry: { type: "MultiPolygon", coordinates: [
+    [[[70, 10], [90, 10], [90, 30], [70, 30], [70, 10]]],
+    [[[72.6, 10.5], [72.7, 10.5], [72.7, 10.6], [72.6, 10.5]]],
+    [[[92.7, 11.6], [92.8, 11.6], [92.8, 11.7], [92.7, 11.6]]]] } },
+  states: { type: "FeatureCollection", features: [] }, bbox: [70, 10, 92.8, 30], source: "fixture",
+};
+let boundaryResponse: () => Promise<unknown> = () => Promise.resolve(BOUNDARY);
 
 vi.mock("../lib/session", () => ({
   useSession: () => ({ login, startDemo }),
   useMedia: () => false,
 }));
 vi.mock("../lib/api", () => ({
-  api: (path: string) => (path === "/public/landing" ? landingResponse() : Promise.resolve({ enabled: true, roles: ["analyst", "admin"] })),
+  api: (path: string) => (path === "/public/landing" ? landingResponse() : path === "/public/boundary" ? boundaryResponse()
+    : Promise.resolve({ enabled: true, roles: ["analyst", "admin"] })),
 }));
 
 const { default: Landing, CountUp, flameCells } = await import("../pages/Landing");
 
 const LIVE: PublicLanding = {
-  counts: { detections: 123457, events: 45679, events_recent: 812, facilities: 3021 },
+  counts: { detections: 123457, events: 45679, events_recent: 812, facilities: 3021, events_outside_india: 5021 },
   sources: [
     { id: "firms", name: "NASA FIRMS", kind: "detections", state: "active", reason: "Connected", requirement: null, last_success_at: "2026-09-27T00:00:00Z" },
     { id: "cdse", name: "Copernicus Data Space Ecosystem", kind: "imagery", state: "credentials_required", reason: "Credentials required",
@@ -87,7 +97,7 @@ describe("landing page", () => {
     landingResponse = () => new Promise(() => {});
     renderLanding();
     const snapshot = document.getElementById("snapshot")!;
-    expect(within(snapshot).getByText("Thermal detections")).toBeTruthy();
+    expect(within(snapshot).getByText("Thermal detections in India")).toBeTruthy();
     expect(snapshot.querySelector(".lp-stats")!.getAttribute("aria-busy")).toBe("true");
     for (const v of snapshot.querySelectorAll(".lp-stat-value")) expect(v.textContent).not.toMatch(/\d/);
     expect(screen.getByText(/Connecting to live data/)).toBeTruthy();
@@ -104,7 +114,7 @@ describe("landing page", () => {
     expect(screen.getAllByText("Credentials required").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Unavailable").length).toBeGreaterThan(0);
     expect(screen.getByText("Needs Copernicus Data Space OAuth client")).toBeTruthy();
-    expect(screen.getByRole("img", { name: /49 events in 2 one-degree grid cells/ })).toBeTruthy();
+    expect(await screen.findByRole("img", { name: /including Lakshadweep and the Andaman and Nicobar Islands, showing 49 thermal events inside India/ })).toBeTruthy();
     expect(screen.getByText("rule-cascade-v1.1")).toBeTruthy();
   });
 
@@ -136,7 +146,8 @@ describe("landing page", () => {
     landingResponse = () => Promise.reject(new Error("down"));
     renderLanding();
     expect(await screen.findByText(/Live statistics unavailable/, {}, { timeout: 5000 })).toBeTruthy(); // after one retry
-    expect(screen.getByText(/Live activity is unavailable right now/)).toBeTruthy();
+    expect(screen.getByText("Live activity unavailable")).toBeTruthy();
+    expect(document.querySelector(".lp-india")).toBeTruthy(); // India is drawn without any fire data
     expect(screen.getByText(/Live status unavailable/)).toBeTruthy();
     expect(screen.getByText(/Source status is unavailable/)).toBeTruthy();
     expect(document.querySelectorAll(".lp-stat-value").length).toBe(0);
@@ -155,6 +166,38 @@ describe("landing page", () => {
     expect(flameCells(cells).map((c) => c[2])).toEqual([90, 60, 50]);
     expect(flameCells([[20.5, 80.5, 5]])).toHaveLength(1);
     expect(flameCells([])).toEqual([]);
+  });
+
+  it("draws India, with its island territories, even when there are no fires", async () => {
+    landingResponse = () => Promise.resolve({ ...LIVE, activity: { ...LIVE.activity, cells: [] } });
+    const { container } = renderLanding();
+    expect(await screen.findByText(/No thermal anomalies inside India in the last 30 days/)).toBeTruthy();
+    expect(container.querySelector(".lp-india")).toBeTruthy();
+    const labels = [...container.querySelectorAll(".lp-island-labels text")].map((t) => t.textContent);
+    expect(labels).toEqual(expect.arrayContaining(["Lakshadweep", "Andaman & Nicobar"]));
+    expect(container.querySelectorAll(".lp-flames .tt-flame")).toHaveLength(0);
+  });
+
+  it("CEA and Copernicus cards show what the backend recorded, and say when something was not tested", async () => {
+    landingResponse = () => Promise.resolve({ ...LIVE, sources: [
+      ...LIVE.sources.filter((x) => x.id !== "cdse"),
+      { id: "cea", name: "Central Electricity Authority (India)", kind: "facilities", state: "active", reason: "Connected", requirement: null,
+        last_success_at: "2026-09-27T00:00:00Z", dataset_published_at: "2025-03-31T00:00:00Z",
+        registry: { stations: 503, located: 389, ambiguous: 22, unmatched: 92, facilities: 355, units: 1633, capacity_mw: 302843.6,
+                    imported_at: "2026-09-27T00:00:00Z", coordinate_sources: ["gem", "wri_gppd"] } },
+      { id: "cdse", name: "Copernicus Data Space Ecosystem", kind: "imagery", state: "active", reason: "Authentication healthy",
+        requirement: null, last_success_at: "2026-09-27T00:00:00Z",
+        checks: { auth: { ok: true, checked_at: new Date().toISOString(), latency_ms: 1082, error: null, last_success_at: null } } },
+    ] });
+    renderLanding();
+    const cea = (await screen.findByText("Central Electricity Authority (India)")).closest("li")!;
+    expect(cea.textContent).toContain("503 stations");
+    expect(cea.textContent).toContain("389 located");
+    expect(cea.textContent).toContain("Coordinates via GEM and WRI GPPD");
+    expect(cea.textContent).toContain("22 for review");
+    const cdse = screen.getByText("Copernicus Data Space Ecosystem", { selector: ".lp-source-name" }).closest("li")!;
+    expect(cdse.textContent).toContain("Authentication: Healthy · 1.1 s");
+    expect(cdse.textContent).toContain("Satellite preview: not tested yet");
   });
 
   it("respects reduced motion: figures appear immediately without a count-up", () => {

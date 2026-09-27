@@ -22,6 +22,10 @@ TYPE_RELEVANCE = {
     "other": 0.2,
 }
 _INACTIVE = ("retired", "cancelled", "shelved", "mothballed", "closed")
+# Not attribution candidates: plants that were never built (they do not exist on the ground) and power plants that burn
+# nothing (a fire next to a solar farm or a dam is not industrial heat). They remain on the map as context.
+NEVER_BUILT = ("cancelled", "shelved", "announced", "pre-permit", "permitted")
+NON_COMBUSTION = ("solar", "wind", "hydro", "nuclear", "wave and tidal", "storage")
 
 _CANDIDATES = text(
     """
@@ -31,6 +35,9 @@ _CANDIDATES = text(
     FROM thermal_events e
     JOIN facilities f ON ST_DWithin(f.geom, e.geom, :radius)
     WHERE e.id = :event_id
+      AND coalesce(lower(f.status), '') NOT IN ('cancelled', 'shelved', 'announced', 'pre-permit', 'permitted')
+      AND NOT (f.facility_type = 'power_plant_other'
+               AND coalesce(lower(f.subtype), '') IN ('solar', 'wind', 'hydro', 'nuclear', 'wave and tidal', 'storage'))
     ORDER BY distance_m
     LIMIT 25
     """

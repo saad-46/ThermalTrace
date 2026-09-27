@@ -51,6 +51,26 @@ class SourceRecord:
     published_at: date | None = None
     raw: dict | None = None
     footprint_wkt: str | None = None
+    subtype: str | None = None
+
+
+# Registry statuses meaning the plant was never built (GEM). They must not overwrite a facility that other sources
+# show to exist (e.g. a cancelled expansion listed at an operating plant's location).
+NEVER_BUILT = ("cancelled", "shelved", "announced", "pre-permit", "permitted")
+
+
+def _apply_registry_status(db: Session, fac: Facility, rec: "SourceRecord") -> None:
+    if rec.source_id not in ("gem", "cea") or not rec.status:
+        return
+    status = rec.status.strip().lower()
+    if status in NEVER_BUILT:
+        others = db.execute(select(FacilitySource.source_id).where(FacilitySource.facility_id == fac.id,
+                                                                   FacilitySource.source_id != rec.source_id)).first()
+        if others is not None:
+            if (fac.status or "").lower() in NEVER_BUILT:
+                fac.status = None  # other sources show it exists; its operating status is unknown
+            return
+    fac.status = status
 
 
 _MATCH = text(
@@ -81,9 +101,16 @@ def upsert(db: Session, rec: SourceRecord) -> tuple[Facility, bool]:
         select(FacilitySource).where(FacilitySource.source_id == rec.source_id, FacilitySource.external_id == rec.external_id)
     ).scalar_one_or_none()
     if existing is not None:
+        # Re-import of the same source record: refresh what the source says about it.
         existing.retrieved_at = now
         existing.dataset_version = rec.dataset_version or existing.dataset_version
+        existing.name = rec.name or existing.name
+        existing.raw = rec.raw or existing.raw
         fac = db.get(Facility, existing.facility_id)
+        _apply_registry_status(db, fac, rec)
+        if fac.primary_source == rec.source_id and rec.capacity_value is not None:
+            fac.capacity_value = rec.capacity_value
+        fac.subtype = fac.subtype or rec.subtype
         return fac, False
 
     fac = None
@@ -99,12 +126,13 @@ def upsert(db: Session, rec: SourceRecord) -> tuple[Facility, bool]:
         fac.operator = fac.operator or rec.operator
         fac.capacity_value = fac.capacity_value or rec.capacity_value
         fac.capacity_unit = fac.capacity_unit or rec.capacity_unit
-        fac.status = rec.status if rec.source_id in ("gem", "cea") and rec.status else fac.status
         fac.state = fac.state or rec.state
+        fac.subtype = fac.subtype or rec.subtype
         fac.district = fac.district or rec.district
     else:
         fac = Facility(
-            name=rec.name, facility_type=rec.facility_type, operator=rec.operator, status=rec.status,
+            name=rec.name, facility_type=rec.facility_type, subtype=rec.subtype, operator=rec.operator,
+            status=rec.status.strip().lower() if rec.status and rec.source_id in ("gem", "cea") else rec.status,
             capacity_value=rec.capacity_value, capacity_unit=rec.capacity_unit, country=rec.country, state=rec.state,
             district=rec.district, geom=f"SRID=4326;POINT({rec.longitude} {rec.latitude})",
             footprint=f"SRID=4326;{rec.footprint_wkt}" if rec.footprint_wkt else None,
@@ -113,6 +141,8 @@ def upsert(db: Session, rec: SourceRecord) -> tuple[Facility, bool]:
         )
         db.add(fac)
         db.flush()
+    if match:
+        _apply_registry_status(db, fac, rec)
     db.add(FacilitySource(
         facility_id=fac.id, source_id=rec.source_id, external_id=rec.external_id, name=rec.name,
         source_type=rec.source_type, source_url=rec.source_url, dataset_version=rec.dataset_version,

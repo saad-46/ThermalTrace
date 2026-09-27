@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import text
@@ -38,6 +39,7 @@ def event_filters(
     min_priority: float | None = Query(None, ge=0, le=100, description="triage priority 0-100"),
     assigned_to: str | None = None,
     q: str | None = Query(None, max_length=100),
+    region: Literal["india", "all"] = Query("india", description="india (default): only events inside India's boundary"),
 ) -> dict:
     try:
         parsed_bbox = bbox_from_string(bbox) if bbox else None
@@ -46,7 +48,8 @@ def event_filters(
     return dict(bbox=parsed_bbox, since=since, until=until, classification=classification, persistence=persistence,
                 confidence_state=confidence_state, status=status, review_status=review_status, data_mode=data_mode,
                 data_quality=data_quality, sensor=sensor, facility_type=facility_type, min_frp=min_frp,
-                min_confidence=min_confidence, min_observations=min_observations, min_priority=min_priority, assigned_to=assigned_to, q=q)
+                min_confidence=min_confidence, min_observations=min_observations, min_priority=min_priority, assigned_to=assigned_to, q=q,
+                region=region)
 
 
 @router.get("", response_model=PageOut[EventSummary], summary="List thermal events (filterable, paginated)")

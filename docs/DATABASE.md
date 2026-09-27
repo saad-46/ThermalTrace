@@ -57,6 +57,7 @@ alembic downgrade base                  # tested in CI: tests/conftest.py runs b
 | 0007 | `land_context.osm_id` INTEGER → BIGINT (OpenStreetMap ids passed 2^31; downgrade removes rows that no longer fit) | ✅ |
 | 0008 | Indexes for the slow read paths at full-year scale: current classifications per model, persistent-source ranking, priority queue order (`priority_score DESC NULLS LAST, id`), trigram search on event id, state and region | ✅ |
 | 0009 | `cube` + `btree_gist` extensions; GiST KNN index over the five numeric fingerprint dimensions keyed by facility type (similar events), `lower(admin_district)` (watchlist district items) | ✅ |
+| 0010 | India boundary (`boundaries`, `boundary_parts` GiST, `admin_areas` GiST; loaded from app/gis/data), `thermal_events.in_india` (+ index), `registry_stations` (CEA stations with or without a location), `data_sources.health_detail` (per-capability checks), WRI fuel copied to `facilities.subtype` | ✅ |
 
 `alembic check` reports no drift between models and schema. The integration suite runs `downgrade base → upgrade head` on every run, and it has passed repeatedly against a populated test database.
 

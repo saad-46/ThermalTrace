@@ -463,7 +463,8 @@ def test_events_are_named_by_the_nearest_place_and_far_events_stay_unnamed(clien
     _ingest(db, [_row(23.79, 86.43, now, frp=25), _row(23.791, 86.431, now, frp=30), _row(10.0, 80.0, now, frp=25), _row(10.001, 80.001, now, frp=30)])
     process_new_detections(db)
     h = auth_headers("analyst")
-    items = {round(e["latitude"]): e for e in client.get("/api/v1/events", headers=h).json()["items"]}
+    # region=all: the far point is at sea off Tamil Nadu, outside India's boundary (excluded by default)
+    items = {round(e["latitude"]): e for e in client.get("/api/v1/events", headers=h, params={"region": "all"}).json()["items"]}
     near, far = items[24], items[10]
     assert near["place_name"] == "Dhanbad" and near["place_admin1"] == "Jharkhand" and near["place_country"] == "IN"
     assert near["place_distance_m"] < 2000
@@ -700,10 +701,10 @@ def test_public_landing_exposes_only_safe_live_aggregates(client, db, make_user,
     r = client.get("/api/v1/public/landing")  # no Authorization header
     assert r.status_code == 200
     d = r.json()
-    assert d["counts"] == {"detections": 21, "events": 1, "events_recent": 1, "facilities": 1}
+    assert d["counts"] == {"detections": 21, "events": 1, "events_recent": 1, "facilities": 1, "events_outside_india": 0}
     assert d["classifier"] == "rule-cascade-v1.1"
     assert d["sources_total"] == len(d["sources"]) and all(s["id"] != "demo" for s in d["sources"])
-    assert d["activity"]["cells"] == [[22.5, 69.5, 1]]  # 1° cell centre and a count, nothing identifying
+    assert d["activity"]["cells"] == [[22.38, 69.88, 1]]  # 0.25° cell centre and a count  # 1° cell centre and a count, nothing identifying
     body = json.dumps(d)
     for private in ("private.person", "@", "TT-", "password", "token"):
         assert private not in body
@@ -730,3 +731,103 @@ def test_source_states_come_from_the_backend_and_say_what_is_missing(client, aut
     assert "COPERNICUS_CLIENT" not in str(d)  # configuration names stay with signed-in users
     assert d["sources_active"] == sum(1 for s in d["sources"] if s["state"] == "active")
     public.clear_cache()
+
+
+def test_india_boundary_loaded_by_migration_classifies_mainland_and_islands(db):
+    from app.gis.boundaries import IN_INDIA_SQL
+
+    b = db.execute(text("SELECT pov, ST_NumGeometries(geom::geometry) FROM boundaries WHERE code = 'IND'")).one()
+    assert b[0] == "IND" and b[1] >= 30  # mainland plus Lakshadweep and Andaman & Nicobar islands
+    assert db.execute(text("SELECT count(*) FROM admin_areas WHERE country = 'IND'")).scalar() == 36
+
+    def inside(lat, lon):
+        return db.execute(text(f"SELECT {IN_INDIA_SQL.format(geom='ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)')}"),
+                          {"lat": lat, "lon": lon}).scalar()
+
+    assert inside(28.61, 77.21)          # New Delhi
+    assert inside(10.57, 72.64)          # Kavaratti, Lakshadweep
+    assert inside(11.62, 92.73)          # Port Blair, Andaman & Nicobar
+    assert not inside(31.55, 74.34)      # Lahore, Pakistan
+    assert not inside(27.72, 85.32)      # Kathmandu, Nepal
+    assert not inside(6.93, 79.85)       # Colombo, Sri Lanka
+    assert not inside(23.81, 90.41)      # Dhaka, Bangladesh
+
+
+def test_events_outside_india_are_excluded_from_the_india_dashboard(client, db, auth_headers):
+    from app.api.v1 import public
+    from app.processing.pipeline import process_new_detections
+
+    now = datetime.now(UTC) - timedelta(days=1)
+    _ingest(db, [_row(22.35, 69.85, now, frp=40)])          # Gujarat, India
+    _ingest(db, [_row(31.52, 74.30, now, frp=40)])          # Lahore, Pakistan (inside a crude lat/lon box for India)
+    process_new_detections(db)
+    flags = dict(db.execute(text("SELECT round(latitude)::int, in_india FROM thermal_events")).all())
+    assert flags == {22: True, 32: False}
+    h = auth_headers("analyst")
+    assert client.get("/api/v1/events", headers=h).json()["total"] == 1
+    assert client.get("/api/v1/events", headers=h, params={"region": "all"}).json()["total"] == 2
+    geo = client.get("/api/v1/events/geojson", headers=h, params={"bbox": "60,5,100,40"}).json()
+    assert len(geo["features"]) == 1
+    public.clear_cache()
+    counts = client.get("/api/v1/public/landing").json()["counts"]
+    assert counts["events"] == 1 and counts["events_outside_india"] == 1
+    public.clear_cache()
+
+
+def test_attribution_skips_plants_that_were_never_built_and_plants_that_burn_nothing(db):
+    from app.processing.pipeline import process_new_detections
+
+    solar = _facility(db, name="Solar Park", ftype="power_plant_other", lat=22.3505, lon=69.8505)
+    cancelled = _facility(db, name="Cancelled Coal Plant", ftype="power_plant_coal", lat=22.3502, lon=69.8502)
+    refinery = _facility(db, name="Real Refinery", ftype="refinery", lat=22.352, lon=69.853)
+    db.execute(text("UPDATE facilities SET subtype = 'solar' WHERE id = :i"), {"i": solar.id})
+    db.execute(text("UPDATE facilities SET status = 'cancelled' WHERE id = :i"), {"i": cancelled.id})
+    db.commit()
+    _ingest(db, _flare_site(3))
+    process_new_detections(db)
+    linked = {r[0] for r in db.execute(text("SELECT facility_id FROM event_facility_links"))}
+    assert refinery.id in linked and solar.id not in linked and cancelled.id not in linked
+
+
+def test_public_boundary_serves_india_its_mask_and_states(client):
+    b = client.get("/api/v1/public/boundary", params={"detail": "overview"})
+    assert b.status_code == 200 and "max-age" in b.headers["cache-control"]
+    d = b.json()
+    assert d["india"]["geometry"]["type"] == "MultiPolygon" and len(d["india"]["geometry"]["coordinates"]) >= 30
+    assert d["mask"]["geometry"]["type"] in ("Polygon", "MultiPolygon")
+    assert len(d["states"]["features"]) == 36 and d["pov"] == "IND"
+    w, s, e, n = d["bbox"]
+    assert w < 68.5 and e > 97 and s < 7 and n > 36  # includes Andaman & Nicobar (south-east) and the north
+
+
+def test_cea_registry_import_links_stations_to_located_facilities_with_provenance(client, db, monkeypatch, tmp_path):
+    from datetime import date
+
+    from app.api.v1 import public
+    from app.integrations.cea_pdf import parse_lines
+    from app.services import cea_registry
+    from app.services.facilities import SourceRecord, upsert
+
+    wri, _ = upsert(db, SourceRecord("wri_gppd", "IND0001", "GIRAL", "power_plant_coal", None, 26.03, 71.24,
+                                     capacity_value=250, raw={"primary_fuel": "Coal"}))
+    db.commit()
+    monkeypatch.setattr(cea_registry, "parse_pdf", lambda path: parse_lines([_cea_page()]))
+    report = cea_registry.import_registry(db, tmp_path / "List_of_Power_Station.pdf", "CEA list 31.03.2025", date(2025, 3, 31), tmp_path)
+    db.commit()
+    assert report["stations"] == 4 and report["coordinates_in_source"] is False
+    giral = db.execute(text("SELECT facility_id, coordinate_source, match_status FROM registry_stations WHERE name = 'GIRAL TPS'")).one()
+    assert giral.facility_id == wri.id and giral.coordinate_source == "wri_gppd" and giral.match_status == "matched"
+    cea_src = db.execute(text("SELECT raw FROM facility_sources WHERE source_id = 'cea' AND facility_id = :f"), {"f": wri.id}).scalar()
+    assert cea_src["coordinate_source"] == "wri_gppd" and "CEA publishes no coordinates" in cea_src["note"]
+    unlocated = db.execute(text("SELECT count(*) FROM registry_stations WHERE facility_id IS NULL")).scalar()
+    assert unlocated == 3  # listed, kept, not placed on the map without a location
+    assert (tmp_path / "cea_stations_normalized.csv").exists() and (tmp_path / "cea_validation_report.json").exists()
+    public.clear_cache()
+    cea = next(s for s in client.get("/api/v1/public/landing").json()["sources"] if s["id"] == "cea")
+    assert cea["registry"]["stations"] == 4 and cea["registry"]["located"] == 1 and cea["registry"]["coordinate_sources"] == ["wri_gppd"]
+    public.clear_cache()
+
+
+def _cea_page() -> str:
+    from tests.test_units import CEA_PAGE
+    return CEA_PAGE

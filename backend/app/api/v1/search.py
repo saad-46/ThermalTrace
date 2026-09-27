@@ -39,7 +39,7 @@ def search(q: str = Query(min_length=2, max_length=100), user: User = CurrentUse
                       place_name, place_admin1, place_country,
                       round(ST_Distance(geom, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography)) AS distance_m
                FROM thermal_events
-               WHERE ST_DWithin(geom, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography, 25000)
+               WHERE ST_DWithin(geom, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography, 25000) AND in_india IS NOT FALSE
                ORDER BY geom <-> ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography LIMIT 8"""),
             {"lat": lat, "lon": lon}).mappings()]
         return out
@@ -54,7 +54,7 @@ def search(q: str = Query(min_length=2, max_length=100), user: User = CurrentUse
         """SELECT coalesce(admin_district, place_name) AS admin_district, coalesce(admin_state, place_admin1) AS admin_state,
                   count(*) AS events, avg(latitude) AS latitude, avg(longitude) AS longitude
              FROM thermal_events
-            WHERE admin_district ILIKE :like OR admin_state ILIKE :like OR place_name ILIKE :like
+            WHERE (admin_district ILIKE :like OR admin_state ILIKE :like OR place_name ILIKE :like) AND in_india IS NOT FALSE
            GROUP BY 1, 2 ORDER BY count(*) DESC LIMIT 6"""), {"like": like}).mappings()]
     out["facilities"] = [dict(r) for r in db.execute(text(
         """SELECT id, name, facility_type, operator, latitude, longitude, primary_source

@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy import text
 
@@ -54,6 +55,8 @@ app.add_middleware(
     expose_headers=["X-Request-ID"],
 )
 app.add_middleware(RequestContextMiddleware)
+# Large JSON (map GeoJSON, the India boundary) compresses ~5-10x.
+app.add_middleware(GZipMiddleware, minimum_size=2048)
 install_error_handlers(app)
 
 health = APIRouter(tags=["system"])

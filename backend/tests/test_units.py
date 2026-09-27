@@ -503,7 +503,7 @@ def test_source_states_never_overstate_availability():
     assert st("cea", "unknown", "file_import", False) == "import_required"
     # configured but never exercised: not called active until a real request succeeds
     assert st("cdse", "unknown", "oauth", False) != "active"
-    assert effective_state("cdse", "unknown", "oauth", False, cfg={"cdse": {"configured": True}})["state"] == "not_used"
+    assert effective_state("cdse", "unknown", "oauth", False, cfg={"cdse": {"configured": True}})["state"] == "unverified"
     eff = effective_state("cdse", "unknown", "oauth", False, cfg=cfg)
     assert eff["requirement"] == "Copernicus Data Space OAuth client" and "COPERNICUS" not in eff["requirement"]
 
@@ -520,6 +520,9 @@ def test_source_probe_records_real_outcomes_only(monkeypatch):
 
     monkeypatch.setattr("app.services.source_health.record_success", lambda db, sid, *a, **k: calls.append(("ok", sid)))
     monkeypatch.setattr("app.services.source_health.record_failure", lambda db, sid, err: calls.append(("fail", sid, err)))
+    checks = []
+    monkeypatch.setattr("app.services.source_health.record_check",
+                        lambda db, sid, cap, ok, latency=None, status=None, err=None: checks.append((sid, cap, ok, latency, status, err)))
 
     monkeypatch.setattr(sentinel.SatellitePreviewService, "swir_available", staticmethod(lambda: False))
     assert tasks.source_probe(DB(), {}, None) == {"cdse": "not configured"} and calls == []  # nothing marked healthy
@@ -527,11 +530,13 @@ def test_source_probe_records_real_outcomes_only(monkeypatch):
     monkeypatch.setattr(sentinel.SatellitePreviewService, "swir_available", staticmethod(lambda: True))
     monkeypatch.setattr(sentinel, "verify_cdse_credentials", lambda: 123.0)
     assert tasks.source_probe(DB(), {}, None) == {"cdse": "ok"} and calls[-1] == ("ok", "cdse")
+    assert checks[-1] == ("cdse", "auth", True, 123.0, 200, None)  # real latency recorded, no token
 
     def reject():
         raise ProviderAuthError("cdse", "invalid_client")
     monkeypatch.setattr(sentinel, "verify_cdse_credentials", reject)
     assert tasks.source_probe(DB(), {}, None)["cdse"] == "failed (auth)" and calls[-1][0] == "fail"
+    assert checks[-1][:3] == ("cdse", "auth", False) and checks[-1][5] == "authentication_failed"
     assert "source_probe" in tasks.SCHEDULE
 
 
@@ -559,3 +564,114 @@ def test_public_landing_serves_the_previous_snapshot_while_refreshing(monkeypatc
         time.sleep(0.02)
     assert public.landing(db=None) == {"snapshot": "new"}
     public.clear_cache()
+
+
+CEA_PAGE = """
+                                                      List  of Thermal Hydro  Station as on 31.03.2025
+                                                                                                       Appendix-A
+S.No.      Region        State          Sector             Organisation                 Name of Project             Prime Mover         Unit No         Installed        Year of Comm.
+     21  NR          Rajasthan    State Sector      RRVUNL                     GIRAL TPS                         Steam                          1               125                 2007
+         NR          Rajasthan    State Sector      RRVUNL                     GIRAL TPS                         Steam                          2               125                 2009
+     27  NR          Rajasthan    Private Sector    APL                        ADANI POWER LIMITED KAWAI TPPSteam                             1               660                  2013
+    204  SR          Tamil NaduPrivate Sector       OPG Power Generation Private LimitedOPG Power Generation Private LimitedSteam             1                 77                 2010
+    227  ER          Andaman & NicobarPrivate SectorA&N ADM                   AND. NICOBAR Pvt. DG            Diesel                         1             35.19                 2022
+         NR          Rajasthan Total                                                                                                               910
+         SR          Tamil Nadu Total                                                                                                              77
+         ER          Andaman & Nicobar Total                                                                                                       35.19
+Thermal Total 1022.19
+"""
+
+
+def test_cea_pdf_rows_parse_with_recorded_repairs_and_reconcile_with_printed_totals():
+    from app.integrations.cea_pdf import parse_lines, reconcile
+
+    p = parse_lines([CEA_PAGE])
+    assert len(p.units) == 5 and p.unparsed == []
+    kawai = next(u for u in p.units if "KAWAI" in u.project)
+    assert kawai.prime_mover == "Steam" and kawai.project == "ADANI POWER LIMITED KAWAI TPP" and "prime_mover_separated" in kawai.repairs
+    opg = next(u for u in p.units if u.state == "Tamil Nadu")
+    assert opg.organisation == "OPG Power Generation Private Limited" and "organisation_repeated" in opg.repairs
+    an = next(u for u in p.units if u.prime_mover == "Diesel")
+    assert an.state == "Andaman & Nicobar" and an.sector == "Private Sector" and an.organisation == "A&N ADM" and an.capacity_mw == 35.19
+    assert all(r["ok"] for r in reconcile(p)) and len(reconcile(p)) == 3
+    assert p.category_totals == {"thermal": 1022.19}
+    broken = parse_lines([CEA_PAGE.replace("Rajasthan Total                                                                                                               910",
+                                           "Rajasthan Total   999")])
+    assert [r for r in reconcile(broken) if not r["ok"]][0]["state"] == "Rajasthan"  # a lost unit would be caught
+
+
+def test_cea_station_matching_needs_state_fuel_and_name_and_refuses_to_guess():
+    from app.integrations.cea_pdf import CEAUnit
+    from app.services.cea_registry import Station, match_station, name_similarity, norm_state, tokens
+
+    assert tokens("CHHABRA-I PH-1 TPP")[0] == {"CHHABRA"} and tokens("Kalisindh Thermal Power Station")[0] == {"KALISINDH"}
+    assert name_similarity({"BARSINGSAR"}, {"BARSINGAR"}) == 1.0  # spelling variants still match
+    assert norm_state("Jammu & Kashmir") == norm_state("Jammu and Kashmir")
+
+    def st(name, cap=600, mover="Steam", state="Rajasthan"):
+        s = Station(key=name, name=name, category="thermal", region="NR", state=state, sector="State Sector", organisation="X")
+        s.units.append(CEAUnit("A", "NR", state, "State Sector", "X", name, mover, "1", cap, 2010, 1, 1))
+        return s
+
+    def cand(fid, name, cap, fuel="coal", state="Rajasthan"):
+        core, qual = tokens(name)
+        return {"facility_id": fid, "source_id": "wri_gppd", "source_name": name, "capacity_value": cap, "fuel": fuel,
+                "location_accuracy": None, "core": core, "qual": qual, "state": state, "primary_source": "wri_gppd",
+                "source_count": 1, "confidence": 0.6, "latitude": 25.0 + len(fid), "longitude": 75.0 + 3 * len(name)}
+
+    pool = {"RAJASTHAN": [cand("a", "KALISINDH", 1200), cand("b", "KOTA", 1240), cand("c", "KOTA COMPLEX", 125),
+                          cand("d", "ANTA GT", 419, fuel="gas")]}
+    assert match_station(st("KALISINDH TPS", 1200), pool)["facility_id"] == "a"
+    kota = match_station(st("KOTA TPS", 1240), pool)
+    assert kota["status"] == "matched" and kota["facility_id"] == "b"  # capacity breaks the name tie
+    assert match_station(st("ANTA CCPP", 419), pool)["status"] == "unmatched"  # Steam unit never matched to a gas plant
+    assert match_station(st("KALISINDH TPS", 1200, state="Gujarat"), pool)["status"] == "unmatched"  # other state
+    apart = {"RAJASTHAN": [{**cand("x", "SURATGARH", 600), "latitude": 29.2, "longitude": 74.0},
+                           {**cand("y", "SURATGARH", 600), "latitude": 26.0, "longitude": 71.0}]}
+    m = match_station(st("SURATGARH TPS", 600), apart)
+    assert m["status"] == "ambiguous" and m["candidates_km_apart"] > 400  # two places fit equally: never guessed
+    same = {"RAJASTHAN": [{**cand("x", "SURATGARH", 600), "latitude": 29.2, "longitude": 74.0},
+                          {**cand("y", "SURATGARH", 600), "latitude": 29.201, "longitude": 74.001, "source_count": 3}]}
+    m = match_station(st("SURATGARH TPS", 600), same)
+    # duplicate facility rows at the same place: the location is agreed; the better-supported row is linked, flagged
+    assert m["status"] == "matched" and m["facility_id"] == "y" and m["flag"] == "duplicate_facility_rows" and m["confidence"] == "medium"
+
+
+def test_gem_plant_status_prefers_units_that_exist():
+    from app.integrations.registries import plant_status
+
+    assert plant_status(["cancelled", "operating", "retired"]) == "operating"
+    assert plant_status(["cancelled", "announced"]) == "announced"
+    assert plant_status(["cancelled", "cancelled"]) == "cancelled"
+    assert plant_status(["retired", "mothballed"]) == "mothballed"
+
+
+def test_copernicus_state_follows_real_checks(monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    from app.services.source_health import effective_state
+
+    def state(detail, configured=True):
+        return effective_state("cdse", "unknown", "oauth", False, cfg={"cdse": {"configured": configured}}, detail=detail)["state"]
+
+    now = datetime.now(UTC)
+    ok = {"ok": True, "checked_at": now.isoformat()}
+    assert state({}, configured=False) == "credentials_required"
+    assert state({}) == "unverified"  # configured is not the same as working
+    assert state({"auth": ok}) == "active"
+    assert state({"auth": {"ok": False, "checked_at": now.isoformat(), "error": "authentication_failed"}}) == "degraded"
+    assert state({"auth": {"ok": False, "checked_at": now.isoformat(), "error": "timeout"}}) == "degraded"
+    assert state({"auth": {"ok": True, "checked_at": (now - timedelta(hours=20)).isoformat()}}) == "unverified"
+    assert state({"auth": ok, "preview": {"ok": False, "consecutive_failures": 1}}) == "active"
+    assert state({"auth": ok, "preview": {"ok": False, "consecutive_failures": 2, "error": "service_unavailable"}}) == "degraded"
+
+
+def test_provider_errors_map_to_categories_without_messages():
+    from app.integrations.http import ProviderAuthError, ProviderError, ProviderRateLimited, ProviderServerError, ProviderTimeout
+    from app.services.source_health import error_category
+
+    assert error_category(ProviderAuthError("cdse", "authentication rejected (HTTP 401)", status=401)) == "authentication_failed"
+    assert error_category(ProviderTimeout("cdse", "x")) == "timeout"
+    assert error_category(ProviderServerError("cdse", "x", status=503)) == "service_unavailable"
+    assert error_category(ProviderRateLimited("cdse", "x", status=429)) == "rate_limited"
+    assert error_category(ProviderError("cdse", "x", status=400)) == "invalid_request"

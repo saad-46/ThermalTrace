@@ -71,6 +71,9 @@ def _filters(p: dict) -> tuple[str, dict]:
     if p.get("assigned_to"):
         clauses.append("e.assigned_to = :assigned_to")
         params["assigned_to"] = p["assigned_to"]
+    if p.get("region", "india") == "india":
+        # Known to be outside India's boundary: excluded. NULL (not yet classified / no boundary) is kept.
+        clauses.append("e.in_india IS NOT FALSE")
     if p.get("q"):
         clauses.append("(e.public_id ILIKE :q OR e.admin_district ILIKE :q OR e.admin_state ILIKE :q OR f.name ILIKE :q "
                        "OR e.place_name ILIKE :q OR e.place_admin1 ILIKE :q)")

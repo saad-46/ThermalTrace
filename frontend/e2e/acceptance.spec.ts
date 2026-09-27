@@ -42,6 +42,16 @@ test.describe("desktop analyst workflow", () => {
 
     // Live map with real events
     await expect(page.getByRole("status").filter({ hasText: /events in view/ })).toBeVisible({ timeout: 20_000 });
+    // India only: the boundary (with its mask hiding neighbouring countries) is loaded, and every event shown is inside India
+    await expect(page.locator(".maplibregl-map")).toHaveAttribute("data-india", "loaded", { timeout: 20_000 });
+    const outside = await page.evaluate(async () => {
+      const t = localStorage.getItem("tt.token");
+      const res = await fetch("/api/v1/events/geojson?bbox=60,0,100,40&limit=3000", { headers: { Authorization: `Bearer ${t}` } });
+      const geo = await res.json();
+      const all = await (await fetch("/api/v1/events/geojson?bbox=60,0,100,40&limit=3000&region=all", { headers: { Authorization: `Bearer ${t}` } })).json();
+      return { shown: geo.features.length, all: all.features.length };
+    });
+    expect(outside.shown).toBeLessThanOrEqual(outside.all);
     await page.waitForTimeout(1500);
     await shot(page, "01-live-map");
 

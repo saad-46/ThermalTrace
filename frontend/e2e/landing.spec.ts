@@ -44,7 +44,9 @@ test.describe("landing page", () => {
         const d = await pub.json();
         await expect(snapshot).toContainText(d.counts.detections.toLocaleString("en-US"));
         await expect(snapshot).toContainText(d.counts.facilities.toLocaleString("en-US"));
-        await expect(page.getByRole("img", { name: /thermal event activity over the last 30 days/ })).toBeVisible();
+        await expect(page.getByRole("img", { name: /Map of India including Lakshadweep and the Andaman and Nicobar Islands/ })).toBeVisible();
+        await expect(page.locator(".lp-india")).toBeVisible();  // India's real outline, independent of the fire data
+        await expect(page.locator(".lp-island-labels text")).toHaveText(["Lakshadweep", "Andaman & Nicobar"]);
         // Flames sit on real busiest cells (never more than there are cells); the brand mark is the same flame.
         const flames = await page.locator(".lp-flames .tt-flame").count();
         expect(flames).toBeGreaterThan(0);

@@ -4,6 +4,7 @@ from datetime import date, datetime
 from geoalchemy2 import Geography
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -159,6 +160,8 @@ class ThermalEvent(Base):
     place_admin1: Mapped[str | None] = mapped_column(String(120))
     place_country: Mapped[str | None] = mapped_column(String(2))
     place_distance_m: Mapped[float | None] = mapped_column(Float)
+    # Inside India's boundary (boundary_parts, IND); NULL only while no boundary is loaded or not yet classified.
+    in_india: Mapped[bool | None] = mapped_column(Boolean, index=True)
 
     enrichment_state: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

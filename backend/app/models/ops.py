@@ -31,6 +31,8 @@ class DataSource(Base):
     latency_ms_ewma: Mapped[float | None] = mapped_column(Float)
     dataset_version: Mapped[str | None] = mapped_column(String(120))
     dataset_published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Per-capability health recorded by real checks, e.g. {"auth": {...}, "preview": {...}} for Copernicus.
+    health_detail: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
 
 
 class IngestionRun(Base):

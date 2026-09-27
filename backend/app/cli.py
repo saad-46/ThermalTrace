@@ -10,6 +10,9 @@
   train                                            train a LightGBM model (stored inactive; activate it from System health)
   import-places                                    download GeoNames places (CC BY 4.0) and name events "near <place>"
   load-demo                                        synthetic data (DEMO_MODE=true only)
+  load-boundaries                                  (re)load India's boundary and states from app/gis/data into PostGIS
+  build-boundaries --countries F --states F --version V   regenerate app/gis/data from raw Natural Earth GeoJSON (developer)
+  classify-regions [--all]                         mark events inside / outside India's boundary
 """
 import argparse
 import getpass
@@ -59,6 +62,13 @@ def main(argv: list[str] | None = None) -> int:
     fs.add_argument("--tiles", type=int, default=4)
     sub.add_parser("train")
     sub.add_parser("load-demo")
+    sub.add_parser("load-boundaries")
+    bb = sub.add_parser("build-boundaries")
+    bb.add_argument("--countries", required=True)
+    bb.add_argument("--states", required=True)
+    bb.add_argument("--version", required=True)
+    cr = sub.add_parser("classify-regions")
+    cr.add_argument("--all", action="store_true", help="reclassify every event, not only unclassified ones")
     args = p.parse_args(argv)
 
     db = SessionLocal()
@@ -121,6 +131,21 @@ def main(argv: list[str] | None = None) -> int:
             res = import_places(db)
             res["events_named"] = assign_nearest_places(db)
             _print(res)
+        elif args.cmd == "load-boundaries":
+            from app.gis import boundaries
+
+            print(json.dumps(boundaries.load(db)))
+            db.commit()
+        elif args.cmd == "build-boundaries":
+            from pathlib import Path
+
+            from app.gis import boundaries
+
+            print(json.dumps(boundaries.build_files(db, Path(args.countries), Path(args.states), args.version)))
+        elif args.cmd == "classify-regions":
+            from app.gis import boundaries
+
+            print(json.dumps(boundaries.classify_events(db, only_missing=not args.all)))
         elif args.cmd == "load-demo":
             from app.services.ingestion import load_demo_dataset
 

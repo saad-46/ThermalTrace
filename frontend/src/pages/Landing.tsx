@@ -11,7 +11,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } 
 import { Flame as FlameMark, IndiaOutline } from "../components/brand";
 import { errText } from "../components/ui";
 import { api } from "../lib/api";
-import { relTime } from "../lib/format";
+import { fmtDate, relTime } from "../lib/format";
 import { useMedia, useSession } from "../lib/session";
 import type { DemoRole, PublicLanding, PublicSourceState } from "../lib/types";
 
@@ -119,19 +119,41 @@ function useLanding() {
   });
 }
 
-/** Real 30-day activity aggregated to a coarse grid, drawn on a plain graticule (no basemap, no individual events). */
+/** India's boundary (Natural Earth, India point of view) as served by the backend, which also uses it to decide
+ *  which anomalies are inside India. */
+interface IndiaBoundary {
+  india: GeoJSON.Feature<GeoJSON.MultiPolygon>;
+  states: GeoJSON.FeatureCollection<GeoJSON.MultiLineString | GeoJSON.LineString>;
+  bbox: [number, number, number, number];
+  source: string;
+}
+
+function useBoundary() {
+  return useQuery({
+    queryKey: ["public-boundary", "overview"],
+    queryFn: () => api<IndiaBoundary>("/public/boundary", { query: { detail: "overview" } }),
+    retry: 1,
+    staleTime: Infinity,
+  });
+}
+
+// Fallback extent (mainland India with Lakshadweep and the Andaman & Nicobar Islands) while the boundary loads.
+const INDIA_BBOX: [number, number, number, number] = [68.1, 6.7, 97.4, 37.1];
+
+/** Real 30-day thermal activity inside India, aggregated to a 0.25° grid, drawn on India's actual boundary. */
 export function ActivityMap({ data, loading }: { data: PublicLanding | undefined; loading: boolean }) {
   const cells = data?.activity.cells ?? [];
+  const boundaryQ = useBoundary();
+  const boundary = { ...boundaryQ, data: boundaryQ.data?.india?.geometry?.coordinates ? boundaryQ.data : undefined };
   // Beside the sign-in card on tablets the column is narrow and tall: use a portrait panel there.
   const portrait = useMedia("(min-width: 641px) and (max-width: 900px)");
   const view = useMemo(() => {
-    if (!cells.length) return null;
-    const lats = cells.map((c) => c[0]), lons = cells.map((c) => c[1]);
-    const pad = 1.5;
-    let s = Math.min(...lats) - pad, n = Math.max(...lats) + pad, w = Math.min(...lons) - pad, e = Math.max(...lons) + pad;
+    const [bw, bs, be, bn] = boundary.data?.bbox ?? INDIA_BBOX;
+    const pad = 0.8;
+    let w = bw - pad, e = be + pad, s = bs - pad, n = bn + pad;
     const k = Math.cos((((s + n) / 2) * Math.PI) / 180); // equirectangular, scaled at mid-latitude
     // Fill a fixed panel aspect by widening the shorter axis (never by stretching the geography).
-    const W = 640, H = portrait ? 800 : 360;
+    const W = 640, H = portrait ? 800 : 520;
     const spanLon = (e - w) * k, spanLat = n - s;
     if (spanLon / spanLat < W / H) {
       const extra = ((spanLat * W) / H / k - (e - w)) / 2;
@@ -142,14 +164,32 @@ export function ActivityMap({ data, loading }: { data: PublicLanding | undefined
     }
     const x = (lon: number) => ((lon - w) / (e - w)) * W;
     const y = (lat: number) => ((n - lat) / (n - s)) * H;
-    const max = Math.max(...cells.map((c) => c[2]));
+    const ring = (r: GeoJSON.Position[]) => "M" + r.map(([lo, la]) => `${x(lo).toFixed(1)} ${y(la).toFixed(1)}`).join("L") + "Z";
+    const line = (r: GeoJSON.Position[]) => "M" + r.map(([lo, la]) => `${x(lo).toFixed(1)} ${y(la).toFixed(1)}`).join("L");
+    const india = boundary.data ? boundary.data.india.geometry.coordinates.map((poly) => poly.map(ring).join("")).join("") : null;
+    const states = boundary.data ? boundary.data.states.features.map((f) =>
+      f.geometry.type === "LineString" ? line(f.geometry.coordinates) : f.geometry.coordinates.map(line).join("")).join("") : null;
+    // Island territories, labelled so they are not mistaken for noise (positions from the boundary itself).
+    const islands: { label: string; x: number; y: number }[] = [];
+    if (boundary.data) {
+      const groups = { lak: [] as GeoJSON.Position[], an: [] as GeoJSON.Position[] };
+      for (const poly of boundary.data.india.geometry.coordinates) {
+        const [lo, la] = poly[0][0];
+        if (lo < 74.5 && la < 13) groups.lak.push(...poly[0]);
+        else if (lo > 92 && la < 14.5) groups.an.push(...poly[0]);
+      }
+      const centre = (pts: GeoJSON.Position[]) => [pts.reduce((a, p) => a + p[0], 0) / pts.length, pts.reduce((a, p) => a + p[1], 0) / pts.length];
+      if (groups.lak.length) { const [lo, la] = centre(groups.lak); islands.push({ label: "Lakshadweep", x: x(lo), y: y(la) }); }
+      if (groups.an.length) { const [lo, la] = centre(groups.an); islands.push({ label: "Andaman & Nicobar", x: x(lo), y: y(la) }); }
+    }
+    const max = Math.max(1, ...cells.map((c) => c[2]));
     const step = 5;
     const meridians: number[] = [], parallels: number[] = [];
     for (let v = Math.ceil(w / step) * step; v <= e; v += step) meridians.push(v);
     for (let v = Math.ceil(s / step) * step; v <= n; v += step) parallels.push(v);
-    return { W, H, x, y, max, meridians, parallels };
-  }, [cells, portrait]);
-  // SVG text scales with the viewBox: keep grid labels about 10 px on screen whatever the rendered width.
+    return { W, H, x, y, max, meridians, parallels, india, states, islands };
+  }, [cells, portrait, boundary.data]);
+  // SVG text scales with the viewBox: keep labels about 10 px on screen whatever the rendered width.
   const svgRef = useRef<SVGSVGElement>(null);
   const [labelSize, setLabelSize] = useState(10);
   useEffect(() => {
@@ -161,20 +201,21 @@ export function ActivityMap({ data, loading }: { data: PublicLanding | undefined
   }, [view]);
   const total = cells.reduce((a, c) => a + c[2], 0);
   const days = data?.activity.window_days ?? 30;
+  const showMap = !!boundary.data || cells.length > 0;
 
   return (
-    <figure className="lp-map glass" aria-busy={loading}>
+    <figure className="lp-map glass" aria-busy={loading || boundary.isLoading}>
       <figcaption className="lp-map-head">
-        <span className="lp-map-title"><Activity size={14} aria-hidden /> Thermal activity · last {days} days</span>
-        <span className="lp-map-meta">{view ? `${NUM.format(total)} events · ${cells.length} cells of ${data!.activity.cell_deg}°` : loading ? "Loading live data…" : "Live activity unavailable"}</span>
+        <span className="lp-map-title"><Activity size={14} aria-hidden /> India · thermal anomalies, last {days} days</span>
+        <span className="lp-map-meta">{data ? `${NUM.format(total)} events · ${data.activity.cell_deg}° cells` : loading ? "Loading live data…" : "Live activity unavailable"}</span>
       </figcaption>
-      {view ? (
+      {showMap ? (
         <svg ref={svgRef} viewBox={`0 0 ${view.W} ${view.H}`} className="lp-map-svg" role="img"
-          aria-label={`Map of thermal event activity over the last ${days} days: ${NUM.format(total)} events in ${cells.length} one-degree grid cells. Larger, brighter circles mean more events; the busiest cells in ${flameCells(cells).length} distinct areas are marked with a flame.`}>
+          aria-label={`Map of India${boundary.data ? " including Lakshadweep and the Andaman and Nicobar Islands" : ""}, showing ${NUM.format(total)} thermal events inside India over the last ${days} days, aggregated to ${cells.length} grid cells of ${data?.activity.cell_deg ?? 0.25} degrees. Larger, brighter points mean more events; the busiest areas are marked with a flame.`}>
           <defs>
             <radialGradient id="lp-heat">
               <stop offset="0%" stopColor="#ffd08a" stopOpacity="0.95" />
-              <stop offset="45%" stopColor="#ff7a2e" stopOpacity="0.75" />
+              <stop offset="45%" stopColor="#ff7a2e" stopOpacity="0.7" />
               <stop offset="100%" stopColor="#ff4d1a" stopOpacity="0" />
             </radialGradient>
           </defs>
@@ -182,23 +223,25 @@ export function ActivityMap({ data, loading }: { data: PublicLanding | undefined
             {view.meridians.map((m) => <line key={`m${m}`} x1={view.x(m)} x2={view.x(m)} y1={0} y2={view.H} />)}
             {view.parallels.map((p) => <line key={`p${p}`} y1={view.y(p)} y2={view.y(p)} x1={0} x2={view.W} />)}
           </g>
+          {view.india && <path d={view.india} className="lp-india" fillRule="evenodd" />}
+          {view.states && <path d={view.states} className="lp-states" />}
           <g className="lp-grid-labels" aria-hidden style={{ fontSize: labelSize }}>
             {view.meridians.filter((m) => view.x(m) > 40 && view.x(m) < view.W - 40 && (labelSize < 14 || m % 10 === 0)).map((m) => <text key={`tm${m}`} x={view.x(m) + 3} y={view.H - labelSize * 0.6}>{m}°E</text>)}
             {view.parallels.filter((p) => view.y(p) > labelSize * 1.6 && view.y(p) < view.H - labelSize * 2 && (labelSize < 14 || p % 10 === 0)).map((p) => <text key={`tp${p}`} x={labelSize * 0.4} y={view.y(p) - labelSize * 0.4}>{p}°N</text>)}
           </g>
           <g>
             {[...cells].reverse().map(([lat, lon, cnt]) => {
-              const r = 3 + 13 * Math.sqrt(cnt / view.max);
+              const r = 1.3 + 5 * Math.sqrt(cnt / view.max);
               return (
                 <g key={`${lat},${lon}`} transform={`translate(${view.x(lon)} ${view.y(lat)})`}>
-                  <circle r={Math.min(r * 1.9, 20)} fill="url(#lp-heat)" opacity={0.25 + 0.5 * Math.sqrt(cnt / view.max)} />
-                  <circle r={Math.max(1.4, r * 0.28)} className="lp-core" />
+                  <circle r={Math.min(r * 2.4, 12)} fill="url(#lp-heat)" opacity={0.2 + 0.5 * Math.sqrt(cnt / view.max)} />
+                  <circle r={Math.max(0.9, r * 0.35)} className="lp-core" />
                 </g>
               );
             })}
           </g>
           <g className="lp-flames" aria-hidden>
-            {/* The busiest cells (live data, largest first) are marked with a flame; its base sits on the cell centre. */}
+            {/* The busiest areas (live data, largest first) are marked with a flame; its base sits on the cell centre. */}
             {flameCells(cells).map(([lat, lon, cnt]) => {
               const s = labelSize * 2 + 10 * Math.sqrt(cnt / view.max);
               return (
@@ -208,13 +251,27 @@ export function ActivityMap({ data, loading }: { data: PublicLanding | undefined
               );
             })}
           </g>
+          <g className="lp-island-labels" aria-hidden style={{ fontSize: labelSize * 0.95 }}>
+            {view.islands.map((i) => (
+              <text key={i.label} x={i.label.startsWith("Lak") ? i.x - labelSize * 0.8 : i.x + labelSize * 0.9} y={i.y}
+                textAnchor={i.label.startsWith("Lak") ? "end" : "start"}>{i.label}</text>
+            ))}
+          </g>
+          {data && cells.length === 0 && (
+            <text x={view.W / 2} y={view.H - labelSize * 2.2} textAnchor="middle" className="lp-map-none" style={{ fontSize: labelSize * 1.2 }}>
+              No thermal anomalies inside India in the last {days} days
+            </text>
+          )}
         </svg>
       ) : (
         <div className="lp-map-empty" role="status">
-          {loading ? <span className="spinner" /> : <><Crosshair size={16} aria-hidden /> Live activity is unavailable right now. No placeholder data is shown.</>}
+          {loading || boundary.isLoading ? <span className="spinner" /> : <><Crosshair size={16} aria-hidden /> The map is unavailable right now. No placeholder data is shown.</>}
         </div>
       )}
-      <div className="lp-map-foot">Aggregated NASA FIRMS events on a 1° grid; flames mark the busiest areas. Circles show where activity was detected, not what caused it.</div>
+      <div className="lp-map-foot">
+        NASA FIRMS events inside India's boundary, aggregated to 0.25° cells; flames mark the busiest areas. Points show where
+        heat was detected, not what caused it. Boundary: Natural Earth (India point of view).
+      </div>
     </figure>
   );
 }
@@ -368,10 +425,10 @@ export function SourceHealth({ data }: { data: PublicLanding }) {
 
 export function Snapshot({ data, loading, error }: { data: PublicLanding | undefined; loading: boolean; error: boolean }) {
   const cards: { icon: ReactNode; label: string; value: (d: PublicLanding) => number; note: (d: PublicLanding) => string }[] = [
-    { icon: <Satellite size={17} />, label: "Thermal detections", value: (d) => d.counts.detections, note: () => "NASA FIRMS pixels ingested" },
-    { icon: <Flame size={17} />, label: "Thermal events", value: (d) => d.counts.events, note: () => "Detections clustered for investigation" },
+    { icon: <Satellite size={17} />, label: "Thermal detections in India", value: (d) => d.counts.detections, note: () => "NASA FIRMS pixels inside India's boundary" },
+    { icon: <Flame size={17} />, label: "Thermal events in India", value: (d) => d.counts.events, note: () => "Detections clustered for investigation" },
     { icon: <Activity size={17} />, label: "Events, last 30 days", value: (d) => d.counts.events_recent, note: (d) => `Latest detection ${relTime(d.latest_detection)}` },
-    { icon: <Factory size={17} />, label: "Mapped facilities", value: (d) => d.counts.facilities, note: () => "Available for spatial attribution" },
+    { icon: <Factory size={17} />, label: "Mapped facilities in India", value: (d) => d.counts.facilities, note: () => "Available for spatial attribution" },
     { icon: <Layers size={17} />, label: "Data sources active", value: (d) => d.sources_active, note: (d) => `of ${d.sources_total} integrated sources` },
   ];
   return (
@@ -398,6 +455,7 @@ export function Snapshot({ data, loading, error }: { data: PublicLanding | undef
               </span>
               <SourceHealth data={data} />
               <span>FIRMS synced {relTime(data.firms_last_sync)}</span>
+              {data.counts.events_outside_india > 0 && <span>{NUM.format(data.counts.events_outside_india)} events outside India excluded</span>}
               <span>Classifier of record: <code>{data.classifier}</code></span>
               <span className="faint">Figures refresh every {Math.round(data.cache_seconds / 60)} min</span>
             </div>
@@ -498,7 +556,7 @@ const SOURCE_ROLE: Record<string, string> = {
   osm: "Industrial sites and land use",
   wri_gppd: "Global power-plant database",
   gem: "Coal plants, mines and steel trackers",
-  cea: "Indian power-station registry (file import)",
+  cea: "Official power-station registry: identity, owner, units, capacity",
   esa_worldcover: "10 m land cover, 2021",
   earth_search: "Sentinel-2 L2A scene search and NDVI/NBR change",
   cdse: "Sentinel-2 SWIR composites for visual review of an event",
@@ -514,7 +572,38 @@ export const SOURCE_STATE: Record<PublicSourceState, { label: string; icon: Reac
   credentials_required: { label: "Credentials required", icon: <KeyRound size={13} aria-hidden /> },
   import_required: { label: "Import required", icon: <FileUp size={13} aria-hidden /> },
   not_used: { label: "Not currently used", icon: <CircleDashed size={13} aria-hidden /> },
+  unverified: { label: "Not verified", icon: <CircleDashed size={13} aria-hidden /> },
 };
+
+const COORD_SOURCE: Record<string, string> = { wri_gppd: "WRI GPPD", gem: "GEM" };
+const CHECK_ERROR: Record<string, string> = {
+  authentication_failed: "authentication failed", timeout: "timed out", service_unavailable: "service unavailable",
+  rate_limited: "rate limited", invalid_request: "invalid request", unsupported_data: "no data for the request",
+  processing_failure: "processing failed",
+};
+
+/** What the backend recorded for a source: registry import figures (CEA) or capability checks (Copernicus). */
+export function SourceDetails({ s }: { s: PublicLanding["sources"][number] }) {
+  const lines: ReactNode[] = [];
+  if (s.registry) {
+    const r = s.registry;
+    lines.push(<>Imported: <b>{NUM.format(r.stations)}</b> stations · <b>{NUM.format(r.located)}</b> located</>);
+    lines.push(<>Coordinates via {r.coordinate_sources.map((c) => COORD_SOURCE[c] ?? c).join(" and ") || "none"}
+      {r.ambiguous ? ` · ${r.ambiguous} for review` : ""}{r.unmatched ? ` · ${r.unmatched} not located` : ""}</>);
+    if (s.dataset_published_at) lines.push(<>List as on {fmtDate(s.dataset_published_at)} · imported {relTime(r.imported_at)}</>);
+  }
+  const auth = s.checks?.auth;
+  const preview = s.checks?.preview;
+  if (s.checks || s.id === "cdse") {
+    lines.push(<>Authentication: {auth ? (auth.ok ? <b>Healthy</b> : <b>Failed ({CHECK_ERROR[auth.error ?? ""] ?? auth.error})</b>) : "not verified yet"}
+      {auth?.ok && auth.latency_ms != null ? ` · ${(auth.latency_ms / 1000).toFixed(1)} s` : ""}</>);
+    lines.push(<>Satellite preview: {preview ? (preview.ok ? <b>Available</b> : <b>Unavailable ({CHECK_ERROR[preview.error ?? ""] ?? preview.error})</b>) : "not tested yet"}
+      {preview?.ok && preview.latency_ms != null ? ` · ${(preview.latency_ms / 1000).toFixed(1)} s` : ""}</>);
+    if (auth) lines.push(<>Last checked {relTime(auth.checked_at)}</>);
+  }
+  if (!lines.length) return null;
+  return <ul className="lp-source-details">{lines.map((l, i) => <li key={i}>{l}</li>)}</ul>;
+}
 
 function StateBadge({ state }: { state: PublicSourceState }) {
   const m = SOURCE_STATE[state];
@@ -545,11 +634,13 @@ export function Sources({ data, error }: { data: PublicLanding | undefined; erro
                   <div className="lp-source-role">{SOURCE_ROLE[s.id] ?? s.kind}</div>
                 </div>
               </div>
+              <SourceDetails s={s} />
               <div className="lp-source-foot">
                 <StateBadge state={s.state} />
                 {s.state === "active"
                   ? s.last_success_at && <span className="lp-source-meta">verified {relTime(s.last_success_at)}</span>
-                  : s.requirement && <span className="lp-source-meta">Needs {s.requirement}</span>}
+                  : s.requirement ? <span className="lp-source-meta">Needs {s.requirement}</span>
+                  : <span className="lp-source-meta">{s.reason}</span>}
               </div>
             </li>
           ))}

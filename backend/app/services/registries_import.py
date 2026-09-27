@@ -31,6 +31,8 @@ def _resolve_path(path: str | None) -> Path:
 def run_import(db: Session, source: str, path: str | None = None, dataset_version: str | None = None,
                published_at: date | None = None, job_id=None) -> dict:
     started = time.perf_counter()
+    if source == "cea" and path and path.lower().endswith(".pdf"):
+        return _run_cea_pdf(db, path, dataset_version, published_at, job_id, started)
     run = start_run(db, source, "file", dataset_version, {"path": path}, job_id)
     try:
         if source == "wri_gppd":
@@ -56,7 +58,7 @@ def run_import(db: Session, source: str, path: str | None = None, dataset_versio
             source_type=f.source_type, latitude=f.latitude, longitude=f.longitude, operator=f.operator, status=f.status,
             capacity_value=f.capacity_value, capacity_unit=f.capacity_unit, country=f.country, state=f.state,
             district=f.district, source_url=f.source_url, dataset_version=imp.dataset_version,
-            published_at=imp.published_at, raw=f.raw))
+            published_at=imp.published_at, raw=f.raw, subtype=f.subtype))
         created += int(is_new)
     _record_errors(db, run, "validate", imp.rejected)
     run.records_fetched = len(imp.facilities) + len(imp.rejected)
@@ -72,3 +74,30 @@ def run_import(db: Session, source: str, path: str | None = None, dataset_versio
     db.commit()
     return {"source": source, "dataset_version": imp.dataset_version, "facilities": len(imp.facilities), "new": created,
             "rejected": len(imp.rejected), "origin": imp.origin}
+
+
+def _run_cea_pdf(db: Session, path: str, dataset_version: str | None, published_at: date | None, job_id, started: float) -> dict:
+    """The official CEA station-list PDF: parse, reconcile, match locations, validate, import (services/cea_registry)."""
+    from app.services import cea_registry
+
+    if not (dataset_version and published_at):
+        raise AppError("CEA imports require the publication id and publication date", code="cea_metadata_required")
+    run = start_run(db, "cea", "file", dataset_version, {"path": path}, job_id)
+    try:
+        pdf = _resolve_path(path)
+        report = cea_registry.import_registry(db, pdf, dataset_version, published_at, Path(settings.datasets_dir) / "processed")
+    except (AppError, ValueError) as exc:
+        db.rollback()
+        finish_run(run, "failed", started, str(exc))
+        source_health.record_failure(db, "cea", str(exc))
+        db.commit()
+        raise
+    run.records_fetched = report["stations"]
+    run.records_inserted = report["match_status"].get("matched", 0)
+    run.records_rejected = 0
+    run.dataset = dataset_version
+    finish_run(run, "success", started)
+    source_health.record_success(db, "cea", None, report["stations"])
+    db.commit()
+    return {"source": "cea", "dataset_version": dataset_version, **report}
+
