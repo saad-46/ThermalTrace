@@ -29,12 +29,22 @@ const CHECK_LABEL: Record<string, string> = { auth: "Authentication", preview: "
 const COORD: Record<string, string> = { wri_gppd: "WRI GPPD", gem: "GEM", osm: "OpenStreetMap" };
 
 /** Diagnostics recorded by the backend: capability checks (Copernicus) and registry import figures (CEA). */
+// Providers ThermalTrace calls without any credential (their state comes only from real requests).
+const KEYLESS: Record<string, string> = { earth_search: "Sentinel-2 scene search", open_meteo: "event weather", nominatim: "reverse geocoding" };
+
 function SourceChecks({ s }: { s: DataSource }) {
   const checks = Object.entries(s.health_detail ?? {});
   const r = s.registry;
-  if (!checks.length && !r) return null;
+  const failedLast = !!s.last_failure_at && (!s.last_success_at || s.last_failure_at > s.last_success_at);
+  if (!checks.length && !r && !s.last_failure_at && !KEYLESS[s.id]) return null;
   return (
     <div className="faint" style={{ fontSize: 11, marginTop: 3, lineHeight: 1.45 }}>
+      {KEYLESS[s.id] && <div>Used for {KEYLESS[s.id]} · no credentials required</div>}
+      {s.last_failure_at && (
+        <div style={failedLast ? { color: "var(--warn)" } : undefined}>
+          Last failure {relTime(s.last_failure_at)}{failedLast ? " (more recent than the last success)" : ""}
+        </div>
+      )}
       {checks.map(([k, c]) => (
         <div key={k}>
           {CHECK_LABEL[k] ?? k}: {c.ok ? "ok" : `failed (${(c.error ?? "error").replace(/_/g, " ")})`}

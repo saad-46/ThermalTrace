@@ -39,8 +39,15 @@ export const useEvents = (filters: EventFilters, sort: string, limit: number, of
     placeholderData: keepPreviousData,
   });
 
+/** Poll while on-demand work for the event (weather, imagery search, NDVI/NBR) is queued or running. */
+export const eventHasPendingJobs = (ev: EventDetail | undefined) =>
+  !!ev?.jobs?.some((j) => j.status === "queued" || j.status === "running");
+
 export const useEvent = (ref: string | undefined) =>
-  useQuery({ queryKey: ["event", ref], queryFn: () => api<EventDetail>(`/events/${ref}`), enabled: !!ref });
+  useQuery({
+    queryKey: ["event", ref], queryFn: () => api<EventDetail>(`/events/${ref}`), enabled: !!ref,
+    refetchInterval: (q) => (eventHasPendingJobs(q.state.data) ? 2000 : false),
+  });
 
 export const useSimilar = (ref: string | undefined) =>
   useQuery({ queryKey: ["similar", ref], queryFn: () => api<EventSummary[]>(`/events/${ref}/similar`), enabled: !!ref });
@@ -83,6 +90,8 @@ export const actions = {
   review: (ref: string) => (body: Record<string, unknown>) => post(`/events/${ref}/reviews`, body),
   note: (ref: string) => (body: { body: string; url?: string }) => post(`/events/${ref}/notes`, body),
   enrich: (ref: string) => () => post<{ job_id: string }>(`/events/${ref}/enrich`),
+  enrichSteps: (ref: string, steps: string[]) => () =>
+    api<{ job_id: string; steps: string[] }>(`/events/${ref}/enrich`, { method: "POST", query: { steps } }),
   imageryAnalysis: (ref: string) => () => post<{ job_id: string }>(`/events/${ref}/imagery-analysis`),
   report: () => (eventId: string) => post<Report>("/reports", { event_id: eventId }),
   createRule: () => (body: Record<string, unknown>) => post<AlertRule>("/alert-rules", body),

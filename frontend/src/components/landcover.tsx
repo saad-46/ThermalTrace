@@ -1,9 +1,11 @@
 /** Raster land cover (ESA WorldCover) and Sentinel-2 spectral change (NDVI / NBR) for an event.
  *  Both are context. Missing data is shown as missing — never as "no vegetation" or "no change". */
-import { fmtDate, fmtNum } from "../lib/format";
+import { useQueryClient } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+import { fmtDate, fmtDateTime, fmtNum } from "../lib/format";
 import { actions, useAction } from "../lib/hooks";
-import { useSession } from "../lib/session";
 import type { EventDetail, ImageryAnalysis, LandCover } from "../lib/types";
+import { ActionButton, EvidenceState, jobFor, pendingLabel, stepPhase, useRequestSteps } from "./enrichment";
 import { Empty, errText, useToast } from "./ui";
 
 // Official ESA WorldCover legend colours, so the bar matches the published product.
@@ -59,46 +61,77 @@ export function LandCoverPanel({ ev }: { ev: EventDetail }) {
 }
 
 const FINDING_TEXT: Record<string, string> = {
-  vegetation_loss_consistent: "Vegetation loss consistent with burning",
-  partial_change: "Partial change (inconclusive)",
-  no_change_detected: "No change above threshold",
+  vegetation_loss_consistent: "Spectral change is consistent with burning",
+  partial_change: "Partial spectral change (inconclusive)",
+  no_change_detected: "No burn-consistent spectral change above threshold",
 };
+
+const SPECTRAL_MEANING = "NDVI and NBR compare a clear scene before the first detection with one after the last. A drop in both is consistent with burning; it does not prove that a fire occurred or identify its cause, and no change does not rule a fire out.";
 
 export function SpectralChangePanel({ ev }: { ev: EventDetail }) {
   const ia = ev.imagery_analysis;
-  const { can } = useSession();
+  const qc = useQueryClient();
   const toast = useToast();
   const run = useAction(actions.imageryAnalysis(ev.public_id), [["jobs"]]);
+  const job = jobFor(ev, "imagery_analysis");
+  const computing = run.isPending || job?.status === "queued" || job?.status === "running";
+  const search = stepPhase(ev, "satellite");
+  const req = useRequestSteps(ev, ["satellite"]);
+  const ready = ev.imagery_readiness?.ready ?? false;
   const request = async () => {
-    try { await run.mutateAsync(undefined); toast("Spectral analysis queued; results appear when the worker finishes"); }
+    try { await run.mutateAsync(undefined); await qc.invalidateQueries({ queryKey: ["event"] }); }
     catch (e) { toast(errText(e), "error"); }
   };
-  const button = can("analyst") && (
-    <button className="btn sm" onClick={request} disabled={run.isPending || !ev.satellite.length}>
-      {run.isPending ? <span className="spinner" /> : null} {ia ? "Recompute" : "Compute"} NDVI / NBR change
-    </button>
+  const compute = (label: string) => (
+    <ActionButton onClick={request} busy={computing} busyLabel="Computing…" testId="spectral-compute">{label}</ActionButton>
   );
-  if (!ia || ia.status !== "ok") {
+  if (computing)
+    return <EvidenceState tone="busy" title="Computing NDVI / NBR change…" testId="spectral-state">Reading the red, NIR and SWIR bands of the before and after scenes in a 1 km window around the event; {pendingLabel(job)}.</EvidenceState>;
+  if (ia?.status === "ok") return <SpectralTable ia={ia} action={ready ? compute("Recompute") : null} />;
+  if (!ev.satellite.length) {
+    if (search.phase === "pending")
+      return <EvidenceState tone="busy" title="Searching Sentinel-2 imagery…" testId="spectral-state">NDVI / NBR can be computed once scenes are found.</EvidenceState>;
+    const searched = search.phase === "ok";
     return (
-      <div className="stack" style={{ gap: 8 }}>
-        <div className="faint" style={{ fontSize: 12 }}>
-          {!ia ? (ev.satellite.length ? "Spectral change has not been computed for this event." : "No Sentinel-2 scenes stored yet; run enrichment first.")
-            : `Unavailable: ${ia.reason}`}
-        </div>
-        <div>{button}</div>
-      </div>
+      <EvidenceState title={searched ? "No suitable imagery available" : "Needs Sentinel-2 scenes"} testId="spectral-state" meaning={SPECTRAL_MEANING}
+        action={<ActionButton onClick={req.run} busy={req.sending} busyLabel="Searching…" testId="spectral-search">{searched ? "Search again" : "Search Sentinel-2 imagery"}</ActionButton>}>
+        {searched ? "The imagery search found no scene for this event under the cloud threshold, so there is nothing to compare." : "Imagery has not been searched yet. A before and an after scene are needed."}
+      </EvidenceState>
     );
   }
-  return <SpectralTable ia={ia} action={button} />;
+  if (!ready)
+    return (
+      <EvidenceState title="No suitable imagery available" testId="spectral-state" meaning={SPECTRAL_MEANING}>
+        {ev.imagery_readiness?.reason ?? "Before/after analysis cannot be completed with the stored scenes."}
+        {ia?.status === "unavailable" && ia.reason ? <> Last attempt ({fmtDate(ia.retrieved_at)}): {ia.reason}</> : null}
+      </EvidenceState>
+    );
+  if (ia?.status === "unavailable")
+    return (
+      <EvidenceState tone="warn" title="Spectral change could not be calculated" testId="spectral-state" action={compute("Recompute")} meaning={SPECTRAL_MEANING}>
+        {ia.reason} (attempted {fmtDate(ia.retrieved_at)})
+      </EvidenceState>
+    );
+  if (job?.status === "failed")
+    return (
+      <EvidenceState tone="warn" title="The last computation did not complete" testId="spectral-state" action={compute("Compute NDVI / NBR change")}>
+        The background job stopped with an error{job.error_type ? ` (${job.error_type})` : ""}. No result was stored.
+      </EvidenceState>
+    );
+  return (
+    <EvidenceState title="Spectral change has not been computed" testId="spectral-state" action={compute("Compute NDVI / NBR change")} meaning={SPECTRAL_MEANING}>
+      Clear scenes exist before and after the event (cloud ≤ {ev.imagery_readiness?.max_cloud ?? 40}%). Computing reads their bands on demand (about 30 s).
+    </EvidenceState>
+  );
 }
 
-export function SpectralTable({ ia, action }: { ia: ImageryAnalysis; action: React.ReactNode }) {
+export function SpectralTable({ ia, action }: { ia: ImageryAnalysis; action: ReactNode }) {
   const b = ia.before_scene!, a = ia.after_scene!, d = ia.deltas!;
   const cell = (v: number | null | undefined) => (v == null ? "—" : v.toFixed(2));
   const delta = (v: number | undefined) => (v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(2)}`);
   return (
     <div className="stack" style={{ gap: 8 }}>
-      <div><b>{FINDING_TEXT[ia.finding ?? ""] ?? ia.finding}</b></div>
+      <div data-testid="spectral-result"><b>{FINDING_TEXT[ia.finding ?? ""] ?? ia.finding}</b></div>
       <div className="table-wrap">
         <table className="table">
           <thead><tr><th scope="col">Index</th><th scope="col">Before · {b.acquired_at.slice(0, 10)}</th><th scope="col">After · {a.acquired_at.slice(0, 10)}</th><th scope="col">Change</th></tr></thead>
@@ -108,9 +141,14 @@ export function SpectralTable({ ia, action }: { ia: ImageryAnalysis; action: Rea
           </tbody>
         </table>
       </div>
+      <dl className="kv" style={{ fontSize: 12 }}>
+        <dt>Before scene</dt><dd className="mono" style={{ fontSize: 11 }}>{b.item_id} · {fmtDateTime(b.acquired_at)} · {b.cloud_cover == null ? "cloud n/a" : `${fmtNum(b.cloud_cover, 0)}% tile cloud`}</dd>
+        <dt>After scene</dt><dd className="mono" style={{ fontSize: 11 }}>{a.item_id} · {fmtDateTime(a.acquired_at)} · {a.cloud_cover == null ? "cloud n/a" : `${fmtNum(a.cloud_cover, 0)}% tile cloud`}</dd>
+        <dt>Computed</dt><dd>{fmtDateTime(ia.retrieved_at)} · Sentinel-2 L2A via Element84 Earth Search</dd>
+      </dl>
       <div className="faint" style={{ fontSize: 11.5 }}>
         Mean over usable pixels in a {fmtNum(ia.window_m / 1000, 1)} km window (clouds and shadows masked; {Math.round(b.valid_fraction * 100)}% and {Math.round(a.valid_fraction * 100)}% of pixels usable).
-        Thresholds: NDVI change ≤ {ia.method.thresholds?.dndvi}, NBR change ≥ {ia.method.thresholds?.dnbr}. Vegetation change is supporting evidence only; it does not identify the cause, and no change does not rule out a fire.
+        Thresholds: NDVI change ≤ {ia.method.thresholds?.dndvi}, NBR change ≤ −{ia.method.thresholds?.dnbr} (burning lowers both indices). Vegetation change is supporting evidence only; it does not identify the cause, and no change does not rule out a fire.
       </div>
       <div>{action}</div>
     </div>

@@ -3,6 +3,9 @@ it never substitutes placeholder values (audit R1 strength).
 
 - Conditions at detection time: Archive API (ERA5 reanalysis, ~5-day latency) for older
   timestamps, Forecast API `past_days` hourly for recent ones.
+- The provider answering without a value for the requested hour is *no data* (WeatherNoData), which is
+  not a provider failure: the service worked, it has no observation for that time and place. ERA5 lags
+  ~5 days, so an archive hole is retried against the Forecast API's recent hours (up to 92 days back).
 - Wind direction is meteorological (direction the wind blows FROM). The *potential dispersion
   direction* is therefore (wind_direction + 180) % 360.
 """
@@ -13,6 +16,15 @@ from app.core.config import settings
 from app.integrations.http import ProviderMalformed, request
 
 PROVIDER = "open_meteo"
+FORECAST_MAX_PAST_DAYS = 92  # Open-Meteo Forecast API limit for `past_days`
+
+
+class WeatherNoData(Exception):
+    """The provider responded, but has no observation for the requested hour and place."""
+
+    def __init__(self, message: str, latency_ms: float | None = None):
+        super().__init__(message)
+        self.latency_ms = latency_ms
 HOURLY_VARS = "temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,precipitation,surface_pressure,weather_code"
 
 WMO_CODES = {
@@ -55,7 +67,7 @@ def _pick_hour(payload: dict, target: datetime, dataset: str, latency: float) ->
     try:
         idx = times.index(target_key)
     except ValueError:
-        raise ProviderMalformed(PROVIDER, f"hour {target_key} not present in response") from None
+        raise WeatherNoData(f"{dataset}: hour {target_key} not in the response", latency) from None
 
     def val(name: str):
         series = hourly.get(name) or []
@@ -76,7 +88,7 @@ def _pick_hour(payload: dict, target: datetime, dataset: str, latency: float) ->
         latency_ms=latency,
     )
     if sample.wind_speed_ms is None and sample.temperature_c is None:
-        raise ProviderMalformed(PROVIDER, "requested hour has no values (reanalysis not yet available)")
+        raise WeatherNoData(f"{dataset}: no values for {target_key}", latency)
     return sample
 
 
@@ -92,8 +104,12 @@ class WeatherClient:
                         "hourly": HOURLY_VARS, "timezone": "UTC"},
                 timeout=20,
             )
-            return _pick_hour(res.response.json(), when, "Open-Meteo Archive (ERA5 reanalysis)", res.latency_ms)
-        past_days = min(max(age.days + 1, 1), 7)
+            try:
+                return _pick_hour(res.response.json(), when, "Open-Meteo Archive (ERA5 reanalysis)", res.latency_ms)
+            except WeatherNoData:
+                if age > timedelta(days=FORECAST_MAX_PAST_DAYS):
+                    raise  # older than the Forecast API keeps: the archive is the only source
+        past_days = min(max(age.days + 1, 1), FORECAST_MAX_PAST_DAYS)
         res = request(
             PROVIDER, "GET", settings.open_meteo_forecast_url,
             params={"latitude": lat, "longitude": lon, "hourly": HOURLY_VARS, "past_days": past_days,

@@ -10,11 +10,11 @@ Every source is registered in the `data_sources` table. Its health (status, last
 | OpenStreetMap (Overpass) | Facilities (power, works, flare, wells, offshore platforms, industrial, quarry, landfill, mineshaft, kiln). Land use (farmland, orchard, meadow, forest, wood, scrub, residential). | Overpass API: bounded per-cell queries with mirror rotation, cached 7 days | None. A `User-Agent` is required. | Live OSM at query time. Coverage in India is uneven. |
 | WRI Global Power Plant Database | Power plants with fuel and capacity. India rows are CEA-derived. | CSV release (v1.3.0, June 2021) | None (CC BY 4.0) | Static release. Shown as "GPPD v1.3.0 (published 02 Jun 2021)". |
 | Global Energy Monitor | Coal and gas plants, steel, cement, coal mines, oil and gas extraction | File import of a downloaded tracker release (terms acceptance is manual) | None, but needs the release file | Release-dated. The version and date are stored. |
-| CEA (India) | Official station list | File import of a CSV transcribed from a named CEA publication | None | Publication-dated. The publication id and date are required at import. |
-| Sentinel-2 L2A (Element84 Earth Search) | Scene search (before, during, after, latest), cloud cover, public preview JPEGs | STAC API | None | Scene acquisition time is shown on every image. |
+| CEA (India) | Official station list | File import of the official *List of Power Stations* PDF (see CEA_REGISTRY.md) | None | Publication-dated. The publication id and date are stored at import. |
+| Sentinel-2 L2A (Element84 Earth Search) | Scene search around each event (before, during, after), cloud cover, public preview JPEGs, band COGs for NDVI / NBR | STAC API | None (public; Copernicus credentials are **not** needed for search or NDVI / NBR) | Scene acquisition time is shown on every image. |
 | Copernicus Data Space | Second STAC catalogue. AOI SWIR render (B12/B8A/B4) around an event. | STAC (keyless) and Sentinel Hub Process API (OAuth) | `COPERNICUS_CLIENT_ID` / `SECRET` for SWIR | Per scene |
 | ESA WorldCover 10 m 2021 v200 | Land-cover shares (tree, shrub, grass, cropland, built-up, bare, water, wetland) in a 1.5 km square around each event | Windowed reads of the public cloud-optimised GeoTIFF tiles on AWS (3° tiles, HTTP range requests) | None (CC BY 4.0) | 2021 product. Shown with its year; land use may have changed since. |
-| Open-Meteo | Weather at the last detection hour: temperature, RH, wind, precipitation, pressure, condition | Forecast API (≤ 6 days old) or Archive API (ERA5) | None | Hourly. ERA5 arrives about 5 days late. |
+| Open-Meteo | Weather at the last detection hour: temperature, RH, wind, precipitation, pressure, condition | Archive API (ERA5) for events older than 6 days, Forecast API recent hours otherwise (and as the fallback while ERA5 has not caught up, up to 92 days back) | None | Hourly. ERA5 arrives about 5 days late. |
 | GeoNames cities500 | Offline place names for events: nearest populated place (about 10,000 places in the region) | Downloaded once by `python -m app.cli import-places` (`download.geonames.org/export/dump/`), stored in PostGIS | None (CC BY 4.0, attribute GeoNames) | Static; refresh on demand |
 | OSM Nominatim | Admin geocoding (state, district) | Reverse geocoding at ≤ 1 req/s, cached 90 days | None | On demand |
 | EOX Sentinel-2 cloudless 2021 | Optional satellite basemap tiles | WMTS | None (CC BY-NC-SA 4.0: **non-commercial**) | 2021 mosaic. Context only. |
@@ -91,12 +91,35 @@ Nominatim allows about one request per second, so it cannot name hundreds of tho
 - **Backfill:** a scheduled `landcover_backfill` job fills events enriched before this step existed, highest triage priority first.
 - **Use:** evidence (`landcover`, context only), features (`lc_*_frac`), the confidence engine's land support for vegetation classes, and the rule cascade's raster fallback (docs/ML.md). It never decides a classification by itself.
 
+## Weather and Sentinel-2 enrichment: when it runs, and what each state means
+
+Both are single keyless requests (~1 s), so they no longer wait behind the Overpass step that paces full enrichment
+(~25 s per event, which had reached only ~0.25 % of events):
+
+- **Automatic:** the `context_backfill` job (bulk lane, every 15 min, 30 events per run) fetches weather and searches
+  Sentinel-2 for the most review-worthy events inside India that lack them (triage priority first). About 2,900 events
+  a day, well inside Open-Meteo's free quota. Full enrichment (`enrich_batch`) still includes both steps.
+- **On demand:** *Retrieve weather* and *Search Sentinel-2 imagery* on the event (`POST /events/{ref}/enrich?steps=weather`
+  or `steps=satellite`; analyst and above; audited; refused in read-only demo sessions). The job runs on the interactive
+  lane in seconds; the event page polls while it is queued or running (`jobs` in the event bundle).
+- **Recorded outcome** (`thermal_events.enrichment_state[step]`), each shown differently in the UI:
+  - `ok`: the provider answered. For imagery this may be zero scenes: *No suitable Sentinel-2 scene was available for
+    this event*, with the searched window and cloud limit.
+  - `no_data` (weather): Open-Meteo answered without values for that hour and place. Not counted as a provider failure.
+  - `failed`: the provider could not be reached or refused (category: timeout, rate limited, service unavailable...).
+    Recorded on the source's health; the details are in the server logs.
+  - a failed **job** (a crash, not a provider answer) is shown as *did not complete*, with the error type only.
+- **Sentinel-2 search windows:** the newest scenes in the 45 days before the first detection, and the oldest from the first
+  detection until 60 days after the last, cloud ≤ 60 %, footprint containing the event point. (A single newest-first
+  search over months returned only recent scenes for older events, so the "before" side was never found.)
+
 ## Sentinel-2 spectral change (NDVI / NBR)
 
-- **Trigger:** on demand (`POST /events/{ref}/imagery-analysis`, the *Compute NDVI / NBR change* button), because it reads several band windows per scene.
+- **Trigger:** on demand (`POST /events/{ref}/imagery-analysis`, the *Compute NDVI / NBR change* button), because it reads several band windows per scene (~30 s). The request is refused (409 `imagery_not_ready`) unless a scene with cloud ≤ 40 % exists both before the first detection and after the last; the event bundle's `imagery_readiness` states the same rule, so the button is only offered when a comparison is possible.
 - **Scenes:** the latest clear scene before the first detection and the earliest after the last detection, from the scenes already stored for the event (cloud ≤ 40 %).
 - **Method:** 1 km window at 20 m; bands B04, B08, B8A, B12 plus the scene classification layer (SCL). Only SCL classes 4, 5 and 7 are used, so clouds, shadows, cirrus, water and snow are excluded. The −1000 DN offset for processing baseline ≥ 04.00 is applied. A scene needs ≥ 50 % usable pixels.
-- **Finding:** dNDVI ≤ −0.10 and dNBR ≥ 0.10 → *vegetation loss consistent with burning*; one of the two → *partial change*; neither → *no change above threshold*.
+- **Finding:** changes are stored as after minus before. NDVI change ≤ −0.10 and NBR change ≤ −0.10 (dNBR = NBR before − NBR after ≥ 0.10, the USGS convention: burning *lowers* NBR) → *spectral change is consistent with burning*; one of the two → *partial change*; neither → *no burn-consistent change*. (Before 27 Sep 2026 the NBR test had the wrong sign and flagged vegetation green-up.)
+- **Dark surfaces:** if either scene's mean NIR (B8A) reflectance in the window is below 0.05 (water, coal, ash, deep shadow), NDVI / NBR are ratios of near-zero values and no finding is reported; the analysis is `unavailable` with that reason.
 - **Honesty rules:** missing scenes are stored as `unavailable` with the reason, never as "no change". A change is described as consistent with burning, not as proof; no change does not rule out a fire.
 
 ## FIRMS history (keyed Area API)

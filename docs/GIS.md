@@ -55,7 +55,7 @@ OSM land-use polygons (cropland, forest, scrub, residential) within about 1.5 km
 
 ## 5. Weather and potential dispersion direction
 
-Weather comes from Open-Meteo at the hour of the event's last detection. The wind direction is meteorological (the direction the wind comes *from*).
+Weather comes from Open-Meteo at the event's own coordinates, at the hour of its last detection. The wind direction is meteorological (the direction the wind comes *from*). Only values the provider returned are shown; a missing value is left out, never shown as zero. Weather is context for an event, never a cause.
 
 The **potential dispersion direction** is (direction + 180°) mod 360. It is drawn as a vector whose length is scaled by wind speed.
 
@@ -63,21 +63,50 @@ The **potential dispersion direction** is (direction + 180°) mod 360. It is dra
 
 ## 6. Satellite scenes
 
-Earth Search STAC is searched with the event point, a window from 45 days before first detection to now, and cloud ≤ 60 %. Scenes are then:
+Earth Search STAC is searched with the event point in two windows (cloud ≤ 60 %): the newest scenes in the 45 days before the first detection, and the oldest from the first detection until 60 days after the last. Scenes are then:
 
 - de-duplicated across reprocessing runs (e.g. `…_0_L2A` / `…_1_L2A`),
-- labelled `before`, `during`, `after` or `latest`, and
-- stored with platform, processing level, cloud % and item URL.
+- kept as up to 4 before, 4 during and 3 after,
+- stored with platform, processing level, cloud % and item URL. Their relation to the event (before / during / after) is computed from the event's current times when read, so an event that keeps growing does not keep a stale label.
 
 The public previews cover the full ~110 km tile. The UI states that they are context for analysts, not automated confirmation.
 
 With CDSE credentials, a 5 km AOI **SWIR composite (B12/B8A/B4)** can be rendered around the event. SWIR highlights high-temperature pixels.
 
-## 7. Local facility index
+## 7. Basemap and India-wide coverage
+
+The basemap is CARTO (dark-matter / positron) vector tiles, OpenMapTiles schema, built from global OpenStreetMap data.
+The data covers all of India. What differed between areas was the **style**: dark-matter draws roads below zoom 10
+in near-black (`#1a1a1a` on `#0e0e0e`), has road fills only from z10 and road names from z13, and has no district
+layer (India's districts are `admin_level` 5; the style only draws 6). Zoomed into one city everything appeared; at
+state or country zoom almost nothing did. `MapCanvas.enhanceBasemap` adds a zoom-dependent hierarchy from the same
+tiles, without adding any feature:
+
+| Zoom | Added |
+|---|---|
+| ≥ 4.5 | motorways and trunk roads; state names from 4.5 (was 5) |
+| ≥ 6.5 | major city names (was 8) |
+| ≥ 7 | primary roads |
+| ≥ 8.5 | district boundaries (`admin_level` 5; in the tiles from about z9) |
+| ≥ 9 | industrial areas and quarries (mines) |
+| ≥ 9.5 | secondary and tertiary roads (style fills start at 13) |
+| ≥ 10 / 12 | trunk / primary road names (were 13 / 14) |
+
+Limitations: detail still depends on how well OSM maps an area; districts appear only where OSM has them; CARTO's
+free tier needs `VITE_CARTO_API_KEY` for production traffic (a public browser key, not a secret).
+
+Facilities are drawn as squares (thermal events are circles); facilities attributed to the selected event are ringed.
+Clicking one opens a compact card built from the map layer's own data (no request), with the distance to and
+attribution rank for the selected event, and *View facility details*. The facility page (`/facilities/:id`, also
+in the mobile app) loads the rest lazily: relationship to the event (`GET /facilities/{id}/relationship?event=`),
+overview with registry identifiers, provenance, a map with the 2 km and 10 km rings, a weekly activity timeline and
+a paginated event history (`GET /facilities/{id}/events?limit=&offset=`). On phones the card is a bottom sheet.
+
+## 8. Local facility index
 
 See DATA_SOURCES.md. Facilities are synced by 1° tile. An event counts as covered when every tile within about 0.1° is fresh, because the attribution radius is 10 km. After a tile syncs, events inside it (plus a 0.1° margin) are re-attributed locally.
 
-## 8. Performance notes
+## 9. Performance notes
 
 - **Map loading**: the map requests only the current viewport (`bbox` plus filters), at most 3,000 features, with a 250 ms debounce. Clustering happens client-side with MapLibre. Facilities load only at zoom ≥ 6.
 - **Indexes**:

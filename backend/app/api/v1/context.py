@@ -84,7 +84,7 @@ def facilities_geojson(bbox: str = Query(...), facility_type: list[str] | None =
 
 @router.get("/facilities/{facility_id}", response_model=FacilityOut, tags=["facilities"])
 def get_facility(facility_id: uuid.UUID, user: User = CurrentUser, db: Session = Depends(get_db)):
-    row = db.execute(text(f"""SELECT {_FAC_COLS},
+    row = db.execute(text(f"""SELECT {_FAC_COLS}, f.subtype, f.attributes->'registries' AS registries,
         (SELECT count(*) FROM event_facility_links l WHERE l.facility_id = f.id AND l.distance_m <= 3000) AS event_count,
         (SELECT json_agg(json_build_object('source', s.source_id, 'external_id', s.external_id, 'name', s.name,
             'source_type', s.source_type, 'url', s.source_url, 'dataset_version', s.dataset_version,
@@ -95,15 +95,21 @@ def get_facility(facility_id: uuid.UUID, user: User = CurrentUser, db: Session =
     return dict(row)
 
 
-@router.get("/facilities/{facility_id}/events", tags=["facilities"], summary="Facility-level thermal history")
-def facility_events(facility_id: uuid.UUID, within_m: float = Query(3000, le=10000), user: User = CurrentUser,
-                    db: Session = Depends(get_db)):
+@router.get("/facilities/{facility_id}/events", tags=["facilities"], summary="Facility-level thermal history (paginated)")
+def facility_events(facility_id: uuid.UUID, within_m: float = Query(3000, le=10000),
+                    limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0),
+                    user: User = CurrentUser, db: Session = Depends(get_db)):
+    total = db.execute(text("SELECT count(*) FROM event_facility_links l WHERE l.facility_id = :id AND l.distance_m <= :w"),
+                       {"id": facility_id, "w": within_m}).scalar_one()
+    # one page of events; peak brightness per event from its own detections (index on thermal_detections.event_id)
     rows = db.execute(text("""
         SELECT e.id, e.public_id, e.first_detected, e.last_detected, e.classification, e.persistence_class,
-               e.confidence_state, e.review_status, e.observation_count, e.frp_max, l.distance_m
+               e.persistence_score, e.confidence_state, e.confidence_score, e.priority_score, e.review_status, e.status,
+               e.observation_count, e.frp_max, l.distance_m, l.attribution_score, l.rank,
+               (SELECT max(d.brightness) FROM thermal_detections d WHERE d.event_id = e.id) AS brightness_max
         FROM event_facility_links l JOIN thermal_events e ON e.id = l.event_id
-        WHERE l.facility_id = :id AND l.distance_m <= :w ORDER BY e.last_detected DESC LIMIT 200"""),
-        {"id": facility_id, "w": within_m}).mappings().all()
+        WHERE l.facility_id = :id AND l.distance_m <= :w ORDER BY e.last_detected DESC LIMIT :limit OFFSET :offset"""),
+        {"id": facility_id, "w": within_m, "limit": limit, "offset": offset}).mappings().all()
     weekly = db.execute(text("""
         SELECT date_trunc('week', d.acq_datetime) AS week, count(*) AS detections, max(d.frp) AS frp_max
         FROM event_facility_links l JOIN thermal_detections d ON d.event_id = l.event_id
@@ -124,7 +130,38 @@ def facility_events(facility_id: uuid.UUID, within_m: float = Query(3000, le=100
     prof = dict(profile)
     prof["classifications"] = [dict(c) for c in classes]
     prof["note"] = "Thermal activity attributed within the radius from loaded FIRMS history; not a compliance or risk rating."
-    return {"events": [dict(r) for r in rows], "weekly": [dict(r) for r in weekly], "profile": prof, "within_m": within_m}
+    return {"events": [dict(r) for r in rows], "total": total, "limit": limit, "offset": offset,
+            "weekly": [dict(r) for r in weekly], "profile": prof, "within_m": within_m}
+
+
+@router.get("/facilities/{facility_id}/relationship", tags=["facilities"],
+            summary="How one event relates to this facility: distance, and the attribution link if one was made")
+def facility_relationship(facility_id: uuid.UUID, event: str = Query(..., max_length=64), user: User = CurrentUser,
+                          db: Session = Depends(get_db)):
+    from app.repositories import events as event_repo
+
+    eid = event_repo.resolve_event_id(db, event)
+    row = db.execute(text("""
+        SELECT e.id, e.public_id, e.latitude, e.longitude, e.first_detected, e.last_detected, e.classification,
+               e.confidence_state, e.confidence_score, e.frp_max,
+               ST_Distance(e.geom, f.geom) AS distance_m, l.distance_m AS link_distance_m, l.bearing_deg, l.rank,
+               l.attribution_score
+        FROM thermal_events e JOIN facilities f ON f.id = :fid
+        LEFT JOIN event_facility_links l ON l.event_id = e.id AND l.facility_id = f.id
+        WHERE e.id = :eid"""), {"fid": facility_id, "eid": eid}).mappings().first()
+    if row is None:
+        raise NotFound("Facility not found")
+    r = dict(row)
+    distance = r["link_distance_m"] if r["link_distance_m"] is not None else r["distance_m"]
+    return {
+        "event": {k: r[k] for k in ("id", "public_id", "latitude", "longitude", "first_detected", "last_detected",
+                                     "classification", "confidence_state", "confidence_score", "frp_max")},
+        "linked": r["rank"] is not None, "distance_m": distance, "bearing_deg": r["bearing_deg"], "rank": r["rank"],
+        "attribution_score": r["attribution_score"],
+        "rule_radius_m": 2000, "search_radius_m": settings.attribution_radius_m,
+        "note": ("This facility is associated with the event based on spatial proximity and available facility-source "
+                 "evidence. Facility attribution is supporting evidence, not proof of causation."),
+    }
 
 
 @router.get("/satellite/{observation_id}/swir.png", tags=["satellite"],

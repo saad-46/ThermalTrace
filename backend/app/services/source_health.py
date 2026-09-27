@@ -100,9 +100,9 @@ REQUIREMENTS: dict[str, dict] = {
     "firms": {"type": "credentials", "label": "NASA FIRMS MAP_KEY (historical and area API; NRT files work without it)",
               "env": ["FIRMS_MAP_KEY"], "optional": True,
               "how": "Request a free MAP_KEY at firms.modaps.eosdis.nasa.gov/api/map_key/."},
-    "cea": {"type": "file", "label": "CEA station list with coordinates",
-            "how": "Transcribe a named CEA publication into data/datasets/cea_template.csv, then run "
-                   "python -m app.cli import-registry --source cea --path <file> --version <publication> --published <date>."},
+    "cea": {"type": "file", "label": "CEA list of power stations (official PDF)",
+            "how": "Download the CEA 'List of Power Stations' PDF, then run python -m app.cli import-registry --source cea "
+                   "--path <file.pdf> (see docs/CEA_REGISTRY.md)."},
     "gem": {"type": "file", "label": "Global Energy Monitor tracker file",
             "how": "Download a GEM tracker release and run python -m app.cli import-registry --source gem --path <file>."},
     "wri_gppd": {"type": "file", "label": "WRI Global Power Plant Database CSV",

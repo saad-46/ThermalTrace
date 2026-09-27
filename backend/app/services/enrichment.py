@@ -1,8 +1,9 @@
 """Event enrichment: OSM infrastructure + land use, ESA WorldCover land cover, weather, Sentinel-2 scenes, admin geocoding.
 
-Each step records its own status in event.enrichment_state[step] = {status, at, detail}. A
-failed provider marks that step failed (visible in the UI and data-quality score); it never
-inserts substitute values.
+Each step records its own status in event.enrichment_state[step] = {status, at, detail, ...}:
+`ok` (the provider answered; for imagery that may be zero scenes), `no_data` (the provider answered
+without an observation for that time and place) or `failed` (the provider could not be reached or
+refused). A failed provider never inserts substitute values.
 """
 import logging
 import math
@@ -19,7 +20,7 @@ from app.gis.geo import haversine_m
 from app.integrations.http import ProviderError, request
 from app.integrations.overpass import OsmFeature, OverpassClient, classify_land
 from app.integrations.sentinel import SatelliteSearchService
-from app.integrations.weather import WeatherClient
+from app.integrations.weather import WeatherClient, WeatherNoData
 from app.models.enrichment import SatelliteObservation, WeatherObservation
 from app.models.facilities import LandContext
 from app.models.thermal import ThermalEvent
@@ -29,11 +30,14 @@ logger = logging.getLogger(__name__)
 CELL_DEG = 0.05  # ≈5.5 km; one Overpass request serves every event in a cell
 LAND_RADIUS_M = 1500
 MAX_LAND_POINTS = 12
+STEPS = ("osm", "landcover", "weather", "satellite", "geocode")
+SATELLITE_LOOKBACK_DAYS = 45
+SATELLITE_AFTER_DAYS = 60
 
 
-def _mark(ev: ThermalEvent, step: str, status: str, detail: str | None = None) -> None:
+def _mark(ev: ThermalEvent, step: str, status: str, detail: str | None = None, **extra) -> None:
     state = dict(ev.enrichment_state or {})
-    state[step] = {"status": status, "at": datetime.now(UTC).isoformat(), "detail": detail}
+    state[step] = {"status": status, "at": datetime.now(UTC).isoformat(), "detail": detail, **extra}
     ev.enrichment_state = state
     flag_modified(ev, "enrichment_state")
 
@@ -117,9 +121,14 @@ def enrich_osm(db: Session, events: list[ThermalEvent]) -> dict:
 def enrich_weather(db: Session, ev: ThermalEvent) -> None:
     try:
         w = WeatherClient().conditions_at(ev.latitude, ev.longitude, ev.last_detected)
+    except WeatherNoData as exc:  # the provider answered: no observation for this hour and place
+        source_health.record_success(db, "open_meteo", exc.latency_ms, 0)
+        _mark(ev, "weather", "no_data", str(exc), requested_at=ev.last_detected.isoformat())
+        return
     except ProviderError as exc:
+        logger.warning("weather lookup failed for %s: %s", ev.public_id, exc)
         source_health.record_failure(db, "open_meteo", str(exc))
-        _mark(ev, "weather", "failed", f"{exc.kind}: {exc}")
+        _mark(ev, "weather", "failed", f"{exc.kind}: {exc}", category=source_health.error_category(exc))
         return
     source_health.record_success(db, "open_meteo", w.latency_ms, 1, w.observed_at)
     stmt = insert(WeatherObservation).values(
@@ -130,25 +139,36 @@ def enrich_weather(db: Session, ev: ThermalEvent) -> None:
         weather_code=w.weather_code, condition=w.condition, raw=w.raw,
     )
     db.execute(stmt.on_conflict_do_nothing(constraint="uq_weather_event_kind_time"))
-    _mark(ev, "weather", "ok", w.dataset)
+    _mark(ev, "weather", "ok", w.dataset, requested_at=ev.last_detected.isoformat())
 
 
 def enrich_satellite(db: Session, ev: ThermalEvent) -> None:
-    start = ev.first_detected - timedelta(days=45)
-    end = datetime.now(UTC)
+    """Sentinel-2 L2A scenes whose footprint contains the event, under the cloud threshold, in two windows: the
+    newest scenes in the 45 days before the first detection, and the oldest from the first detection onward (up to
+    60 days after the last). A single newest-first search would, for an older event, return only recent scenes and
+    never the ones before it. The step records how many scenes fall before and after the event, which is what the
+    NDVI/NBR comparison needs."""
+    now = datetime.now(UTC)
+    start = ev.first_detected - timedelta(days=SATELLITE_LOOKBACK_DAYS)
+    end = min(now, ev.last_detected + timedelta(days=SATELLITE_AFTER_DAYS))
+    window = {"window_start": start.isoformat(), "window_end": end.isoformat(), "max_cloud": settings.satellite_max_cloud}
+    svc = SatelliteSearchService()
     try:
-        scenes, latency = SatelliteSearchService().search(ev.latitude, ev.longitude, start, end)
+        prior, lat_a = svc.search(ev.latitude, ev.longitude, start, ev.first_detected, limit=8, newest_first=True)
+        since, lat_b = svc.search(ev.latitude, ev.longitude, ev.first_detected, end, limit=20, newest_first=False)
+        unique = {s.item_id: s for s in prior + since}  # the windows share only their boundary
+        scenes = sorted(unique.values(), key=lambda s: s.acquired_at, reverse=True)
+        latency = (lat_a + lat_b) / 2
     except ProviderError as exc:
+        logger.warning("Sentinel-2 search failed for %s: %s", ev.public_id, exc)
         source_health.record_failure(db, "earth_search", str(exc))
-        _mark(ev, "satellite", "failed", f"{exc.kind}: {exc}")
+        _mark(ev, "satellite", "failed", f"{exc.kind}: {exc}", category=source_health.error_category(exc), **window)
         return
     source_health.record_success(db, "earth_search", latency, len(scenes), scenes[0].acquired_at if scenes else None)
-    before = [s for s in scenes if s.acquired_at < ev.first_detected][:4]
-    during = [s for s in scenes if ev.first_detected <= s.acquired_at <= ev.last_detected + timedelta(hours=12)][:4]
-    after = [s for s in scenes if s.acquired_at > ev.last_detected + timedelta(hours=12)][:3]
+    before = [s for s in scenes if s.acquired_at < ev.first_detected][:4]  # nearest first
+    during = [s for s in scenes if ev.first_detected <= s.acquired_at <= ev.last_detected + timedelta(hours=12)][-4:]
+    after = sorted((s for s in scenes if s.acquired_at > ev.last_detected + timedelta(hours=12)), key=lambda s: s.acquired_at)[:3]
     keep = [(s, "before") for s in before] + [(s, "during") for s in during] + [(s, "after") for s in after]
-    if scenes and scenes[0] not in [k[0] for k in keep]:
-        keep.append((scenes[0], "latest"))
     db.execute(delete(SatelliteObservation).where(SatelliteObservation.event_id == ev.id))
     now = datetime.now(UTC)
     for s, rel in keep:
@@ -157,7 +177,8 @@ def enrich_satellite(db: Session, ev: ThermalEvent) -> None:
             platform=s.platform, acquired_at=s.acquired_at, cloud_cover=s.cloud_cover, processing_level=s.processing_level,
             relation=rel, thumbnail_url=s.thumbnail_url, item_url=s.item_url, bbox=s.bbox, assets=s.assets, retrieved_at=now,
         ))
-    _mark(ev, "satellite", "ok", f"{len(keep)} scene(s) ≤{settings.satellite_max_cloud:.0f}% cloud")
+    _mark(ev, "satellite", "ok", f"{len(keep)} scene(s) ≤{settings.satellite_max_cloud:.0f}% cloud",
+          scenes=len(keep), before=len(before), after=len(after), **window)
 
 
 def enrich_geocode(db: Session, ev: ThermalEvent) -> None:
@@ -186,8 +207,7 @@ def enrich_geocode(db: Session, ev: ThermalEvent) -> None:
     _mark(ev, "geocode", "ok", "OSM Nominatim")
 
 
-def enrich_events(db: Session, event_ids: list,
-                  steps: tuple[str, ...] = ("osm", "landcover", "weather", "satellite", "geocode")) -> dict:
+def enrich_events(db: Session, event_ids: list, steps: tuple[str, ...] = STEPS) -> dict:
     from app.processing.persistence import history_window_days
     from app.processing.pipeline import analyse_event
 
@@ -227,5 +247,16 @@ def landcover_backfill_ids(db: Session, limit: int) -> list:
     return list(db.execute(text(
         """SELECT id FROM thermal_events
            WHERE NOT (enrichment_state ? 'landcover')
+           ORDER BY priority_score DESC NULLS LAST, last_detected DESC
+           LIMIT :n"""), {"n": limit}).scalars())
+
+
+def context_backfill_ids(db: Session, limit: int) -> list:
+    """Events inside India without weather or Sentinel-2 context, most review-worthy first (triage priority).
+    Both lookups are single requests (~1 s), unlike the Overpass step that paces full enrichment."""
+    return list(db.execute(text(
+        """SELECT id FROM thermal_events
+           WHERE in_india IS NOT FALSE AND data_mode <> 'demo'
+             AND (NOT (enrichment_state ? 'weather') OR NOT (enrichment_state ? 'satellite'))
            ORDER BY priority_score DESC NULLS LAST, last_detected DESC
            LIMIT :n"""), {"n": limit}).scalars())

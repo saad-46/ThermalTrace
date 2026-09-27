@@ -110,8 +110,8 @@ GET  /api/v1/reports/{id}/download
 | GET | `/api/v1/events/{ref}` | Full investigation bundle for one event (id or public id) |
 | POST | `/api/v1/events/{ref}/assign` | Assign the event's investigation to an analyst |
 | GET | `/api/v1/events/{ref}/detections.geojson` | Individual FIRMS pixels of an event (replay / map layer) |
-| POST | `/api/v1/events/{ref}/enrich` | Queue enrichment (OSM, land cover, weather, imagery, geocoding) for this event |
-| POST | `/api/v1/events/{ref}/imagery-analysis` | Queue Sentinel-2 NDVI/NBR change analysis (before vs after scenes) for this event |
+| POST | `/api/v1/events/{ref}/enrich` | Queue enrichment for this event: every step, or only `?steps=` (osm, landcover, weather, satellite, geocode); 400 on an unknown step. The event bundle's `jobs` shows its progress |
+| POST | `/api/v1/events/{ref}/imagery-analysis` | Queue Sentinel-2 NDVI/NBR change analysis (before vs after scenes); 409 `imagery_not_ready` unless a clear scene exists on both sides (`imagery_readiness` in the bundle) |
 | POST | `/api/v1/events/{ref}/notes` | Add a note or evidence link |
 | POST | `/api/v1/events/{ref}/reanalyse` | Re-run classification with current context (synchronous, fast) |
 | POST | `/api/v1/events/{ref}/reviews` | Record an analyst decision (confirm/reject/false positive/escalate/reclassify/note) |
@@ -124,7 +124,8 @@ GET  /api/v1/reports/{id}/download
 | GET | `/api/v1/facilities` | List Facilities |
 | GET | `/api/v1/facilities/geojson` | Facilities in a viewport, for the map layer |
 | GET | `/api/v1/facilities/{facility_id}` | Get Facility |
-| GET | `/api/v1/facilities/{facility_id}/events` | Facility-level thermal history |
+| GET | `/api/v1/facilities/{facility_id}/events` | Facility-level thermal history (`limit`, `offset`, `total`; per event: distance, persistence, FRP, brightness, class, confidence, priority) |
+| GET | `/api/v1/facilities/{facility_id}/relationship?event=` | How one event relates to the facility: distance, bearing, attribution rank and score if linked |
 
 ### models
 

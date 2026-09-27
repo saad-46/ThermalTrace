@@ -777,3 +777,45 @@ table.table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
   .lp-stat, .lp-stage, .lp-card, .lp-explore-btn, .lp-card-icon, .lp-explore-arrow, .landing .btn { transition: none; }
   .lp-stat:hover, .lp-stage:hover, .lp-stage:focus-visible, .lp-card:hover, .lp-explore-btn:hover:not(:disabled) { transform: none; }
 }
+
+/* On-demand evidence states (weather, Sentinel-2 search, NDVI/NBR): what is missing, why, and what produces it */
+.evidence-state { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--text-2); max-width: 100%; }
+.evidence-state .es-head { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 13px; }
+.evidence-state .es-head svg { flex: none; color: var(--text-3); }
+.evidence-state.warn { border-color: color-mix(in srgb, var(--warn) 45%, var(--border)); background: var(--warn-soft); }
+.evidence-state.warn .es-head svg { color: var(--warn); }
+.evidence-state.busy .es-head svg { color: var(--info); }
+.evidence-state .es-meaning { font-size: 11.5px; color: var(--text-3); border-top: 1px dashed var(--border); padding-top: 6px; }
+.evidence-state .es-action { padding-top: 2px; }
+.spin { animation: spin 0.9s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .spin { animation-duration: 2.5s; } }
+
+/* Facility card on the map: a MapLibre popup (wide maps) or a bottom sheet (phones) */
+.tt-popup .maplibregl-popup-content { padding: 0; background: transparent; box-shadow: none; border-radius: 10px; }
+.tt-popup .maplibregl-popup-tip { border-top-color: var(--border-strong) !important; border-bottom-color: var(--border-strong) !important; }
+.fac-card { background: color-mix(in srgb, var(--surface) 90%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); padding: 10px 12px 12px; color: var(--text-2);
+  font-size: 12px; display: flex; flex-direction: column; gap: 6px; width: 290px; max-width: 100%; animation: fc-in 0.14s ease-out; }
+.fac-card .fc-head { display: flex; align-items: center; gap: 8px; }
+.fac-card .fc-swatch { width: 10px; height: 10px; border-radius: 2.5px; flex: none; box-shadow: 0 0 0 1.5px var(--surface); }
+.fac-card .fc-name { flex: 1; color: var(--text); font-size: 13px; line-height: 1.25; overflow-wrap: anywhere; }
+.fac-card .fc-sub { color: var(--text-3); font-size: 11.5px; text-transform: none; }
+.fac-card .fc-kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 10px; margin: 2px 0 0; }
+.fac-card .fc-kv dt { color: var(--text-3); white-space: nowrap; }
+.fac-card .fc-kv dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+.fac-card .fc-note { font-size: 10.5px; color: var(--text-3); border-top: 1px dashed var(--border); padding-top: 6px; }
+.fac-card .fc-open { align-self: flex-start; gap: 4px; }
+.fac-card .fc-open:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.fac-sheet { position: fixed; left: 8px; right: 8px; bottom: 8px; z-index: 60; display: flex; justify-content: center; }
+.fac-sheet .fac-card { width: 100%; max-width: 480px; animation: fc-up 0.18s ease-out; background: var(--surface);
+  border-color: var(--border-strong); box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.35); max-height: 70vh; overflow: auto; }
+@keyframes fc-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+@keyframes fc-up { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .fac-card, .fac-sheet .fac-card { animation: none; } }
+
+/* Facility detail page */
+.fac-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); }
+.fac-context-map { position: relative; height: 300px; width: 100%; border-radius: 0 0 var(--radius) var(--radius); overflow: hidden; }
+.table tr.row-selected td { background: color-mix(in srgb, var(--thermal) 10%, transparent); }
+@media (max-width: 860px) { .fac-grid { grid-template-columns: minmax(0, 1fr); } .fac-context-map { height: 260px; } }

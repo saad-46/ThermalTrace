@@ -69,16 +69,18 @@ class SatelliteMetadataService:
 
 class SatelliteSearchService:
     def search(
-        self, lat: float, lon: float, start: datetime, end: datetime, max_cloud: float | None = None, limit: int = 20
+        self, lat: float, lon: float, start: datetime, end: datetime, max_cloud: float | None = None, limit: int = 20,
+        newest_first: bool = True,
     ) -> tuple[list[SceneMetadata], float]:
-        """Earth Search first; raises ProviderError if the catalogue is unavailable."""
+        """Scenes whose footprint contains the point, in [start, end] under the cloud limit; the `limit` newest (or
+        oldest) of them. Raises ProviderError if the catalogue is unavailable."""
         max_cloud = settings.satellite_max_cloud if max_cloud is None else max_cloud
         body = {
             "collections": ["sentinel-2-l2a"],
             "intersects": {"type": "Point", "coordinates": [lon, lat]},
             "datetime": f"{start.astimezone(UTC):%Y-%m-%dT%H:%M:%SZ}/{end.astimezone(UTC):%Y-%m-%dT%H:%M:%SZ}",
             "query": {"eo:cloud_cover": {"lte": max_cloud}},
-            "sortby": [{"field": "properties.datetime", "direction": "desc"}],
+            "sortby": [{"field": "properties.datetime", "direction": "desc" if newest_first else "asc"}],
             "limit": limit,
         }
         res = request("earth_search", "POST", f"{settings.earth_search_url}/search", json=body, timeout=45)

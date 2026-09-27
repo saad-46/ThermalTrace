@@ -168,7 +168,7 @@ export function FacilityList({ ev }: { ev: EventDetail }) {
         {ev.facilities.map((f) => (
           <tr key={f.id}>
             <td>
-              <div style={{ fontWeight: 500 }}><Link to={`/facilities/${f.id}`}>{f.name ?? "Unnamed"}</Link></div>
+              <div style={{ fontWeight: 500 }}><Link to={`/facilities/${f.id}?event=${encodeURIComponent(ev.public_id)}`} data-testid="event-facility-link">{f.name ?? "Unnamed"}</Link></div>
               <div className="faint" style={{ fontSize: 11.5 }}>
                 {FACILITY_LABELS[f.facility_type] ?? f.facility_type}{f.capacity_value ? ` · ${fmtNum(f.capacity_value, 0)} ${f.capacity_unit}` : ""}{f.operator ? ` · ${f.operator}` : ""}{f.status ? ` · ${f.status}` : ""}
               </div>

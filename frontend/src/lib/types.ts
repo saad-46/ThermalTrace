@@ -303,7 +303,7 @@ export interface EventDetail extends EventSummary {
   data_quality_detail: { grade: string; score: number; factors: { factor: string; score: number; detail: string }[] } | null;
   fingerprint: Record<string, number | string | string[] | null> | null;
   priority_components: PriorityBreakdown | null;
-  enrichment_state: Record<string, { status: string; at: string; detail: string | null }> | null;
+  enrichment_state: Record<string, EnrichmentStep> | null;
   datasets: string[];
   footprint: GeoJSON.Polygon | null;
   processed_at: string | null;
@@ -326,6 +326,37 @@ export interface EventDetail extends EventSummary {
   investigation: { id: string; status: string; priority: string; assignee: string | null; assigned_to: string | null } | null;
   timeline: TimelineItem[];
   evidence_matrix: MatrixRow[];
+  /** On-demand work for this event: latest job per kind and step set (last 7 days). */
+  jobs?: EventJob[];
+  /** Whether NDVI/NBR can be attempted from the stored scenes (same rule the API enforces). */
+  imagery_readiness?: { ready: boolean; reason: string | null; max_cloud: number } | null;
+}
+
+/** One enrichment step's recorded outcome: ok (provider answered), no_data (answered without an observation), failed. */
+export interface EnrichmentStep {
+  status: "ok" | "no_data" | "failed" | string;
+  at: string;
+  detail: string | null;
+  category?: string;
+  requested_at?: string;
+  scenes?: number;
+  before?: number;
+  after?: number;
+  window_start?: string;
+  window_end?: string;
+  max_cloud?: number;
+}
+
+export interface EventJob {
+  kind: "enrich_event" | "imagery_analysis";
+  steps: string[];
+  status: "queued" | "running" | "succeeded" | "failed";
+  attempts: number;
+  max_attempts: number;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  error_type: string | null;
 }
 
 export interface Facility {
@@ -345,6 +376,22 @@ export interface Facility {
   source_count: number;
   event_count?: number | null;
   sources?: { source: string; external_id: string; name: string | null; source_type: string | null; url: string | null; dataset_version: string | null; published_at: string | null; retrieved_at: string }[] | null;
+  subtype?: string | null;
+  registries?: { source: string; station?: string; coordinate_source?: string; [k: string]: unknown }[] | null;
+}
+
+/** GET /facilities/{id}/relationship?event=: how one event relates to the facility. */
+export interface FacilityRelationship {
+  event: { id: string; public_id: string; latitude: number; longitude: number; first_detected: string; last_detected: string;
+    classification: SourceClass | null; confidence_state: DisplayState; confidence_score: number | null; frp_max: number | null };
+  linked: boolean;
+  distance_m: number;
+  bearing_deg: number | null;
+  rank: number | null;
+  attribution_score: number | null;
+  rule_radius_m: number;
+  search_radius_m: number;
+  note: string;
 }
 
 export interface AlertRule {

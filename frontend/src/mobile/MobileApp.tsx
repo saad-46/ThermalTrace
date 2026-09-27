@@ -20,6 +20,7 @@ import ExploreBanner from "../tour/ExploreBanner";
 // Desktop pages that also work in the phone shell (used by the overview and the admin views of the guided tour).
 const Overview = lazy(() => import("../pages/Overview"));
 const DataSources = lazy(() => import("../pages/DataSources"));
+const FacilityPage = lazy(() => import("../pages/FacilityPage"));
 const SystemHealth = lazy(() => import("../pages/SystemHealth"));
 const Analytics = lazy(() => import("../pages/Analytics"));
 const Settings = lazy(() => import("../pages/Settings"));
@@ -325,6 +326,7 @@ export default function MobileApp() {
       <Route path="/more" element={<MoreScreen />} />
       <Route path="/overview" element={<DesktopPage title="Overview"><Overview /></DesktopPage>} />
       <Route path="/sources" element={<DesktopPage title="Data sources"><DataSources /></DesktopPage>} />
+      <Route path="/facilities/:id" element={<DesktopPage title="Facility"><FacilityPage /></DesktopPage>} />
       <Route path="/system" element={<DesktopPage title="System health"><SystemHealth /></DesktopPage>} />
       <Route path="/analytics" element={<DesktopPage title="Analytics"><Analytics /></DesktopPage>} />
       <Route path="/settings" element={<DesktopPage title="Settings"><Settings /></DesktopPage>} />

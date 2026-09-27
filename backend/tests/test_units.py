@@ -254,7 +254,8 @@ def test_jwt_round_trip_and_tamper():
     claims = decode_access_token(token)
     assert claims["sub"] == str(uid) and claims["jti"] == str(sid)
     with pytest.raises(jwt.PyJWTError):
-        decode_access_token(token[:-2] + ("A" if token[-1] != "A" else "B") + token[-1])
+        # change the second-to-last signature character (all 6 of its bits are significant) to a different value
+        decode_access_token(token[:-2] + ("A" if token[-2] != "A" else "B") + token[-1])
 
 
 # --- consolidation additions ---------------------------------------------------------------------
@@ -675,3 +676,45 @@ def test_provider_errors_map_to_categories_without_messages():
     assert error_category(ProviderServerError("cdse", "x", status=503)) == "service_unavailable"
     assert error_category(ProviderRateLimited("cdse", "x", status=429)) == "rate_limited"
     assert error_category(ProviderError("cdse", "x", status=400)) == "invalid_request"
+
+
+def test_cdse_token_missing_invalid_and_valid_credentials(monkeypatch):
+    """Copernicus OAuth: missing credentials never reach the network, a rejected client is an auth error (not
+    'no imagery'), and a valid token is cached until shortly before it expires. The secret is sent only in the body."""
+    from types import SimpleNamespace
+
+    from pydantic import SecretStr
+
+    from app.integrations import sentinel
+    from app.integrations.http import ProviderAuthError
+
+    monkeypatch.setattr(sentinel._CdseToken, "_token", None)
+    monkeypatch.setattr(sentinel._CdseToken, "_expires", 0.0)
+    monkeypatch.setattr(sentinel.settings, "copernicus_client_id", None)
+    monkeypatch.setattr(sentinel.settings, "copernicus_client_secret", None)
+    monkeypatch.setattr(sentinel, "request", lambda *a, **k: pytest.fail("no request without credentials"))
+    with pytest.raises(ProviderAuthError, match="not configured"):
+        sentinel._CdseToken.get()
+
+    monkeypatch.setattr(sentinel.settings, "copernicus_client_id", "client")
+    monkeypatch.setattr(sentinel.settings, "copernicus_client_secret", SecretStr("s3cret"))
+
+    def reject(*a, **k):
+        raise ProviderAuthError("cdse", "HTTP 401", status=401)
+
+    monkeypatch.setattr(sentinel, "request", reject)
+    with pytest.raises(ProviderAuthError):
+        sentinel.verify_cdse_credentials()
+
+    calls = []
+
+    def grant(provider, method, url, data=None, **kw):
+        calls.append((url, data, kw.get("params"), kw.get("headers")))
+        return SimpleNamespace(response=SimpleNamespace(json=lambda: {"access_token": "tok", "expires_in": 600}), latency_ms=5.0)
+
+    monkeypatch.setattr(sentinel, "request", grant)
+    assert sentinel.verify_cdse_credentials() >= 0
+    assert sentinel._CdseToken.get() == "tok" and len(calls) == 1  # cached, not re-requested
+    url, data, params, headers = calls[0]
+    assert data["grant_type"] == "client_credentials" and data["client_secret"] == "s3cret"
+    assert "s3cret" not in url and not params and not headers

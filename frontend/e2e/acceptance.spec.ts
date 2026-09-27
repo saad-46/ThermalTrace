@@ -141,7 +141,7 @@ test.describe("desktop analyst workflow", () => {
     }
     await page.goto("/facilities");
     await page.locator("tbody tr").first().click();
-    await expect(page.getByRole("heading", { name: /Thermal history within 3 km/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Thermal activity within 3 km/ })).toBeVisible();
     await page.waitForTimeout(800);
     await shot(page, "09-facility-profile");
 

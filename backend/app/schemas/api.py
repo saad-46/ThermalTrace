@@ -141,6 +141,8 @@ class EventDetail(EventSummary):
     investigation: dict | None
     timeline: list[dict]
     evidence_matrix: list[dict]
+    jobs: list[dict] = []
+    imagery_readiness: dict | None = None
 
 
 class ReviewIn(BaseModel):
@@ -193,6 +195,8 @@ class FacilityOut(BaseModel):
     source_count: int
     event_count: int | None = None
     sources: list[dict] | None = None
+    subtype: str | None = None
+    registries: list[dict] | None = None
 
 
 # --- alerts / watchlists --------------------------------------------------------------------------

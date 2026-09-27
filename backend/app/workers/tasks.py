@@ -52,9 +52,24 @@ def process_events(db: Session, payload: dict, job: Job) -> dict:
 
 
 def enrich_event(db: Session, payload: dict, job: Job) -> dict:
-    res = enrichment.enrich_events(db, [payload["event_id"]])
+    """On-demand enrichment of one event: every step, or only the requested ones (e.g. weather, satellite)."""
+    steps = tuple(payload.get("steps") or enrichment.STEPS)
+    unknown = set(steps) - set(enrichment.STEPS)
+    if unknown:
+        raise ValueError(f"unknown enrichment steps: {sorted(unknown)}")
+    res = enrichment.enrich_events(db, [payload["event_id"]], steps=steps)
     alerts.evaluate_rules(db, [payload["event_id"]])
-    return res
+    return {**res, "steps": list(steps)}
+
+
+def context_backfill(db: Session, payload: dict, job: Job) -> dict:
+    """Weather and Sentinel-2 scene search for the most review-worthy events that lack them. Full enrichment is
+    paced by Overpass (~25 s per event); these two lookups take ~1 s each, so they are not left waiting behind it.
+    One bounded batch per run, no continuation: 30 events every 15 min stays far inside Open-Meteo's free quota."""
+    ids = enrichment.context_backfill_ids(db, int(payload.get("limit", 30)))
+    if not ids:
+        return {"events": 0}
+    return enrichment.enrich_events(db, ids, steps=("weather", "satellite"))
 
 
 def landcover_backfill(db: Session, payload: dict, job: Job) -> dict:
@@ -170,6 +185,7 @@ HANDLERS: dict[str, Handler] = {
     "enrich_event": enrich_event,
     "enrich_batch": enrich_batch,
     "landcover_backfill": landcover_backfill,
+    "context_backfill": context_backfill,
     "imagery_analysis": imagery_analysis,
     "import_registry": import_registry,
     "facility_sync": facility_sync,
@@ -184,6 +200,7 @@ HANDLERS: dict[str, Handler] = {
 SCHEDULE: dict[str, tuple[int, dict, int]] = {
     "firms_poll": (settings.firms_poll_minutes * 60, {"window": "24h"}, 30),
     "facility_sync": (60 * 60, {"limit": 4}, 45),
+    "context_backfill": (15 * 60, {"limit": 30}, 55),
     "enrich_batch": (15 * 60, {"limit": 40}, 60),
     "landcover_backfill": (20 * 60, {"limit": 25}, 70),
     "housekeeping": (6 * 3600, {}, 90),

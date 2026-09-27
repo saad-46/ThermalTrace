@@ -186,9 +186,15 @@ def get_bundle(db: Session, event_id: uuid.UUID) -> dict:
     ev["weather"] = q("""SELECT kind, source_id, dataset, observed_at, retrieved_at, temperature_c, humidity_pct,
                            wind_speed_ms, wind_direction_deg, precipitation_mm, pressure_hpa, weather_code, condition
                          FROM weather_observations WHERE event_id = :id ORDER BY observed_at DESC""")
-    ev["satellite"] = q("""SELECT id, provider, source_id, collection, item_id, platform, acquired_at, cloud_cover,
-                             processing_level, relation, thumbnail_url, item_url, bbox, retrieved_at
-                           FROM satellite_observations WHERE event_id = :id ORDER BY acquired_at""")
+    # Relation to the event from its current times: an event that keeps growing turns an earlier "after" into "during".
+    ev["satellite"] = q("""SELECT s.id, s.provider, s.source_id, s.collection, s.item_id, s.platform, s.acquired_at, s.cloud_cover,
+                             s.processing_level,
+                             CASE WHEN s.acquired_at < e.first_detected THEN 'before'
+                                  WHEN s.acquired_at > e.last_detected + interval '12 hours' THEN 'after'
+                                  ELSE 'during' END AS relation,
+                             s.thumbnail_url, s.item_url, s.bbox, s.retrieved_at
+                           FROM satellite_observations s JOIN thermal_events e ON e.id = s.event_id
+                           WHERE s.event_id = :id ORDER BY s.acquired_at""")
     ev["classification_current"] = (q("""SELECT id, source_class, persistence_class, probability, confidence_score,
                                    confidence_state, confidence_components, primary_model_id, supporting_model_ids,
                                    pipeline_version, created_at FROM classifications
@@ -215,9 +221,31 @@ def get_bundle(db: Session, event_id: uuid.UUID) -> dict:
     ev["investigation"] = (q("""SELECT i.id, i.status, i.priority, i.summary, i.opened_at, i.closed_at, i.assigned_to,
                                    u.full_name AS assignee FROM investigations i LEFT JOIN users u ON u.id = i.assigned_to
                                  WHERE i.event_id = :id""") or [None])[0]
+    # On-demand work for this event (latest per kind and step set): lets the page show "searching…" across reloads
+    # and a failed job instead of an unexplained empty tab. Only the error's type is exposed, never its message.
+    ev["jobs"] = q("""SELECT DISTINCT ON (kind, steps) kind, steps, status, attempts, max_attempts, created_at, started_at,
+                             finished_at, error_type
+                      FROM (SELECT kind, COALESCE(payload->'steps', '[]'::jsonb) AS steps, status, attempts, max_attempts,
+                                   created_at, started_at, finished_at,
+                                   NULLIF(split_part(COALESCE(error, ''), ':', 1), '') AS error_type
+                            FROM jobs WHERE payload ? 'event_id' AND payload->>'event_id' = CAST(:id AS text)
+                              AND kind IN ('enrich_event', 'imagery_analysis') AND created_at > now() - interval '7 days') j
+                      ORDER BY kind, steps, created_at DESC""")
+    ev["imagery_readiness"] = imagery_readiness(ev)
     ev["timeline"] = build_timeline(ev)
     ev["evidence_matrix"] = evidence_matrix(ev)
     return ev
+
+
+def imagery_readiness(ev: dict) -> dict:
+    """Whether NDVI/NBR can be attempted, by the same rule the imagery-analysis endpoint enforces."""
+    from types import SimpleNamespace
+
+    from app.services import imagery
+
+    scenes = [SimpleNamespace(acquired_at=s["acquired_at"], cloud_cover=s["cloud_cover"]) for s in ev["satellite"]]
+    ready, reason = imagery.readiness(SimpleNamespace(**{k: ev[k] for k in ("enrichment_state", "first_detected", "last_detected")}), scenes)
+    return {"ready": ready, "reason": reason, "max_cloud": imagery.MAX_CLOUD}
 
 
 def build_timeline(ev: dict) -> list[dict]:
@@ -267,7 +295,7 @@ def _imagery_row(ia: dict | None) -> dict:
     d = ia["deltas"] or {}
     return {"type": "Spectral change", "availability": "available",
             "strength": {"vegetation_loss_consistent": 0.8, "partial_change": 0.4}.get(ia["finding"], 0.1),
-            "detail": f"dNDVI {d.get('ndvi', 0):+.2f}, dNBR {d.get('nbr', 0):+.2f} ({ia['finding'].replace('_', ' ')})"}
+            "detail": f"NDVI change {d.get('ndvi', 0):+.2f}, NBR change {d.get('nbr', 0):+.2f} ({ia['finding'].replace('_', ' ')})"}
 
 
 def evidence_matrix(ev: dict) -> list[dict]:

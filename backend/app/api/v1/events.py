@@ -6,7 +6,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.deps import AnalystUser, CurrentUser, Page, SupervisorUser, pagination
-from app.core.errors import AppError
+from app.core.errors import AppError, Conflict
 from app.db.session import get_db
 from app.gis.geo import bbox_from_string
 from app.models.auth import User
@@ -140,18 +140,40 @@ def assign(ref: str, body: AssignIn, request: Request, user: User = SupervisorUs
 @router.post("/{ref}/imagery-analysis", status_code=202,
              summary="Queue Sentinel-2 NDVI/NBR change analysis (before vs after scenes) for this event")
 def request_imagery_analysis(ref: str, request: Request, user: User = AnalystUser, db: Session = Depends(get_db)):
+    from sqlalchemy import select
+
+    from app.models.enrichment import SatelliteObservation
+    from app.models.thermal import ThermalEvent
+    from app.services import imagery
+
     eid = repo.resolve_event_id(db, ref)
+    ev = db.get(ThermalEvent, eid)
+    scenes = list(db.execute(select(SatelliteObservation).where(SatelliteObservation.event_id == eid)).scalars())
+    ready, why = imagery.readiness(ev, scenes)
+    if not ready:  # nothing to compare: never queue a computation that cannot produce a result
+        raise Conflict(why, code="imagery_not_ready")
     job_id = enqueue(db, "imagery_analysis", {"event_id": str(eid)}, dedupe_key=f"imagery:{eid}", priority=12, created_by=user.id)
     audit.record(db, request, user.id, "event.imagery_analysis.request", "event", eid, {"job": str(job_id)})
     db.commit()
     return {"job_id": job_id}
 
 
-@router.post("/{ref}/enrich", status_code=202, summary="Queue enrichment (OSM, weather, imagery, geocoding) for this event")
-def enrich(ref: str, user: User = AnalystUser, db: Session = Depends(get_db)):
+@router.post("/{ref}/enrich", status_code=202,
+             summary="Queue enrichment for this event: every step, or only `steps` (osm, landcover, weather, satellite, geocode)")
+def enrich(ref: str, request: Request, steps: list[str] | None = Query(None), user: User = AnalystUser,
+           db: Session = Depends(get_db)):
+    from app.services.enrichment import STEPS
+
+    wanted = sorted(set(steps)) if steps else list(STEPS)
+    unknown = set(wanted) - set(STEPS)
+    if unknown:
+        raise AppError(f"Unknown enrichment steps: {', '.join(sorted(unknown))}", code="invalid_steps")
     eid = repo.resolve_event_id(db, ref)
-    job_id = enqueue(db, "enrich_event", {"event_id": str(eid)}, dedupe_key=f"enrich:{eid}", priority=10, created_by=user.id)
-    return {"job_id": job_id}
+    payload = {"event_id": str(eid)} if not steps else {"event_id": str(eid), "steps": wanted}
+    job_id = enqueue(db, "enrich_event", payload, dedupe_key=f"enrich:{eid}:{','.join(wanted)}", priority=10, created_by=user.id)
+    audit.record(db, request, user.id, "event.enrich.request", "event", eid, {"job": str(job_id), "steps": wanted})
+    db.commit()
+    return {"job_id": job_id, "steps": wanted}
 
 
 @router.post("/{ref}/reanalyse", summary="Re-run classification with current context (synchronous, fast)")

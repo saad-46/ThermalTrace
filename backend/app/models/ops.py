@@ -89,6 +89,8 @@ class Job(Base):
             unique=True,
             postgresql_where=text("status IN ('queued','running') AND dedupe_key IS NOT NULL"),
         ),
+        # per-event job status on the event page (enrichment, imagery analysis)
+        Index("ix_jobs_event", text("(payload->>'event_id')"), postgresql_where=text("payload ? 'event_id'")),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()

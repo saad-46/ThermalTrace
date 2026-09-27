@@ -1,5 +1,5 @@
 import { Bell, Eye, FileText, RefreshCw } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { fetchImage } from "../lib/api";
 import { compass, coordsLabel, fmtDateTime, fmtNum, locationLabel, relTime, titleCase } from "../lib/format";
@@ -11,9 +11,10 @@ import {
   AnswerGrid, ConfidenceBreakdown, EventRowMini, EvidenceList, EvidenceMatrix, ExtLink, FacilityList, Fingerprint, ModelPanel,
   PersistencePanel, Provenance, Timeline,
 } from "./evidence";
+import { ActionButton, errorText, EvidenceState, pendingLabel, stepPhase, useRequestBlocker, useRequestSteps } from "./enrichment";
 import { LandCoverPanel, SpectralChangePanel } from "./landcover";
 import { EvidenceChain, PriorityPanel, PriorityPill } from "./triage";
-import { ClassLabel, Empty, errText, ModePill, StatePill, useToast } from "./ui";
+import { ClassLabel, errText, ModePill, StatePill, useToast } from "./ui";
 import { downloadFile } from "../lib/api";
 
 // ------------------------------------------------------------------ satellite
@@ -37,9 +38,42 @@ export function SatellitePanel({ ev }: { ev: EventDetail }) {
   const [swir, setSwir] = useState<{ url?: string; error?: string; loading?: boolean }>({});
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => { setLeft(byRel.before); setRight(byRel.after ?? scenes[scenes.length - 1]); setSwir({}); }, [ev.id, byRel, scenes]);
+  const { phase, state, job } = stepPhase(ev, "satellite");
+  const req = useRequestSteps(ev, ["satellite"]);
+  const demo = useRequestBlocker();
+  const search = (label: string) => (
+    <ActionButton onClick={req.run} busy={req.sending || phase === "pending"} busyLabel="Searching…" testId="satellite-search">{label}</ActionButton>
+  );
+  const meaning = "Scenes let an analyst check land cover, cloud and visible change around the event. Imagery confirmation requires actual imagery of the event; a scene list alone confirms nothing.";
+  const window = state?.window_start ? `${fmtDateTime(state.window_start)} → ${fmtDateTime(state.window_end ?? state.at)}` : null;
 
-  if (!scenes.length)
-    return <Empty title="No Sentinel-2 imagery">{ev.enrichment_state?.satellite ? "No L2A scene under the cloud threshold was found for this location and window." : "Imagery has not been searched yet — run enrichment."}</Empty>;
+  if (!scenes.length || phase === "pending") {
+    if (phase === "pending")
+      return <EvidenceState tone="busy" title="Searching Sentinel-2 imagery…" testId="satellite-state">Querying the Sentinel-2 L2A catalogue for scenes covering the event location; {pendingLabel(job)}.</EvidenceState>;
+    if (phase === "failed")
+      return (
+        <EvidenceState tone="warn" title="Sentinel-2 search failed" testId="satellite-state" action={search("Search again")}>
+          The catalogue request ({relTime(state?.at)}) did not complete: {errorText(state?.category)}. This is a provider failure, not an absence of imagery. Details are in the server logs.
+        </EvidenceState>
+      );
+    if (phase === "job_failed")
+      return (
+        <EvidenceState tone="warn" title="Imagery search did not complete" testId="satellite-state" action={search("Search again")}>
+          The background job stopped with an error{job?.error_type ? ` (${job.error_type})` : ""}. Nothing was stored.
+        </EvidenceState>
+      );
+    if (phase === "ok")
+      return (
+        <EvidenceState title="No suitable Sentinel-2 scene was available for this event" testId="satellite-state" action={search("Search again")} meaning={meaning}>
+          The catalogue answered with no L2A scene covering the event with cloud ≤ {state?.max_cloud ?? 60}%{window ? ` between ${window}` : ""}. Searched {relTime(state?.at)}.
+        </EvidenceState>
+      );
+    return (
+      <EvidenceState title="Imagery has not been searched yet" testId="satellite-state" action={search("Search Sentinel-2 imagery")} meaning={meaning}>
+        Search the Sentinel-2 L2A catalogue (Element84 Earth Search, public, no key required) for scenes whose footprint contains the event, from 45 days before the first detection until now, with cloud ≤ 60%.
+      </EvidenceState>
+    );
+  }
   const move = (e: PointerEvent) => {
     if (!box.current || e.buttons !== 1) return;
     const r = box.current.getBoundingClientRect();
@@ -80,23 +114,75 @@ export function SatellitePanel({ ev }: { ev: EventDetail }) {
       </div>
       <div className="row wrap">
         {right?.item_url && <ExtLink href={right.item_url}>STAC item</ExtLink>}
-        <button className="btn sm" onClick={() => right && loadSwir(right)} disabled={!right || swir.loading}>
+        <button className="btn sm" onClick={() => right && loadSwir(right)} disabled={!right || swir.loading || !!demo}
+          title={demo ? "SWIR renders use a limited Copernicus quota and are disabled in the read-only demo" : "Renders via Copernicus Data Space (OAuth, server-side)"}>
           {swir.loading ? <span className="spinner" /> : null} Render SWIR (B12/B8A/B4) around event
         </button>
       </div>
       {swir.error && <div className="faint" style={{ fontSize: 12 }}>SWIR render unavailable: {swir.error}</div>}
+      <div className="faint" style={{ fontSize: 11.5 }} data-testid="satellite-search-info">
+        {state ? <>Searched {relTime(state.at)}: {state.scenes ?? scenes.length} scene(s) with cloud ≤ {state.max_cloud ?? 60}%{window ? `, ${window}` : ""}. </> : null}
+        {state && ev.last_detected > (state.window_end ?? state.at) ? <b>The event has new detections since this search; search again for newer scenes. </b> : null}
+        Scenes: Copernicus Sentinel-2 L2A via Element84 Earth Search.
+      </div>
+      {!demo && <div>{search("Search again")}</div>}
       {swir.url && <img src={swir.url} alt="SWIR composite around event" style={{ width: "100%", borderRadius: 6 }} />}
     </div>
   );
 }
 
 // ------------------------------------------------------------------ weather
+const WEATHER_MEANING = "Wind, temperature and precipitation provide supporting environmental context for this event. Weather does not show what caused a fire.";
+
 export function WeatherPanel({ ev }: { ev: EventDetail }) {
   const w = ev.weather[0];
-  if (!w) return <Empty title="No weather context">{ev.enrichment_state?.weather?.status === "failed" ? `Provider error: ${ev.enrichment_state.weather.detail}` : "Weather has not been retrieved yet."}</Empty>;
+  const { phase, state, job } = stepPhase(ev, "weather");
+  const req = useRequestSteps(ev, ["weather"]);
+  const when = `the last detection (${fmtDateTime(ev.last_detected)})`;
+  const button = (label: string) => (
+    <ActionButton onClick={req.run} busy={req.sending || phase === "pending"} busyLabel="Retrieving weather…" testId="weather-request">{label}</ActionButton>
+  );
+  if (!w || phase === "pending") {
+    if (phase === "pending")
+      return <EvidenceState tone="busy" title="Retrieving weather…" testId="weather-state">Open-Meteo is queried for the event location at {when}; {pendingLabel(job)}.</EvidenceState>;
+    if (phase === "failed")
+      return (
+        <EvidenceState tone="warn" title="Weather service temporarily unavailable" testId="weather-state" action={button("Try again")} meaning={WEATHER_MEANING}>
+          The last request ({relTime(state?.at)}) did not complete: {errorText(state?.category)}. This is a provider failure, not an absence of weather data. Details are in the server logs.
+        </EvidenceState>
+      );
+    if (phase === "job_failed")
+      return (
+        <EvidenceState tone="warn" title="Weather retrieval did not complete" testId="weather-state" action={button("Try again")}>
+          The background job stopped with an error{job?.error_type ? ` (${job.error_type})` : ""} before the provider answered. Nothing was stored.
+        </EvidenceState>
+      );
+    if (phase === "no_data")
+      return (
+        <EvidenceState title="No weather observation available for this event" testId="weather-state" action={button("Retrieve again")} meaning={WEATHER_MEANING}>
+          Open-Meteo answered, but has no values for the hour of {when} at this location ({state?.detail}). Recent reanalysis can lag by several days.
+        </EvidenceState>
+      );
+    return (
+      <EvidenceState title="Weather context unavailable" testId="weather-state" action={button("Retrieve weather")} meaning={WEATHER_MEANING}>
+        This event has not been enriched with weather data yet. Retrieve weather to add environmental context around {when}: temperature, humidity, wind, precipitation and pressure from Open-Meteo (ERA5 reanalysis or the recent hourly model; no key required).
+      </EvidenceState>
+    );
+  }
   const disp = w.wind_direction_deg == null ? null : (w.wind_direction_deg + 180) % 360;
+  // only what the provider returned: a missing value is left out, never shown as zero
+  const rows: [string, ReactNode, boolean][] = [
+    ["Condition", w.condition, w.condition != null],
+    ["Temperature", `${fmtNum(w.temperature_c)} °C`, w.temperature_c != null],
+    ["Humidity", `${fmtNum(w.humidity_pct, 0)} %`, w.humidity_pct != null],
+    ["Wind", `${fmtNum(w.wind_speed_ms)} m/s${w.wind_direction_deg != null ? ` from ${compass(w.wind_direction_deg)} (${fmtNum(w.wind_direction_deg, 0)}°)` : ""}`, w.wind_speed_ms != null],
+    ["Precipitation", `${fmtNum(w.precipitation_mm)} mm`, w.precipitation_mm != null],
+    ["Pressure", `${fmtNum(w.pressure_hpa, 0)} hPa`, w.pressure_hpa != null],
+    ["Potential dispersion", disp == null ? null : `toward ${compass(disp)} (${disp.toFixed(0)}°)`, disp != null],
+  ];
   return (
-    <div className="row" style={{ alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
+    <div className="row" style={{ alignItems: "flex-start", gap: 16, flexWrap: "wrap" }} data-testid="weather-result">
+      <div className="faint" style={{ fontSize: 12, width: "100%" }}><b>Weather context</b> at the event location, nearest hour to {when}. {WEATHER_MEANING}</div>
       <svg width="110" height="110" viewBox="-55 -55 110 110" role="img" aria-label={`Potential dispersion toward ${compass(disp)}`}>
         <circle r="46" fill="none" stroke="var(--border-strong)" />
         {["N", "E", "S", "W"].map((c, i) => <text key={c} x={Math.sin((i * Math.PI) / 2) * 38} y={-Math.cos((i * Math.PI) / 2) * 38 + 4} fontSize="10" textAnchor="middle" fill="var(--text-3)">{c}</text>)}
@@ -110,14 +196,8 @@ export function WeatherPanel({ ev }: { ev: EventDetail }) {
       </svg>
       <dl className="kv" style={{ flex: 1, minWidth: 200 }}>
         <dt>Observed</dt><dd>{fmtDateTime(w.observed_at)}</dd>
-        <dt>Condition</dt><dd>{w.condition ?? "—"}</dd>
-        <dt>Temperature</dt><dd className="num">{fmtNum(w.temperature_c)} °C</dd>
-        <dt>Humidity</dt><dd className="num">{fmtNum(w.humidity_pct, 0)} %</dd>
-        <dt>Wind</dt><dd className="num">{fmtNum(w.wind_speed_ms)} m/s from {compass(w.wind_direction_deg)} ({fmtNum(w.wind_direction_deg, 0)}°)</dd>
-        <dt>Precipitation</dt><dd className="num">{fmtNum(w.precipitation_mm)} mm</dd>
-        <dt>Pressure</dt><dd className="num">{fmtNum(w.pressure_hpa, 0)} hPa</dd>
-        <dt>Potential dispersion</dt><dd>{disp == null ? "—" : `toward ${compass(disp)} (${disp.toFixed(0)}°)`}</dd>
-        <dt>Source</dt><dd className="faint">{w.dataset}</dd>
+        {rows.filter(([, , ok]) => ok).map(([k, v]) => <Fragment key={k}><dt>{k}</dt><dd className="num">{v}</dd></Fragment>)}
+        <dt>Source</dt><dd className="faint">{w.dataset} · retrieved {relTime(w.retrieved_at)}</dd>
       </dl>
       <div className="faint" style={{ fontSize: 11.5, width: "100%" }}>
         The dispersion direction is inferred from the wind vector only. It is not plume tracking and does not show where smoke actually went.
@@ -240,7 +320,7 @@ export function EventActions({ ev, compact }: { ev: EventDetail; compact?: boole
   const reports = useReports(ev.id);
   const wls = useWatchlists();
   const report = useAction(actions.report(), [["reports"]]);
-  const enrich = useAction(actions.enrich(ev.public_id), [["jobs"]]);
+  const enrich = useAction(actions.enrich(ev.public_id), [["jobs"], ["event"]]);
   const [wlOpen, setWlOpen] = useState(false);
   const latest = reports.data?.items[0];
   const analyst = can("analyst");

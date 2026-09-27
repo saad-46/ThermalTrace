@@ -70,9 +70,17 @@ def test_read_window_on_a_local_geotiff(tmp_path):
 
 # --- spectral change ------------------------------------------------------------------------------------
 def test_classify_change_needs_both_indices_for_consistent_loss():
-    assert imagery.classify_change(-0.2, 0.25) == "vegetation_loss_consistent"
-    assert imagery.classify_change(-0.2, 0.02) == "partial_change"
+    # changes are after minus before; burning lowers NDVI and NBR (dNBR = before - after >= 0.10)
+    assert imagery.classify_change(-0.2, -0.25) == "vegetation_loss_consistent"
+    assert imagery.classify_change(-0.2, -0.02) == "partial_change"
+    assert imagery.classify_change(0.01, -0.15) == "partial_change"
     assert imagery.classify_change(0.01, 0.0) == "no_change_detected"
+
+
+def test_vegetation_green_up_is_not_a_burn_signal():
+    # a real case (TT-2026-325802, May -> September): NDVI +0.12, NBR +0.24 after the monsoon
+    assert imagery.classify_change(0.12, 0.24) == "no_change_detected"
+    assert imagery.classify_change(-0.2, 0.25) == "partial_change"  # NDVI loss alone, NBR rose
 
 
 def _scene(item, days, cloud=5.0):
@@ -174,3 +182,24 @@ def test_every_job_handler_is_served_by_a_worker_lane():
     served = set().union(*LANES.values())
     assert set(HANDLERS) <= served, set(HANDLERS) - served
     assert set(SCHEDULE) <= set(HANDLERS)
+
+
+def test_dark_surface_yields_no_spectral_finding(monkeypatch):
+    """Real case (TT-2026-101331, a coal plant yard): NIR ~0.03 in both scenes; NDVI/NBR there are noise."""
+    from datetime import UTC, datetime, timedelta
+    from types import SimpleNamespace
+
+    ev = SimpleNamespace(id=1, public_id="TT-x", latitude=22.06, longitude=82.60, first_detected=datetime(2026, 2, 5, tzinfo=UTC),
+                         last_detected=datetime(2026, 2, 10, tzinfo=UTC), enrichment_state={"satellite": {"status": "ok"}})
+    scenes = [SimpleNamespace(acquired_at=ev.first_detected - timedelta(days=2), cloud_cover=0.0, item_url="b", item_id="b"),
+              SimpleNamespace(acquired_at=ev.last_detected + timedelta(days=3), cloud_cover=0.2, item_url="a", item_id="a")]
+    idx = {"b": {"ndvi": 0.79, "nbr": -0.30, "valid_fraction": 0.54, "processing_baseline": "05.11", "nir_reflectance": 0.029},
+           "a": {"ndvi": 0.79, "nbr": -0.38, "valid_fraction": 0.52, "processing_baseline": "05.12", "nir_reflectance": 0.031}}
+    added = []
+    db = SimpleNamespace(execute=lambda *a, **k: SimpleNamespace(scalars=lambda: scenes), add=added.append, flush=lambda: None)
+    monkeypatch.setattr(imagery, "_fetch_item", lambda url: url)
+    monkeypatch.setattr(imagery, "scene_indices", lambda item, lat, lon: idx[item])
+    row = imagery.analyse_event_imagery(db, ev)
+    assert row.status == "unavailable" and row.finding is None and row.deltas is None
+    assert "too dark" in row.reason and "0.03 before" in row.reason
+    assert row.before_scene["item_id"] == "b"  # what was read stays visible

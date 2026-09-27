@@ -48,7 +48,7 @@ describe("land cover", () => {
 describe("spectral change", () => {
   it("shows both indices, dates, masking and the not-proof caveat", () => {
     render(<SpectralTable ia={IA} action={null} />);
-    expect(screen.getByText("Vegetation loss consistent with burning")).toBeTruthy();
+    expect(screen.getByText("Spectral change is consistent with burning")).toBeTruthy();
     expect(screen.getByText("-0.45")).toBeTruthy();
     expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toContain("Before · 2026-09-18");
     expect(screen.getByText(/does not identify the cause, and no change does not rule out a fire/)).toBeTruthy();

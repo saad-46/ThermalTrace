@@ -295,8 +295,20 @@ def test_landcover_imagery_and_audit_trail(client, db, auth_headers, monkeypatch
     assert feats["lc_cropland_frac"] == 0.92 and feats["dndvi"] is None  # no imagery analysis: NaN -> null, never 0
 
     r = client.post(f"/api/v1/events/{pid}/imagery-analysis", headers=h)
+    assert r.status_code == 409 and r.json()["error"]["code"] == "imagery_not_ready"  # no scenes: nothing to compare
+    from datetime import timedelta
+
+    from app.models.enrichment import SatelliteObservation
+
+    for item, when in (("before", now - timedelta(days=4)), ("after", now + timedelta(days=2))):
+        db.add(SatelliteObservation(event_id=ev_id, provider="earth-search", source_id="earth_search", collection="sentinel-2-l2a",
+                                    item_id=f"S2A_{item}", platform="sentinel-2a", acquired_at=when, cloud_cover=5.0,
+                                    processing_level="L2A", relation=item, retrieved_at=now, assets={}))
+    db.commit()
+    r = client.post(f"/api/v1/events/{pid}/imagery-analysis", headers=h)
     assert r.status_code == 202
     assert db.execute(text("SELECT count(*) FROM jobs WHERE kind = 'imagery_analysis'")).scalar() == 1
+    assert db.execute(text("SELECT count(*) FROM audit_logs WHERE action = 'event.imagery_analysis.request'")).scalar() == 1
 
     client.post(f"/api/v1/events/{pid}/reviews", headers=h, json={"decision": "reclassify", "source_class": "wildfire"})
     audit_row = db.execute(text("SELECT detail FROM audit_logs WHERE action = 'event.review.reclassify'")).scalar_one()

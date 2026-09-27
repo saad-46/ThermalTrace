@@ -19,15 +19,16 @@ Status of every capability on `main`. Statuses: **EXISTS** (built and tested), *
 | OSM Overpass integration | EXISTS | P0 |
 | WRI GPPD import | EXISTS | P1 |
 | GEM tracker import | NEEDS REAL DATA (manual download) | P1 |
-| CEA import | NEEDS REAL DATA (transcription) | P1 |
+| CEA import (official List of Power Stations PDF) | IMPLEMENTED (see CEA_REGISTRY.md) | P1 |
 | Multi-source facility consolidation | EXISTS | P1 |
 | Facility thermal-activity profile | IMPLEMENTED | P1 |
-| Sentinel-2 scene search + previews | EXISTS | P1 |
-| Sentinel-2 NDVI / NBR change (before vs after, cloud-masked) | IMPLEMENTED (on demand; honest "unavailable") | P1 |
+| Facility card on map click → facility details (relationship to the event, provenance, registry ids, map with 2 / 10 km rings, timeline, paginated history) | IMPLEMENTED (desktop popup, phone bottom sheet) | P1 |
+| Sentinel-2 scene search + previews | EXISTS; automatic for top-priority events (context backfill) and on demand (*Search Sentinel-2 imagery*); before/after windows fixed 27 Sep 2026 | P1 |
+| Sentinel-2 NDVI / NBR change (before vs after, cloud-masked) | IMPLEMENTED (on demand, offered only when a clear scene exists on both sides; dNBR sign fixed and dark-surface guard added 27 Sep 2026) | P1 |
 | Raster land cover (ESA WorldCover 10 m) per event | IMPLEMENTED (enrichment step + backfill) | P1 |
 | Before/after swipe comparison | EXISTS | P1 |
 | SWIR render (CDSE) | NEEDS CREDENTIAL (`COPERNICUS_CLIENT_ID/SECRET`) | P1 |
-| Weather + potential dispersion | EXISTS | P1 |
+| Weather + potential dispersion | EXISTS; automatic for top-priority events and on demand (*Retrieve weather*); no data vs provider failure distinguished | P1 |
 | Weather in the evidence timeline | IMPLEMENTED | P2 |
 | Admin geocoding | EXISTS (health tracking fixed) | P1 |
 | Offline place names for every event ("Near Dhanbad, Jharkhand · 1 km" beside the coordinates), searchable | IMPLEMENTED | P1 |
@@ -48,6 +49,7 @@ Status of every capability on `main`. Statuses: **EXISTS** (built and tested), *
 | Map ↔ list filter sync | DEFERRED | P2 |
 | Viewport loading, clustering, heatmap | EXISTS | P0 |
 | Attribution radius rings | IMPLEMENTED | P2 |
+| India-wide basemap hierarchy (roads, districts, industrial areas and labels by zoom, from the basemap's own tiles) | IMPLEMENTED | P2 |
 | Replay | EXISTS | P2 |
 | Similar events | EXISTS | P2 |
 | Alert rules + deliveries | EXISTS | P0 |
@@ -85,11 +87,12 @@ Checked against the code on 2026-09-26.
 | FIRMS history / backfill | Implemented; needs `FIRMS_MAP_KEY` | `ingest-historical`, `firms_historical` job |
 | OpenStreetMap facilities and land use | Implemented, live | `integrations/overpass.py`, `services/facility_sync.py` |
 | Global Energy Monitor | Implemented; Global Coal Plant Tracker (July 2026, CC BY 4.0) imported locally: 662 Indian plant locations, 245 corroborated by WRI or OSM. Other trackers need their files | `services/registries_import.py` |
-| CEA | Importer implemented; needs a station-level publication. The monthly Installed Capacity report has only capacity totals, so it cannot be imported | same |
+| CEA | Implemented: the official *List of Power Stations* PDF is parsed and stations matched to located facilities (docs/CEA_REGISTRY.md) | `services/cea_registry.py` |
 | WRI power plants | Implemented, live | same |
-| Sentinel-2 | Scene search, previews and NDVI / NBR change implemented; SWIR render needs Copernicus credentials | `integrations/sentinel.py`, `services/imagery.py` |
+| Sentinel-2 | Scene search, previews and NDVI / NBR change implemented and live (keyless Earth Search); SWIR render needs Copernicus credentials | `integrations/sentinel.py`, `services/imagery.py` |
+| Weather | Implemented and live (Open-Meteo, keyless) | `integrations/weather.py` |
 | Land cover | Implemented (ESA WorldCover 10 m, 2021) | `services/landcover.py` |
-| NDVI | Implemented (with NBR) as before/after change, on demand | `services/imagery.py` |
+| NDVI | Implemented (with NBR) as before/after change, on demand; no finding over dark surfaces | `services/imagery.py` |
 | PostGIS | Implemented (geography columns, GiST indexes, `ST_DWithin`) | migrations 0001–0004 |
 | FRP, brightness | Implemented as features and evidence | `processing/features.py` |
 | Persistence | Implemented (per-day strip, gaps, recurrence) | `processing/persistence.py` |
