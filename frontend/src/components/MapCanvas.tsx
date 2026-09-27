@@ -26,6 +26,27 @@ const RINGS_M = [2000, 10000];
 
 maplibregl.setWorkerUrl(maplibreWorkerUrl);
 
+/** Island groups, labelled beside the islands (label placement only; the islands themselves come from the boundary). */
+const ISLAND_GROUPS: GeoJSON.Feature[] = [
+  { type: "Feature", properties: { name: "Lakshadweep", anchor: "right", offset: [-0.6, 0] }, geometry: { type: "Point", coordinates: [71.6, 10.6] } },
+  { type: "Feature", properties: { name: "Andaman & Nicobar", anchor: "left", offset: [0.8, 0] }, geometry: { type: "Point", coordinates: [93.9, 10.2] } },
+];
+
+/** A point at the centre of every polygon of the boundary smaller than ~25 km: islets that would otherwise vanish. */
+export function isletPoints(geo: GeoJSON.Feature | GeoJSON.FeatureCollection): GeoJSON.FeatureCollection {
+  const out: GeoJSON.Feature[] = [];
+  for (const f of geo.type === "FeatureCollection" ? geo.features : [geo]) {
+    const g = f.geometry;
+    const polys = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
+    for (const p of polys) {
+      let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+      for (const [x, y] of p[0]) { w = Math.min(w, x); e = Math.max(e, x); s = Math.min(s, y); n = Math.max(n, y); }
+      if (e - w < 0.25 && n - s < 0.25) out.push({ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: [(w + e) / 2, (s + n) / 2] } });
+    }
+  }
+  return { type: "FeatureCollection", features: out };
+}
+
 const STYLE_LIGHT = (import.meta.env.VITE_MAP_STYLE_LIGHT as string) || "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
 const CARTO_KEY = (import.meta.env.VITE_CARTO_API_KEY as string | undefined) ?? "";
 
@@ -143,28 +164,56 @@ export default function MapCanvas({ filters, layers, theme, selectedId, focus, o
     });
     map.touchZoomRotate.disableRotation();
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
-    map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-right");
+    map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
     map.addControl(new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: false }, trackUserLocation: false }), "bottom-right");
     map.on("load", () => {
-      // India only: a mask hides everything outside India's boundary (Natural Earth, India point of view), then the
-      // outline and state lines. Loaded from the backend, which also uses it for spatial filtering.
+      // India first: the basemap stays visible around India but is subdued (a translucent veil outside the boundary),
+      // India gets a faint warm fill, its state lines and a restrained amber border. Boundary: Natural Earth, India
+      // point of view, loaded from the backend (which uses the same geometry for spatial filtering).
+      const dark = theme === "dark";
       map.addSource("india-mask", { type: "geojson", data: EMPTY });
       map.addSource("india", { type: "geojson", data: EMPTY, attribution: "Boundary: Natural Earth (India point of view)" });
       map.addSource("india-states", { type: "geojson", data: EMPTY });
       map.addLayer({ id: "india-mask", type: "fill", source: "india-mask",
-        paint: { "fill-color": theme === "dark" ? "#0b0c0f" : "#eef0f3", "fill-opacity": 1 } });
+        paint: { "fill-color": dark ? "#07080a" : "#f1f3f5", "fill-opacity": dark ? 0.55 : 0.6 } });
+      map.addLayer({ id: "india-fill", type: "fill", source: "india",
+        paint: { "fill-color": "#ff8a3d", "fill-opacity": dark ? 0.035 : 0.03 } });
       map.addLayer({ id: "india-states", type: "line", source: "india-states",
-        paint: { "line-color": theme === "dark" ? "#8a93a3" : "#868e96", "line-width": 0.6, "line-opacity": 0.35 } });
+        paint: { "line-color": dark ? "#9aa3b2" : "#868e96", "line-width": ["interpolate", ["linear"], ["zoom"], 3, 0.4, 8, 0.9],
+                 "line-opacity": dark ? 0.32 : 0.45 } });
       map.addLayer({ id: "india-glow", type: "line", source: "india",
-        paint: { "line-color": "#ff8a3d", "line-width": 6, "line-blur": 5, "line-opacity": theme === "dark" ? 0.28 : 0.18 } });
+        paint: { "line-color": "#ff8a3d", "line-width": ["interpolate", ["linear"], ["zoom"], 3, 4, 8, 7], "line-blur": 4,
+                 "line-opacity": dark ? 0.2 : 0.12 } });
       map.addLayer({ id: "india-outline", type: "line", source: "india",
-        paint: { "line-color": theme === "dark" ? "#ffb454" : "#e8590c", "line-width": ["interpolate", ["linear"], ["zoom"], 3, 1, 8, 1.6] } });
+        paint: { "line-color": dark ? "#f0a24a" : "#d9480f", "line-opacity": 0.9,
+                 "line-width": ["interpolate", ["linear"], ["zoom"], 3, 0.9, 8, 1.5] } });
+      // Islands too small to see at country zoom (Lakshadweep's islets are a few km across): a dot on each small
+      // polygon of the boundary itself, and a quiet label per island group. Hidden once the outlines are legible.
+      map.addSource("india-islets", { type: "geojson", data: EMPTY });
+      map.addLayer({ id: "india-islets", type: "circle", source: "india-islets", maxzoom: 7, paint: {
+        "circle-color": dark ? "#f0a24a" : "#d9480f", "circle-opacity": 0.85,
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, 1.4, 7, 2.2] } });
+      map.addSource("india-island-labels", { type: "geojson", data: { type: "FeatureCollection", features: ISLAND_GROUPS } });
+      map.addLayer({ id: "india-island-labels", type: "symbol", source: "india-island-labels", minzoom: 3.2, maxzoom: 8,
+        layout: { "text-field": ["get", "name"], "text-font": ["Open Sans Semibold", "Noto Sans Regular"], "text-size": 9.5,
+                  "text-letter-spacing": 0.12, "text-transform": "uppercase", "text-max-width": 8,
+                  "text-anchor": ["get", "anchor"], "text-offset": ["get", "offset"] },
+        paint: { "text-color": dark ? "#c9a27a" : "#8a4a1c", "text-opacity": 0.75,
+                 "text-halo-color": dark ? "#0b0c0f" : "#ffffff", "text-halo-width": 1 } });
+      // Country names from the basemap: understated, never competing with anomalies.
+      for (const l of map.getStyle().layers) {
+        if (l.type === "symbol" && /country/i.test(l.id)) {
+          map.setPaintProperty(l.id, "text-opacity", 0.55);
+          map.setLayoutProperty(l.id, "text-letter-spacing", 0.2);
+        }
+      }
       api<IndiaBoundary>("/public/boundary", { query: { detail: "map" } }).then((b) => {
         if (!map.getSource("india")) return;
         (map.getSource("india") as GeoJSONSource).setData(b.india);
         (map.getSource("india-mask") as GeoJSONSource).setData(b.mask);
         (map.getSource("india-states") as GeoJSONSource).setData(b.states);
-        if (!prev) map.fitBounds([[b.bbox[0], b.bbox[1]], [b.bbox[2], b.bbox[3]]], { padding: 24, duration: 0 });
+        (map.getSource("india-islets") as GeoJSONSource).setData(isletPoints(b.india));
+        if (!prev) map.fitBounds([[b.bbox[0], b.bbox[1]], [b.bbox[2], b.bbox[3]]], { padding: { top: 30, bottom: 18, left: 20, right: 44 }, duration: 0 });
         map.getContainer().dataset.india = "loaded";
       }).catch(() => { map.getContainer().dataset.india = "unavailable"; }); // the map still works without it
 
@@ -173,7 +222,7 @@ export default function MapCanvas({ filters, layers, theme, selectedId, focus, o
         attribution: "Sentinel-2 cloudless 2021 by EOX IT Services (Contains modified Copernicus Sentinel data 2021)" });
       map.addLayer({ id: "imagery", type: "raster", source: "imagery", layout: { visibility: "none" } }, map.getStyle().layers.find((l) => l.type === "symbol")?.id);
 
-      map.addSource("events", { type: "geojson", data: EMPTY, cluster: true, clusterRadius: 38, clusterMaxZoom: 8,
+      map.addSource("events", { type: "geojson", data: EMPTY, cluster: true, clusterRadius: 34, clusterMaxZoom: 8,
         attribution: "NASA FIRMS" });
       map.addSource("events-raw", { type: "geojson", data: EMPTY });
       map.addSource("facilities", { type: "geojson", data: EMPTY, attribution: "© OpenStreetMap contributors · WRI GPPD" });
@@ -210,18 +259,24 @@ export default function MapCanvas({ filters, layers, theme, selectedId, focus, o
       map.addLayer({ id: "focus-arrow", type: "line", source: "focus-arrow", layout: { "line-cap": "round", "line-join": "round" },
         paint: { "line-color": "#1c6fd1", "line-width": 2.2 } });
 
+      // Clusters: a soft thermal halo and a small dark disc with a thin amber ring; size grows gently with the count.
+      const clusterR: maplibregl.ExpressionSpecification = ["step", ["get", "point_count"], 8, 10, 10, 50, 12, 200, 14.5, 1000, 17];
+      map.addLayer({ id: "clusters-halo", type: "circle", source: "events", filter: ["has", "point_count"], paint: {
+        "circle-color": "#ff7a2e", "circle-radius": ["*", clusterR, 1.9], "circle-blur": 1,
+        "circle-opacity": ["interpolate", ["linear"], ["get", "point_count"], 2, 0.18, 500, 0.38] } });
       map.addLayer({ id: "clusters", type: "circle", source: "events", filter: ["has", "point_count"], paint: {
-        "circle-color": theme === "dark" ? "#2a2e36" : "#ffffff", "circle-stroke-color": "#e8590c", "circle-stroke-width": 1.5,
-        "circle-radius": ["step", ["get", "point_count"], 13, 20, 17, 100, 22, 500, 27] } });
+        "circle-color": dark ? "rgba(18,19,23,0.88)" : "rgba(255,255,255,0.92)", "circle-stroke-color": dark ? "#f0a24a" : "#e8590c",
+        "circle-stroke-width": 1, "circle-stroke-opacity": 0.9, "circle-radius": clusterR } });
       map.addLayer({ id: "cluster-count", type: "symbol", source: "events", filter: ["has", "point_count"],
-        layout: { "text-field": ["get", "point_count_abbreviated"], "text-size": 11, "text-font": ["Open Sans Semibold", "Noto Sans Regular"] },
-        paint: { "text-color": theme === "dark" ? "#e8eaed" : "#16181d" } });
+        layout: { "text-field": ["get", "point_count_abbreviated"], "text-size": ["step", ["get", "point_count"], 9.5, 100, 10.5],
+                  "text-font": ["Open Sans Semibold", "Noto Sans Regular"], "text-allow-overlap": true },
+        paint: { "text-color": dark ? "#ffd9ad" : "#8a2c05" } });
       map.addLayer({ id: "ev", type: "circle", source: "events", filter: ["!", ["has", "point_count"]], paint: {
-        "circle-radius": ["interpolate", ["linear"], ["get", "frp"], 0, 4, 20, 6, 100, 9, 500, 13],
+        "circle-radius": ["interpolate", ["linear"], ["get", "frp"], 0, 3.5, 20, 5, 100, 7, 500, 10],
         "circle-color": classColorExpr,
         "circle-opacity": ["case", ["==", ["get", "status"], "dormant"], 0.45, 0.9],
-        "circle-stroke-width": 1,
-        "circle-stroke-color": ["match", ["get", "state"], ["INSUFFICIENT_EVIDENCE"], "#9aa1ab", ["ANALYST_CONFIRMED", "CONFIRMED"], "#2b8a3e", ["ANALYST_REJECTED"], "#c92a2a", "#ffffff"] } });
+        "circle-stroke-width": 0.8,
+        "circle-stroke-color": ["match", ["get", "state"], ["INSUFFICIENT_EVIDENCE"], "#9aa1ab", ["ANALYST_CONFIRMED", "CONFIRMED"], "#2b8a3e", ["ANALYST_REJECTED"], "#c92a2a", dark ? "#16181d" : "#ffffff"] } });
       map.addLayer({ id: "ev-selected", type: "circle", source: "events", filter: ["==", ["get", "id"], ""], paint: {
         "circle-radius": 15, "circle-color": "transparent", "circle-stroke-color": theme === "dark" ? "#fff" : "#16181d", "circle-stroke-width": 2 } });
 
@@ -229,7 +284,8 @@ export default function MapCanvas({ filters, layers, theme, selectedId, focus, o
         const f = e.features?.[0];
         if (!f) return;
         const zoom = await (map.getSource("events") as GeoJSONSource).getClusterExpansionZoom(f.properties.cluster_id);
-        map.easeTo({ center: (f.geometry as GeoJSON.Point).coordinates as [number, number], zoom });
+        // at least one visible step in: at fractional zooms the expansion zoom can be only a hair above the current one
+        map.easeTo({ center: (f.geometry as GeoJSON.Point).coordinates as [number, number], zoom: Math.max(zoom, map.getZoom() + 1) });
       });
       map.on("click", "ev", (e) => {
         const id = e.features?.[0]?.properties?.id;
@@ -302,7 +358,7 @@ export default function MapCanvas({ filters, layers, theme, selectedId, focus, o
     const map = mapRef.current;
     if (!map || !ready) return;
     const vis = (id: string, on: boolean) => map.getLayer(id) && map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
-    ["clusters", "cluster-count", "ev", "ev-selected"].forEach((l) => vis(l, layers.events && !layers.heat));
+    ["clusters-halo", "clusters", "cluster-count", "ev", "ev-selected"].forEach((l) => vis(l, layers.events && !layers.heat));
     vis("heat", layers.heat);
     ["fac", "fac-label"].forEach((l) => vis(l, layers.facilities));
     ["focus-dets", "focus-footprint", "focus-footprint-line", "focus-links"].forEach((l) => vis(l, layers.detections));

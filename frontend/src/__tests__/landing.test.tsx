@@ -178,26 +178,27 @@ describe("landing page", () => {
     expect(container.querySelectorAll(".lp-flames .tt-flame")).toHaveLength(0);
   });
 
-  it("CEA and Copernicus cards show what the backend recorded, and say when something was not tested", async () => {
+  it("CEA and Copernicus cards stay compact: name, what the source is for, and its status", async () => {
     landingResponse = () => Promise.resolve({ ...LIVE, sources: [
       ...LIVE.sources.filter((x) => x.id !== "cdse"),
       { id: "cea", name: "Central Electricity Authority (India)", kind: "facilities", state: "active", reason: "Connected", requirement: null,
-        last_success_at: "2026-09-27T00:00:00Z", dataset_published_at: "2025-03-31T00:00:00Z",
-        registry: { stations: 503, located: 389, ambiguous: 22, unmatched: 92, facilities: 355, units: 1633, capacity_mw: 302843.6,
-                    imported_at: "2026-09-27T00:00:00Z", coordinate_sources: ["gem", "wri_gppd"] } },
+        last_success_at: "2026-09-27T00:00:00Z" },
       { id: "cdse", name: "Copernicus Data Space Ecosystem", kind: "imagery", state: "active", reason: "Authentication healthy",
-        requirement: null, last_success_at: "2026-09-27T00:00:00Z",
-        checks: { auth: { ok: true, checked_at: new Date().toISOString(), latency_ms: 1082, error: null, last_success_at: null } } },
+        requirement: null, last_success_at: "2026-09-27T00:00:00Z" },
     ] });
     renderLanding();
     const cea = (await screen.findByText("Central Electricity Authority (India)")).closest("li")!;
-    expect(cea.textContent).toContain("503 stations");
-    expect(cea.textContent).toContain("389 located");
-    expect(cea.textContent).toContain("Coordinates via GEM and WRI GPPD");
-    expect(cea.textContent).toContain("22 for review");
+    expect(cea.textContent).toContain("Official power-station registry");
+    expect(cea.querySelector(".lp-state.active")).toBeTruthy();
     const cdse = screen.getByText("Copernicus Data Space Ecosystem", { selector: ".lp-source-name" }).closest("li")!;
-    expect(cdse.textContent).toContain("Authentication: Healthy · 1.1 s");
-    expect(cdse.textContent).toContain("Satellite preview: not tested yet");
+    expect(cdse.textContent).toContain("Sentinel-2 SWIR composites for visual review of an event");
+    expect(cdse.querySelector(".lp-state.active")).toBeTruthy();
+    for (const card of [cea, cdse]) {
+      for (const detail of ["stations", "located", "for review", "Authentication", "Satellite preview", "Last checked", "verified"]) {
+        expect(card.textContent).not.toContain(detail);
+      }
+      expect(card.textContent).not.toMatch(/\d(\.\d)? s|\d+ ms/);  // no response times
+    }
   });
 
   it("respects reduced motion: figures appear immediately without a count-up", () => {

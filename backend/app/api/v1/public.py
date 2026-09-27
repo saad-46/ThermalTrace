@@ -52,10 +52,6 @@ class PublicSource(BaseModel):
     reason: str
     requirement: str | None = None
     last_success_at: datetime | None
-    checks: dict | None = None  # per-capability checks, e.g. Copernicus {"auth": {...}, "preview": {...}}
-    dataset_version: str | None = None
-    dataset_published_at: datetime | None = None
-    registry: dict | None = None  # station registries (CEA): listed / located / ambiguous / unmatched
 
 
 class PublicActivity(BaseModel):
@@ -93,29 +89,12 @@ def _compute(db: Session) -> dict:
                   AS firms_last_sync,
                (SELECT max(last_seen_at) FROM worker_heartbeats) AS worker_seen"""), {"days": ACTIVITY_DAYS}).mappings().one()
     cfg = configuration_state()
-    # Registries imported station by station (CEA): what was listed, and how much of it could be located.
-    registries = {row.source_id: {"stations": row.stations, "located": row.located, "ambiguous": row.ambiguous,
-                                  "unmatched": row.unmatched, "facilities": row.facilities, "units": row.units,
-                                  "capacity_mw": round(row.capacity_mw or 0, 1), "imported_at": row.imported_at,
-                                  "coordinate_sources": row.coordinate_sources}
-                  for row in db.execute(text("""
-        SELECT source_id, count(*) AS stations, count(facility_id) AS located,
-               count(*) FILTER (WHERE match_status = 'ambiguous') AS ambiguous,
-               count(*) FILTER (WHERE match_status = 'unmatched') AS unmatched,
-               count(DISTINCT facility_id) AS facilities, sum(unit_count) AS units, sum(capacity_mw) AS capacity_mw,
-               max(imported_at) AS imported_at,
-               array_remove(array_agg(DISTINCT coordinate_source), NULL) AS coordinate_sources
-        FROM registry_stations GROUP BY source_id""")).all()}
     sources = []
-    for r in db.execute(text("SELECT id, name, kind, access, status, last_success_at, health_detail, dataset_version, "
-                             "dataset_published_at FROM data_sources WHERE id <> 'demo' ORDER BY kind, id")).all():
+    for r in db.execute(text("SELECT id, name, kind, access, status, last_success_at, health_detail "
+                         "FROM data_sources WHERE id <> 'demo' ORDER BY kind, id")).all():
         eff = effective_state(r.id, r.status, r.access, r.last_success_at is not None, cfg, r.health_detail)
-        checks = {k: {f: v.get(f) for f in ("ok", "checked_at", "latency_ms", "error", "last_success_at")}
-                  for k, v in (r.health_detail or {}).items()}
         sources.append({"id": r.id, "name": r.name, "kind": r.kind, "last_success_at": r.last_success_at,
-                        "state": eff["state"], "reason": eff["reason"], "requirement": eff["requirement"],
-                        "checks": checks or None, "dataset_version": r.dataset_version,
-                        "dataset_published_at": r.dataset_published_at, "registry": registries.get(r.id)})
+                        "state": eff["state"], "reason": eff["reason"], "requirement": eff["requirement"]})
     cells = db.execute(text("""
         SELECT (floor(latitude / :d) + 0.5) * :d AS lat, (floor(longitude / :d) + 0.5) * :d AS lon, count(*) AS n
         FROM thermal_events

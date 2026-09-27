@@ -8,6 +8,7 @@ import { fmtDate, fmtDateTime, fmtNum, relTime, titleCase } from "../lib/format"
 import { useJobs, useSources } from "../lib/hooks";
 import { useSession } from "../lib/session";
 import { SOURCE_NAMES, SOURCE_STATE_LABEL } from "../lib/taxonomy";
+import type { DataSource } from "../lib/types";
 
 interface FacilityIndex {
   coverage: { total: number; fresh: number; failed: number; events: number; events_covered: number; last_synced: string | null };
@@ -23,6 +24,32 @@ const TRIGGERS: [string, string, Record<string, unknown>][] = [
   ["facility_sync", "Sync next 4 facility tiles (OSM)", { limit: 4 }],
   ["import_registry", "Import WRI power plant registry", { source: "wri_gppd" }],
 ];
+
+const CHECK_LABEL: Record<string, string> = { auth: "Authentication", preview: "Satellite preview" };
+const COORD: Record<string, string> = { wri_gppd: "WRI GPPD", gem: "GEM", osm: "OpenStreetMap" };
+
+/** Diagnostics recorded by the backend: capability checks (Copernicus) and registry import figures (CEA). */
+function SourceChecks({ s }: { s: DataSource }) {
+  const checks = Object.entries(s.health_detail ?? {});
+  const r = s.registry;
+  if (!checks.length && !r) return null;
+  return (
+    <div className="faint" style={{ fontSize: 11, marginTop: 3, lineHeight: 1.45 }}>
+      {checks.map(([k, c]) => (
+        <div key={k}>
+          {CHECK_LABEL[k] ?? k}: {c.ok ? "ok" : `failed (${(c.error ?? "error").replace(/_/g, " ")})`}
+          {c.latency_ms != null ? ` · ${(c.latency_ms / 1000).toFixed(1)} s` : ""} · {relTime(c.checked_at)}
+        </div>
+      ))}
+      {r && (
+        <div>
+          {r.stations} stations · {r.located} located ({r.coordinate_sources.map((c) => COORD[c] ?? c).join(", ")}) · {r.ambiguous} for review ·{" "}
+          {r.unmatched} not located · imported {relTime(r.imported_at)}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function DataSources() {
   const { can } = useSession();
@@ -60,7 +87,8 @@ export default function DataSources() {
                       {s.requirement_how ? ` ${s.requirement_how}` : ""}
                     </div>
                   )}
-                  {s.last_error && s.status !== "healthy" && <div className="faint" style={{ fontSize: 11, maxWidth: 220 }} title={s.last_error}>{s.last_error.slice(0, 90)}</div>}</td>
+                  {s.last_error && s.status !== "healthy" && <div className="faint" style={{ fontSize: 11, maxWidth: 220 }} title={s.last_error}>{s.last_error.slice(0, 90)}</div>}
+                  <SourceChecks s={s} /></td>
                 <td className="num">{relTime(s.last_success_at)}</td>
                 <td className="num">{s.last_record_at ? fmtDateTime(s.last_record_at) : "—"}</td>
                 <td className="right num">{s.records_total.toLocaleString()}</td>

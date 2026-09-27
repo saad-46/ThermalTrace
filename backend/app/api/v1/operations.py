@@ -153,6 +153,14 @@ def sources(user: User = CurrentUser, db: Session = Depends(get_db)):
     runs = {r.source_id: r for r in db.execute(text("""
         SELECT DISTINCT ON (source_id) source_id, status, started_at, completed_at, records_inserted, error_detail
         FROM ingestion_runs ORDER BY source_id, started_at DESC""")).mappings().all()}
+    # Station registries (CEA): listed, located, for review, not located; with the coordinate sources used.
+    registries = {row.source_id: dict(row._mapping) for row in db.execute(text("""
+        SELECT source_id, count(*) AS stations, count(facility_id) AS located,
+               count(*) FILTER (WHERE match_status = 'ambiguous') AS ambiguous,
+               count(*) FILTER (WHERE match_status = 'unmatched') AS unmatched,
+               count(DISTINCT facility_id) AS facilities, max(imported_at) AS imported_at,
+               array_remove(array_agg(DISTINCT coordinate_source), NULL) AS coordinate_sources
+        FROM registry_stations GROUP BY source_id""")).all()}
     out = []
     for s in srcs:
         err_rate = (s.requests_failed / s.requests_total) if s.requests_total else None
@@ -168,7 +176,8 @@ def sources(user: User = CurrentUser, db: Session = Depends(get_db)):
                     "error_rate": round(err_rate, 3) if err_rate is not None else None,
                     "configuration": state, "last_run": runs.get(s.id),
                     "state": eff["state"], "state_reason": eff["reason"], "requirement": eff["requirement"],
-                    "requirement_env": req.get("env"), "requirement_how": req.get("how")})
+                    "requirement_env": req.get("env"), "requirement_how": req.get("how"),
+                    "registry": registries.get(s.id)})
     return out
 
 

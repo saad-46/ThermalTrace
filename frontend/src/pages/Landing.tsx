@@ -11,7 +11,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } 
 import { Flame as FlameMark, IndiaOutline } from "../components/brand";
 import { errText } from "../components/ui";
 import { api } from "../lib/api";
-import { fmtDate, relTime } from "../lib/format";
+import { relTime } from "../lib/format";
 import { useMedia, useSession } from "../lib/session";
 import type { DemoRole, PublicLanding, PublicSourceState } from "../lib/types";
 
@@ -556,7 +556,7 @@ const SOURCE_ROLE: Record<string, string> = {
   osm: "Industrial sites and land use",
   wri_gppd: "Global power-plant database",
   gem: "Coal plants, mines and steel trackers",
-  cea: "Official power-station registry: identity, owner, units, capacity",
+  cea: "Official power-station registry",
   esa_worldcover: "10 m land cover, 2021",
   earth_search: "Sentinel-2 L2A scene search and NDVI/NBR change",
   cdse: "Sentinel-2 SWIR composites for visual review of an event",
@@ -575,39 +575,10 @@ export const SOURCE_STATE: Record<PublicSourceState, { label: string; icon: Reac
   unverified: { label: "Not verified", icon: <CircleDashed size={13} aria-hidden /> },
 };
 
-const COORD_SOURCE: Record<string, string> = { wri_gppd: "WRI GPPD", gem: "GEM" };
-const CHECK_ERROR: Record<string, string> = {
-  authentication_failed: "authentication failed", timeout: "timed out", service_unavailable: "service unavailable",
-  rate_limited: "rate limited", invalid_request: "invalid request", unsupported_data: "no data for the request",
-  processing_failure: "processing failed",
-};
-
-/** What the backend recorded for a source: registry import figures (CEA) or capability checks (Copernicus). */
-export function SourceDetails({ s }: { s: PublicLanding["sources"][number] }) {
-  const lines: ReactNode[] = [];
-  if (s.registry) {
-    const r = s.registry;
-    lines.push(<>Imported: <b>{NUM.format(r.stations)}</b> stations · <b>{NUM.format(r.located)}</b> located</>);
-    lines.push(<>Coordinates via {r.coordinate_sources.map((c) => COORD_SOURCE[c] ?? c).join(" and ") || "none"}
-      {r.ambiguous ? ` · ${r.ambiguous} for review` : ""}{r.unmatched ? ` · ${r.unmatched} not located` : ""}</>);
-    if (s.dataset_published_at) lines.push(<>List as on {fmtDate(s.dataset_published_at)} · imported {relTime(r.imported_at)}</>);
-  }
-  const auth = s.checks?.auth;
-  const preview = s.checks?.preview;
-  if (s.checks || s.id === "cdse") {
-    lines.push(<>Authentication: {auth ? (auth.ok ? <b>Healthy</b> : <b>Failed ({CHECK_ERROR[auth.error ?? ""] ?? auth.error})</b>) : "not verified yet"}
-      {auth?.ok && auth.latency_ms != null ? ` · ${(auth.latency_ms / 1000).toFixed(1)} s` : ""}</>);
-    lines.push(<>Satellite preview: {preview ? (preview.ok ? <b>Available</b> : <b>Unavailable ({CHECK_ERROR[preview.error ?? ""] ?? preview.error})</b>) : "not tested yet"}
-      {preview?.ok && preview.latency_ms != null ? ` · ${(preview.latency_ms / 1000).toFixed(1)} s` : ""}</>);
-    if (auth) lines.push(<>Last checked {relTime(auth.checked_at)}</>);
-  }
-  if (!lines.length) return null;
-  return <ul className="lp-source-details">{lines.map((l, i) => <li key={i}>{l}</li>)}</ul>;
-}
-
 function StateBadge({ state }: { state: PublicSourceState }) {
-  const m = SOURCE_STATE[state];
-  return <span className={`lp-state ${state}`}>{m.icon}{m.label}</span>;
+  const known = state in SOURCE_STATE ? state : "unverified"; // a state this build does not know is never shown as healthy
+  const m = SOURCE_STATE[known];
+  return <span className={`lp-state ${known}`}>{m.icon}{m.label}</span>;
 }
 
 const KIND_ICON: Record<string, ReactNode> = {
@@ -634,13 +605,9 @@ export function Sources({ data, error }: { data: PublicLanding | undefined; erro
                   <div className="lp-source-role">{SOURCE_ROLE[s.id] ?? s.kind}</div>
                 </div>
               </div>
-              <SourceDetails s={s} />
               <div className="lp-source-foot">
                 <StateBadge state={s.state} />
-                {s.state === "active"
-                  ? s.last_success_at && <span className="lp-source-meta">verified {relTime(s.last_success_at)}</span>
-                  : s.requirement ? <span className="lp-source-meta">Needs {s.requirement}</span>
-                  : <span className="lp-source-meta">{s.reason}</span>}
+                {s.state !== "active" && <span className="lp-source-meta">{s.requirement ? `Needs ${s.requirement}` : s.reason}</span>}
               </div>
             </li>
           ))}

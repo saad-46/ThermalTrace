@@ -800,7 +800,7 @@ def test_public_boundary_serves_india_its_mask_and_states(client):
     assert w < 68.5 and e > 97 and s < 7 and n > 36  # includes Andaman & Nicobar (south-east) and the north
 
 
-def test_cea_registry_import_links_stations_to_located_facilities_with_provenance(client, db, monkeypatch, tmp_path):
+def test_cea_registry_import_links_stations_to_located_facilities_with_provenance(client, db, monkeypatch, tmp_path, auth_headers):
     from datetime import date
 
     from app.api.v1 import public
@@ -823,8 +823,12 @@ def test_cea_registry_import_links_stations_to_located_facilities_with_provenanc
     assert unlocated == 3  # listed, kept, not placed on the map without a location
     assert (tmp_path / "cea_stations_normalized.csv").exists() and (tmp_path / "cea_validation_report.json").exists()
     public.clear_cache()
-    cea = next(s for s in client.get("/api/v1/public/landing").json()["sources"] if s["id"] == "cea")
+    # figures for signed-in users (Data sources page); the public card shows only name, purpose and state
+    cea = next(s for s in client.get("/api/v1/sources", headers=auth_headers("admin")).json() if s["id"] == "cea")
     assert cea["registry"]["stations"] == 4 and cea["registry"]["located"] == 1 and cea["registry"]["coordinate_sources"] == ["wri_gppd"]
+    public.clear_cache()
+    card = next(s for s in client.get("/api/v1/public/landing").json()["sources"] if s["id"] == "cea")
+    assert set(card) == {"id", "name", "kind", "state", "reason", "requirement", "last_success_at"}
     public.clear_cache()
 
 

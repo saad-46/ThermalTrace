@@ -85,7 +85,7 @@ def configuration_state() -> dict[str, dict]:
         "cdse": {"configured": bool(settings.copernicus_client_id and settings.copernicus_client_secret),
                  "note": "Catalogue search is keyless; SWIR rendering needs COPERNICUS_CLIENT_ID/SECRET"},
         "gem": {"configured": True, "note": "File import — requires a downloaded GEM tracker release"},
-        "cea": {"configured": True, "note": "File import — requires a CEA-derived CSV (see data/datasets/README.md)"},
+        "cea": {"configured": True, "note": "File import — the official CEA power-station list (PDF), via import-registry --source cea (docs/CEA_REGISTRY.md)"},
         "email": {"configured": bool(settings.smtp_host and settings.smtp_from)},
         "push": {"configured": bool(settings.vapid_public_key and settings.vapid_private_key)},
         "demo": {"configured": settings.demo_mode},

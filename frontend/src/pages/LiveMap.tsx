@@ -75,7 +75,10 @@ export default function LiveMap() {
           <MapCanvas filters={query} layers={layers} theme={theme} selectedId={ev.data?.id ?? selected} focus={ev.data ?? null}
             onSelect={select} onViewport={setVp} replayUntil={replayUntil} flyTo={flyTo} />
         </Boundary>
-        <div className="map-overlay map-toolbar">
+        {/* Top-left column: the toolbar, then the legend. The north-west corner of the map is outside India (Pakistan,
+            Afghanistan), so nothing here covers Indian territory, Lakshadweep or the Kerala coast. */}
+        <div className="map-overlay map-topleft">
+        <div className="map-toolbar">
           <TimeRange value={filters.days} onChange={(days) => setFilters({ ...filters, days })} />
           <FilterButton f={filters} set={setFilters} />
           <div style={{ position: "relative" }}>
@@ -92,9 +95,10 @@ export default function LiveMap() {
             )}
           </div>
         </div>
-        <div className="map-overlay float legend" aria-label="Legend">
+        <div className="float legend" aria-label="Legend">
           {CLASS_ORDER.map((c) => <div key={c} className="item"><span className="sw" style={{ background: CLASS_META[c].color }} />{CLASS_META[c].short}</div>)}
-          <div className="item faint" style={{ marginTop: 3 }}>Size = peak FRP · grey ring = insufficient evidence</div>
+          <div className="item faint note">Size = peak FRP · grey ring = insufficient evidence</div>
+        </div>
         </div>
         <div className="map-overlay float map-status" role="status">
           {vp.loading ? "Loading events in view…" : vp.error ? <span style={{ color: "var(--bad)" }}>Events unavailable: {vp.error}</span>
