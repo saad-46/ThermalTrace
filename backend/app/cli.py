@@ -20,8 +20,9 @@ import json
 import os
 import sys
 from datetime import date
+from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.core.config import settings
 from app.core.logging import configure_logging
@@ -45,6 +46,7 @@ def main(argv: list[str] | None = None) -> int:
     ing = sub.add_parser("ingest")
     ing.add_argument("--window", default="24h", choices=["24h", "48h", "7d"])
     sub.add_parser("import-places")
+    sub.add_parser("prepare-database", help="Apply migrations (non-destructive), turn JIT off, report readiness")
     hist = sub.add_parser("ingest-historical")
     hist.add_argument("--source", required=True)
     hist.add_argument("--start", required=True)
@@ -82,6 +84,25 @@ def main(argv: list[str] | None = None) -> int:
             db.add(User(email=args.email.lower(), full_name=args.name, password_hash=hash_password(password), role=args.role))
             db.commit()
             print(f"created {args.role} {args.email.lower()}")
+        elif args.cmd == "prepare-database":
+            # Everything here is additive: pending migrations only, and a per-database JIT setting (the startup option
+            # that normally turns JIT off is not accepted through a transaction pooler). No data is changed.
+            from alembic import command
+            from alembic.config import Config
+
+            backend_dir = Path(__file__).resolve().parents[1]
+            cfg = Config(str(backend_dir / "alembic.ini"))
+            cfg.set_main_option("script_location", str(backend_dir / "alembic"))
+            command.upgrade(cfg, "head")
+            db.execute(text("DO $$ BEGIN EXECUTE format('ALTER DATABASE %I SET jit = off', current_database()); END $$"))
+            db.commit()
+            _print({
+                "migration": db.execute(text("SELECT version_num FROM alembic_version")).scalar_one(),
+                "postgis": db.execute(text("SELECT postgis_lib_version()")).scalar_one(),
+                "events": db.execute(text("SELECT count(*) FROM thermal_events")).scalar_one(),
+                "facilities": db.execute(text("SELECT count(*) FROM facilities")).scalar_one(),
+                "boundaries": db.execute(text("SELECT count(*) FROM boundaries")).scalar_one(),
+            })
         elif args.cmd == "ingest":
             from app.services.ingestion import ingest_firms_nrt
 
@@ -137,8 +158,6 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(boundaries.load(db)))
             db.commit()
         elif args.cmd == "build-boundaries":
-            from pathlib import Path
-
             from app.gis import boundaries
 
             print(json.dumps(boundaries.build_files(db, Path(args.countries), Path(args.states), args.version)))

@@ -719,3 +719,15 @@ def test_cdse_token_missing_invalid_and_valid_credentials(monkeypatch):
     url, data, params, headers = calls[0]
     assert data["grant_type"] == "client_credentials" and data["client_secret"] == "s3cret"
     assert "s3cret" not in url and not params and not headers
+
+
+def test_transaction_pooler_detection_from_database_url():
+    from app.db.session import uses_transaction_pooler
+
+    assert uses_transaction_pooler("postgresql://u:p@aws-0-ap-south-1.pooler.supabase.com:6543/postgres")
+    assert uses_transaction_pooler("postgres://u:p@ep-x-123-pooler.ap-southeast-1.aws.neon.tech/db?sslmode=require")
+    assert uses_transaction_pooler("postgresql://u:p@db.example.org:6543/app")
+    assert not uses_transaction_pooler("postgresql://u:p@ep-x-123.ap-southeast-1.aws.neon.tech/db?sslmode=require")
+    assert not uses_transaction_pooler("postgresql+psycopg://u:p@localhost:5432/thermaltrace")
+    assert uses_transaction_pooler("postgresql+psycopg://u:p@localhost:5432/thermaltrace", override=True)
+    assert not uses_transaction_pooler("postgresql://u:p@x.pooler.supabase.com:6543/postgres", override=False)

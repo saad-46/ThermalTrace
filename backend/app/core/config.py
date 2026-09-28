@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     database_url: str = f"postgresql+psycopg://thermaltrace:{_DEV_DB_PASSWORD}@localhost:5432/thermaltrace"
     db_pool_size: int = 10
     db_max_overflow: int = 10
+    # A transaction-mode connection pooler (PgBouncer, Supabase Supavisor on :6543, Neon "-pooler" hosts), which
+    # serverless hosts such as Vercel need, supports neither server-side prepared statements nor startup options.
+    # None = detect from DATABASE_URL; true/false overrides the detection.
+    db_transaction_pooler: bool | None = None
 
     # --- security --------------------------------------------------------------------------
     secret_key: SecretStr = SecretStr(_INSECURE_DEV_SECRET)

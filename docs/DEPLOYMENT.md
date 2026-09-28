@@ -69,6 +69,28 @@ to the frontend. The browser calls the API same-origin, so no CORS setup is need
   The backend needs `ENVIRONMENT=production`, a random `SECRET_KEY` (32+ characters), `DATABASE_URL` for a reachable
   PostgreSQL + PostGIS database migrated with `alembic upgrade head`, and `CORS_ORIGINS` set to the site's origin.
   `POSTGRES_*` are only used by Docker Compose.
+- **Database.** The function needs a PostgreSQL 15+ database with PostGIS, `pg_trgm`, `cube` and `btree_gist`, reachable
+  from the internet over TLS (for example Neon or Supabase; both provide these extensions). `localhost` in
+  `DATABASE_URL` points at the function's own container, so a copied local `.env` makes every database endpoint fail
+  (`/api/v1/ready` 503 "database unavailable or not migrated", `/api/v1/public/landing` and `POST /api/v1/auth/demo`
+  500) while `/api/v1/health` still answers.
+  1. Create the database and copy two connection strings: the **pooled** one (Neon host with `-pooler`, Supabase
+     Supavisor on port 6543) for Vercel, and the **direct** one for migrations and workers. Keep `sslmode=require`.
+  2. From a machine with this repository, against the direct URL (additive only: pending migrations, a per-database
+     `jit = off`, then a readiness report):
+     `cd backend && DATABASE_URL=<direct url> python -m app.cli prepare-database`
+  3. Load data into it with the same commands as a local install (README, step 9) and `DATABASE_URL=<direct url>`:
+     `ingest --window 7d`, `process`, optionally `import-registry --source wri_gppd` and `import-places`; the workers
+     (below) keep it current.
+  4. In Vercel set `DATABASE_URL` to the pooled URL, `DB_POOL_SIZE=2`, `DB_MAX_OVERFLOW=3` (each function instance
+     has its own pool). A transaction pooler is detected from the URL (`:6543`, `-pooler.` hosts,
+     `*.pooler.supabase.com`); `DB_TRANSACTION_POOLER=true|false` overrides the detection. Through a pooler the app
+     disables server-side prepared statements and does not send startup options.
+- **Production settings.** Set `ENVIRONMENT=production` (a copied development `.env` leaves it `development`). The API
+  then refuses to start unless `SECRET_KEY` is random and 32+ characters, `DATABASE_URL` is not the development one and
+  `CORS_ORIGINS` lists the public origin, e.g. `https://thermal-trace-blue.vercel.app` (comma-separate several; the
+  same-origin `/api` calls do not need CORS, other origins do). `EXPLORE_MODE_ENABLED=true` enables the read-only demo.
+  Redeploy after changing variables: Vercel applies them to new deployments only.
 - The function serves the API only. Vercel does not run the background workers or the scheduler (FIRMS polling,
   enrichment, reports, imagery analysis): run `python -m app.workers.run --scheduler --lane bulk` and
   `--lane interactive` on a host with access to the same database, as in Docker Compose. Migrations are run from there
