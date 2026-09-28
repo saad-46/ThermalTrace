@@ -25,6 +25,3 @@ pypdf==6.19.0  # CEA station-list PDF (app/integrations/cea_pdf.py)
 rasterio==1.5.1  # windowed COG reads: ESA WorldCover land cover, Sentinel-2 band windows (NDVI/NBR)
 pywebpush==2.0.1
 sentry-sdk[fastapi]==2.70.0  # 2.19.x crashes at init under Starlette 1.x (templating import)
-# --- dev / test ---
-pytest==9.0.3
-ruff==0.8.4

@@ -147,7 +147,7 @@ docker compose up -d db
 ```bash
 cd backend
 python -m venv .venv
-.venv/Scripts/pip install -r requirements.txt     # Linux/macOS: .venv/bin/pip
+.venv/Scripts/pip install -r requirements-dev.txt # Linux/macOS: .venv/bin/pip; runtime only: requirements.txt
 ```
 
 **5. Run the migrations** (creates all 43 tables and seeds roles and sources; no users are seeded)

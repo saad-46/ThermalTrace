@@ -26,7 +26,7 @@ Every backend container reads the whole `.env` (`env_file`); the compose `enviro
 
 ```bash
 docker compose up -d db
-cd backend && python -m venv .venv && .venv/Scripts/pip install -r requirements.txt   # (bin/ on Linux/macOS)
+cd backend && python -m venv .venv && .venv/Scripts/pip install -r requirements-dev.txt   # (bin/ on Linux/macOS)
 alembic upgrade head
 python -m app.cli create-user --email admin@org --name Admin --role admin
 uvicorn app.main:app --reload --reload-dir app
@@ -45,6 +45,32 @@ cd ../frontend && npm install && npm run dev             # terminal 4 (proxies /
 | Worker (interactive) | 1..n containers: `python -m app.workers.run --lane interactive` | Reports and on-demand enrichment. |
 | Report storage | A volume mounted at `/app/var` shared by the API and workers | Or swap `REPORT_STORAGE_DIR` for object storage (roadmap). |
 | Web | Vercel / Netlify / any static host, or `frontend/Dockerfile` (nginx) | Build with `VITE_API_BASE_URL=https://api.example.org`. SPA fallback to `index.html`. |
+
+## Vercel (Services)
+
+`vercel.json` deploys two services on one domain: `frontend` (Vite static build, with an `index.html` fallback for
+client-side routes) and `backend` (FastAPI, entrypoint `app.main:app` relative to `backend/`). Top-level rewrites send
+`/api/*` to the backend with the original path (so `/api/v1/...`, `/api/docs`, `/api/openapi.json`) and everything else
+to the frontend. The browser calls the API same-origin, so no CORS setup is needed.
+
+- Python dependencies come from `backend/requirements.txt` and Python 3.12 from `backend/.python-version`. Do not add a
+  `backend/pyproject.toml`: Vercel would treat it as the dependency manifest and ignore `requirements.txt`. Tool
+  settings live in `ruff.toml` and `pytest.ini`; test tools in `requirements-dev.txt`.
+- The backend function is ~730 MB uncompressed (scipy, shap/llvmlite, rasterio/GDAL, pandas, scikit-learn,
+  lightgbm, matplotlib), above the standard 500 MB Python limit. It needs Vercel **large functions** (beta, up to
+  5 GB, Fluid compute): enabled by default for new projects; otherwise set `VERCEL_SUPPORT_LARGE_FUNCTIONS=1` in the
+  project's environment variables.
+- Project environment variables: leave `VITE_API_BASE_URL` empty (same-origin `/api`). `VITE_*` values are compiled
+  into the public bundle: only public values (map styles, the domain-restricted CARTO key, `VITE_SATELLITE_IMAGERY`).
+  The backend needs `ENVIRONMENT=production`, a random `SECRET_KEY` (32+ characters), `DATABASE_URL` for a reachable
+  PostgreSQL + PostGIS database migrated with `alembic upgrade head`, and `CORS_ORIGINS` set to the site's origin.
+  `POSTGRES_*` are only used by Docker Compose.
+- The function serves the API only. Vercel does not run the background workers or the scheduler (FIRMS polling,
+  enrichment, reports, imagery analysis): run `python -m app.workers.run --scheduler --lane bulk` and
+  `--lane interactive` on a host with access to the same database, as in Docker Compose. Migrations are run from there
+  too, never at build time.
+- Importing the app does not connect to the database; `/api/v1/health` answers without it and `/api/v1/ready`
+  returns 503 until the database is reachable and migrated.
 
 ## Fail-closed defaults
 

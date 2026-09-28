@@ -8,7 +8,8 @@ This is the state of branch `production-consolidation` after the final cleanup: 
 |---|---|
 | `backend/app/` (72 files) | FastAPI application. The modules are: `api/v1` routers, `core` (config, security, middleware, logging), `db`, `models`, `schemas`, `repositories`, `integrations` (FIRMS, Overpass, registries, Sentinel, weather, HTTP layer), `processing` (clustering, persistence, attribution, features, confidence, priority, evidence, pipeline), `ml` (rule cascade, LightGBM + SHAP, registry), `services`, `workers` (job queue, scheduler), `cli.py`, `main.py`. |
 | `backend/alembic/`, `backend/alembic.ini` | Schema migrations 0001–0003. Nothing is created at application start. |
-| `backend/requirements.txt` | Pinned Python dependencies (runtime + test tools). |
+| `backend/requirements.txt` | Pinned runtime Python dependencies (Docker image, Vercel function). |
+| `backend/requirements-dev.txt` | Runtime dependencies plus test and lint tools. |
 | `frontend/src/` (38 files) | React application: desktop, tablet and mobile shells, pages, components, API client, hooks. |
 | `frontend/index.html`, `frontend/public/{icon.svg,manifest.webmanifest,sw.js}` | App entry and PWA assets (service worker, manifest, icon). |
 | `frontend/package.json`, `frontend/package-lock.json` | Node dependencies (lockfile kept for reproducible `npm ci`). |
@@ -21,7 +22,8 @@ This is the state of branch `production-consolidation` after the final cleanup: 
 | Path | Purpose |
 |---|---|
 | `.env.example`, `.env.development.example`, `.env.production.example`, `frontend/.env.example` | Environment templates. Placeholders only; blank values parse as empty (guarded by a test). |
-| `backend/pyproject.toml` | ruff and pytest configuration. |
+| `backend/ruff.toml`, `backend/pytest.ini` | ruff and pytest configuration (kept out of `pyproject.toml` so Vercel installs from `requirements.txt`). |
+| `backend/.python-version` | Python 3.12 for the Vercel build. |
 | `backend/tests/` | 50 tests: unit, ML, PostGIS integration. |
 | `frontend/vitest.config.ts`, `frontend/src/__tests__/` | 17 Vitest unit and component tests. |
 | `frontend/playwright.config.ts`, `frontend/e2e/acceptance.spec.ts` | E2E acceptance tests (desktop, tablet, mobile). Credentials come from env. |
