@@ -87,7 +87,7 @@ interface IndiaBoundary {
 }
 const EMPTY: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
-const classColorExpr: maplibregl.ExpressionSpecification = [
+export const classColorExpr: maplibregl.ExpressionSpecification = [
   "match", ["get", "classification"],
   ...Object.entries(CLASS_META).flatMap(([k, v]) => [k, v.color]),
   "#9aa1ab",

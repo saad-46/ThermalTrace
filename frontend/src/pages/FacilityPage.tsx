@@ -4,7 +4,7 @@ import { Fragment, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { HBars } from "../components/charts";
 import { ExtLink } from "../components/evidence";
-import { FacilityContextMap } from "../components/FacilityContextMap";
+import { FacilityContextMap, type MapView } from "../components/FacilityContextMap";
 import { FacilityProfileSections, RelationshipContext } from "../components/facilityIntel";
 import { KnowledgeBadge } from "../components/workspace";
 import { PriorityPill } from "../components/triage";
@@ -20,7 +20,7 @@ interface FacEvent {
   id: string; public_id: string; first_detected: string; last_detected: string; classification: SourceClass; persistence_class: PersistenceClass;
   persistence_score: number | null; confidence_state: DisplayState; confidence_score: number | null; priority_score: number | null;
   review_status: ReviewStatus; display_state: DisplayState; status: string; observation_count: number; frp_max: number | null; brightness_max: number | null;
-  distance_m: number; attribution_score: number; rank: number;
+  distance_m: number; attribution_score: number; rank: number; latitude: number | null; longitude: number | null;
 }
 interface FacEvents {
   profile: FacilityProfile;
@@ -34,8 +34,9 @@ const PAGE = 50;
 
 export default function FacilityPage() {
   const { id } = useParams();
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const eventRef = params.get("event");
+  const initialView = params.get("view") === "satellite" ? "satellite" : "map";
   const { can } = useSession();
   const [theme] = useTheme();
   const toast = useToast();
@@ -50,8 +51,10 @@ export default function FacilityPage() {
     try { await actions.addWatchItem(wlId)({ kind: "facility", label: f.name ?? FACILITY_LABELS[f.facility_type], facility_id: f.id, radius_m: 3000 }); toast("Facility added to watchlist"); }
     catch (e) { toast(errText(e), "error"); }
   };
-  const mapFacility = useMemo(() => fac.data && { latitude: fac.data.latitude, longitude: fac.data.longitude, facility_type: fac.data.facility_type, name: fac.data.name },
-    [fac.data]);
+  const mapFacility = useMemo(() => fac.data && { latitude: fac.data.latitude, longitude: fac.data.longitude, facility_type: fac.data.facility_type, name: fac.data.name,
+    operator: fac.data.operator, status: fac.data.status }, [fac.data]);
+  // keep ?view=satellite in the URL so the view survives reloads and can be linked to (replace: no extra history entries)
+  const onViewChange = (v: MapView) => setParams((p) => { const n = new URLSearchParams(p); if (v === "satellite") n.set("view", "satellite"); else n.delete("view"); return n; }, { replace: true });
   const mapEvent = useMemo(() => rel.data && { latitude: rel.data.event.latitude, longitude: rel.data.event.longitude, public_id: rel.data.event.public_id }, [rel.data]);
 
   return (
@@ -111,8 +114,9 @@ export default function FacilityPage() {
                 ))}
               </dl>
             </div></section>
-            <section className="panel"><div className="panel-head"><h2>Map context</h2><span className="right"><KnowledgeBadge k="registry" /></span></div><div className="panel-body" style={{ padding: 0 }}>
-              {mapFacility && <FacilityContextMap facility={mapFacility} event={mapEvent} distanceM={rel.data?.distance_m} theme={theme} />}
+            <section className="panel" data-tour-id="facility-satellite"><div className="panel-head"><h2>Map context</h2><span className="right"><KnowledgeBadge k="registry" /></span></div><div className="panel-body" style={{ padding: 0 }}>
+              {mapFacility && <FacilityContextMap key={f.id} facility={mapFacility} event={mapEvent} distanceM={rel.data?.distance_m} theme={theme}
+                nearby={hist.data?.events} initialView={initialView} onViewChange={onViewChange} />}
               <div className="faint" style={{ fontSize: 11.5, padding: "8px 12px" }}>
                 Rings: {eventRef ? "around the selected event" : "around the facility"}: 2 km (rule "near" threshold) and 10 km (facility search radius).
               </div>

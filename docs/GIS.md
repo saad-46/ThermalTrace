@@ -129,3 +129,14 @@ See DATA_SOURCES.md. Facilities are synced by 1° tile. An event counts as cover
   classes); the EOX satellite basemap. The legend lists only active layers. The selected facility gets an outline,
   facilities linked to the selected event a blue ring. The ESA WorldCover WMS was not reachable from the development
   network, so the map's land-cover layer uses OSM data; per-event land cover remains ESA WorldCover.
+- **Facility satellite view**: the facility page's map has a Map / Satellite toggle (default Map, unchanged). Satellite
+  adds EOX Sentinel-2 cloudless annual mosaic tiles (2018 to 2025, Web Mercator, to zoom 17) centred on the facility's
+  registered coordinates, above the vector basemap and below the overlays: the same 2 km / 10 km rings (white over
+  imagery), the selected event and the events linked to the facility within 3 km (class colours, FRP sizing; click
+  opens the event). A mosaic is a composite with no single acquisition date, so the card shows "{year} annual mosaic"
+  and "Date unavailable" when imagery did not load. Tiles are requested only after the first switch to Satellite and
+  are kept (hidden) when switching back; the map is rebuilt per facility, so no imagery carries over. States: loading,
+  available, no imagery (every tile 404; MapLibre reports these silently, so this is a settled source with nothing
+  loaded), failure with Retry (network, 401/403, 429, other HTTP errors, offline, 20 s timeout), not configured
+  (`VITE_SATELLITE_IMAGERY=off`) and invalid coordinates. The imagery is context, separate from the NDVI / NBR
+  before/after analysis, and never evidence that a fire occurred or that the facility caused an anomaly.

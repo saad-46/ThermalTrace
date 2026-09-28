@@ -419,7 +419,7 @@ def featured_event(db: Session) -> dict | None:
           (SELECT id FROM thermal_events ORDER BY priority_score DESC NULLS LAST, id LIMIT 300)
           UNION (SELECT event_id FROM landcover_observations LIMIT 500)
           UNION (SELECT event_id FROM imagery_analyses WHERE status = 'ok' LIMIT 500))
-        SELECT e.id, e.priority_score,
+        SELECT e.id, e.priority_score, e.nearest_facility_id,
           coalesce(e.nearest_facility_distance_m <= 2000, false) AS facility,
           coalesce(e.classification NOT IN ('unknown', 'other'), false) AS classified,
           coalesce(e.confidence_state <> 'INSUFFICIENT_EVIDENCE', false) AS confident,
@@ -437,5 +437,6 @@ def featured_event(db: Session) -> dict | None:
     summary = get_summary(db, best["id"])
     summary["selection_reasons"] = [has for key, _, has, _ in _FEATURE_CRITERIA if best[key]]
     summary["unavailable_evidence"] = [missing for key, _, _, missing in _FEATURE_CRITERIA if not best[key]]
+    summary["nearest_facility_id"] = best["nearest_facility_id"]  # the tour opens its facility page
     return summary
 

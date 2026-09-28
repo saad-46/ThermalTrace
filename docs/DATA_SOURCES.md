@@ -18,6 +18,7 @@ Every source is registered in the `data_sources` table. Its health (status, last
 | GeoNames cities500 | Offline place names for events: nearest populated place (about 10,000 places in the region) | Downloaded once by `python -m app.cli import-places` (`download.geonames.org/export/dump/`), stored in PostGIS | None (CC BY 4.0, attribute GeoNames) | Static; refresh on demand |
 | OSM Nominatim | Admin geocoding (state, district) | Reverse geocoding at ≤ 1 req/s, cached 90 days | None | On demand |
 | EOX Sentinel-2 cloudless 2021 | Optional satellite basemap tiles | WMTS | None (CC BY-NC-SA 4.0: **non-commercial**) | 2021 mosaic. Context only. |
+| EOX Sentinel-2 cloudless 2018 to 2025 | Facility satellite view (facility page, Satellite toggle) | WMTS tiles `s2cloudless-{year}_3857`, fetched by the browser only when Satellite is chosen; no API endpoint | None (CC BY-NC-SA 4.0: **non-commercial**). `VITE_SATELLITE_IMAGERY=off` hides it | Annual cloud-free composites of many scenes: shown as "{year} annual mosaic", never with an invented acquisition date. Context only; not dated to any event, not fire or burn evidence. The credentialed Copernicus Sentinel Hub account is not used for it. |
 | CARTO Positron / Dark Matter | Vector basemap | Style JSON | None | — |
 
 ## Source states (one definition, shown everywhere)

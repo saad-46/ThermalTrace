@@ -109,7 +109,7 @@ def facility_events(facility_id: uuid.UUID, within_m: float = Query(3000, ge=100
     rows = db.execute(text("""
         SELECT e.id, e.public_id, e.first_detected, e.last_detected, e.classification, e.persistence_class,
                e.persistence_score, e.confidence_state, e.confidence_score, e.priority_score, e.review_status, e.status,
-               e.observation_count, e.frp_max, l.distance_m, l.attribution_score, l.rank,
+               e.observation_count, e.frp_max, e.latitude, e.longitude, l.distance_m, l.attribution_score, l.rank,
                (SELECT max(d.brightness) FROM thermal_detections d WHERE d.event_id = e.id) AS brightness_max
         FROM event_facility_links l JOIN thermal_events e ON e.id = l.event_id
         WHERE l.facility_id = :id AND l.distance_m <= :w ORDER BY e.last_detected DESC LIMIT :limit OFFSET :offset"""),

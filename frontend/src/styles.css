@@ -784,6 +784,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .fac-card .fc-note { font-size: 10.5px; color: var(--text-3); border-top: 1px dashed var(--border); padding-top: 6px; }
 .fac-card .fc-open { align-self: flex-start; gap: 4px; }
 .fac-card .fc-open:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.fac-card .fc-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .fac-sheet { position: fixed; left: 8px; right: 8px; bottom: 8px; z-index: 60; display: flex; justify-content: center; }
 .fac-sheet .fac-card { width: 100%; max-width: 480px; animation: fc-up 0.18s ease-out; background: var(--surface);
   border-color: var(--border-strong); box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.35); max-height: 70vh; overflow: auto; }
@@ -796,6 +797,34 @@ table.table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .fac-context-map { position: relative; height: 300px; width: 100%; border-radius: 0 0 var(--radius) var(--radius); overflow: hidden; }
 .table tr.row-selected td { background: color-mix(in srgb, var(--thermal) 10%, transparent); }
 @media (max-width: 860px) { .fac-grid { grid-template-columns: minmax(0, 1fr); } .fac-context-map { height: 260px; } }
+/* facility map: Map / Satellite toggle, imagery status and the satellite context card */
+.fac-map-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.fac-map-bar .seg button { height: 32px; min-width: 76px; padding: 0 12px; }
+.fac-map-bar .seg button:focus-visible, .fac-map-msg .btn:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.fac-map-year { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.fac-map-year .select { height: 32px; }
+.fac-map-stage { position: relative; }
+.fac-map .fac-context-map { border-radius: 0; }
+.fac-map-msg { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(320px, calc(100% - 32px)); z-index: 2;
+  display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; padding: 14px 16px; font-size: 12.5px;
+  background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18); }
+.fac-map-msg .title { font-weight: 600; color: var(--text); }
+.fac-map-msg:not(.loading) svg { color: var(--warn, var(--text-2)); }
+.fac-map-msg.loading { flex-direction: row; top: 12px; transform: translateX(-50%); width: auto; padding: 7px 12px; }
+.fac-map-msg.loading .title { font-weight: 500; }
+.fac-sat-card { padding: 10px 12px; border-top: 1px solid var(--border); animation: fac-sat-in 0.25s ease-out; }
+.fac-sat-head { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2); margin-bottom: 6px; }
+.fac-sat-card .kv { font-size: 12.5px; }
+.fac-sat-card .kv dd { overflow-wrap: anywhere; }
+.fac-sat-note { font-size: 11.5px; margin-top: 6px; }
+@keyframes fac-sat-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .fac-sat-card { animation: none; } }
+@media (max-width: 480px) {
+  .fac-map-bar { padding: 8px 10px; }
+  .fac-map-bar .seg { flex: 1; } .fac-map-bar .seg button { flex: 1; min-width: 0; height: 36px; }
+  .fac-map-year .select { height: 36px; }
+  .fac-sat-card { padding: 8px 10px; } .fac-sat-card .kv { font-size: 12px; }
+}
 
 /* ---------------------------------------------------------------- investigation workspace */
 .workspace-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 12px; align-items: start; }

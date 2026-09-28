@@ -117,6 +117,7 @@ class EventSummary(BaseModel):
 class FeaturedEvent(EventSummary):
     selection_reasons: list[str]
     unavailable_evidence: list[str]
+    nearest_facility_id: uuid.UUID | None = None
 
 
 class EventDetail(EventSummary):

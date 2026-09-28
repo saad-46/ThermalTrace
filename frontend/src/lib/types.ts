@@ -305,6 +305,7 @@ export interface ImageryAnalysis {
 export interface FeaturedEvent extends EventSummary {
   selection_reasons: string[];
   unavailable_evidence: string[];
+  nearest_facility_id?: string | null;
 }
 
 export interface EventDetail extends EventSummary {

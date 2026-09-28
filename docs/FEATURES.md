@@ -23,6 +23,7 @@ Status of every capability on `main`. Statuses: **EXISTS** (built and tested), *
 | Multi-source facility consolidation | EXISTS | P1 |
 | Facility thermal-activity profile | IMPLEMENTED | P1 |
 | Facility card on map click → facility details (relationship to the event, provenance, registry ids, map with 2 / 10 km rings, timeline, paginated history) | IMPLEMENTED (desktop popup, phone bottom sheet) | P1 |
+| Facility satellite view: Map / Satellite toggle on the facility map (EOX Sentinel-2 cloudless annual mosaic 2018 to 2025 centred on the facility's coordinates; 2 / 10 km rings, selected and linked events, clickable; context card with source and mosaic year; loading / no imagery / failure with Retry / not configured states; `?view=satellite` link from the facility card). Context only, never fire evidence | IMPLEMENTED (desktop, tablet, phone; works in both demo roles) | P1 |
 | Sentinel-2 scene search + previews | EXISTS; automatic for top-priority events (context backfill) and on demand (*Search Sentinel-2 imagery*); before/after windows fixed 27 Sep 2026 | P1 |
 | Sentinel-2 NDVI / NBR change (before vs after, cloud-masked) | IMPLEMENTED (on demand, offered only when a clear scene exists on both sides; dNBR sign fixed and dark-surface guard added 27 Sep 2026) | P1 |
 | Raster land cover (ESA WorldCover 10 m) per event | IMPLEMENTED (enrichment step + backfill) | P1 |

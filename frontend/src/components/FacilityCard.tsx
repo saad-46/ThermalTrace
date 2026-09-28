@@ -56,7 +56,10 @@ export function FacilityCard({ p, lngLat, focus, onClose, variant }: {
         )}
       </dl>
       <div className="fc-note">Sources agreeing on a location is not certainty about activity; attribution is supporting evidence, not proof.</div>
-      <Link className="btn sm primary fc-open" to={to} data-testid="facility-open">View facility details <ArrowRight size={13} /></Link>
+      <div className="fc-actions">
+        <Link className="btn sm primary fc-open" to={to} data-testid="facility-open">View facility details <ArrowRight size={13} /></Link>
+        <Link className="btn sm fc-open" to={`${to}${to.includes("?") ? "&" : "?"}view=satellite`} data-testid="facility-satellite">Satellite view</Link>
+      </div>
     </div>
   );
 }

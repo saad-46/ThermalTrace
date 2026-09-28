@@ -312,7 +312,7 @@ Details: [docs/ML.md](docs/ML.md).
 - Public Overpass is slow, so the local facility index fills gradually. Self-host Overpass for national backfills.
 - Imagery is analysed only as NDVI / NBR change on request, and only when clear scenes bracket the event. There is no automated imagery classifier, and scene previews show the whole tile.
 - The region of interest is a bounding box, so it includes parts of neighbouring countries.
-- The EOX Sentinel-2 cloudless basemap is non-commercial (CC BY-NC-SA).
+- The EOX Sentinel-2 cloudless basemap and facility satellite view are non-commercial (CC BY-NC-SA); `VITE_SATELLITE_IMAGERY=off` hides the facility imagery. Mosaics are annual composites with no single acquisition date: context, not fire evidence.
 
 Current state and next priorities: [docs/FINAL_STATUS.md](docs/FINAL_STATUS.md) and [docs/FEATURE_ROADMAP.md](docs/FEATURE_ROADMAP.md).
 

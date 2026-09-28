@@ -175,7 +175,7 @@ Hardening (2026-09-28):
 | GET | `/api/v1/facilities` | List Facilities |
 | GET | `/api/v1/facilities/geojson` | Facilities in a viewport, for the map layer |
 | GET | `/api/v1/facilities/{facility_id}` | Get Facility |
-| GET | `/api/v1/facilities/{facility_id}/events` | Facility-level thermal history (`limit`, `offset`, `total`; per event: distance, persistence, FRP, brightness, class, confidence, priority) |
+| GET | `/api/v1/facilities/{facility_id}/events` | Facility-level thermal history (`limit`, `offset`, `total`; per event: coordinates, distance, persistence, FRP, brightness, class, confidence, priority) |
 | GET | `/api/v1/facilities/{facility_id}/relationship?event=` | How one event relates to the facility: distance, bearing, attribution rank and score if linked |
 
 ### models

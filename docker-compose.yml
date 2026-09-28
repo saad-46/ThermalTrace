@@ -98,6 +98,7 @@ services:
         VITE_MAP_STYLE_LIGHT: ${VITE_MAP_STYLE_LIGHT:-}
         VITE_MAP_STYLE_DARK: ${VITE_MAP_STYLE_DARK:-}
         VITE_CARTO_API_KEY: ${VITE_CARTO_API_KEY:-}
+        VITE_SATELLITE_IMAGERY: ${VITE_SATELLITE_IMAGERY:-}
     ports:
       - "5173:80"
     depends_on:

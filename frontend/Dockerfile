@@ -9,8 +9,11 @@ ARG VITE_MAP_STYLE_LIGHT=""
 ARG VITE_MAP_STYLE_DARK=""
 # Public by design: map keys are sent by the browser. Restrict it by domain in the CARTO dashboard if offered.
 ARG VITE_CARTO_API_KEY=""
+# "off" hides the facility satellite imagery (non-commercial EOX tiles); public, no key.
+ARG VITE_SATELLITE_IMAGERY=""
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL VITE_MAP_STYLE_LIGHT=$VITE_MAP_STYLE_LIGHT \
-    VITE_MAP_STYLE_DARK=$VITE_MAP_STYLE_DARK VITE_CARTO_API_KEY=$VITE_CARTO_API_KEY
+    VITE_MAP_STYLE_DARK=$VITE_MAP_STYLE_DARK VITE_CARTO_API_KEY=$VITE_CARTO_API_KEY \
+    VITE_SATELLITE_IMAGERY=$VITE_SATELLITE_IMAGERY
 RUN npm run build
 
 # --- serve ---------------------------------------------------------------

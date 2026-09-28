@@ -106,3 +106,5 @@ This log covers major defects: the root cause, the impact, the fix, and how the 
 | 78 | Training could activate a model without review | `train_model` accepted `activate` | Training always stores the model inactive | `test_training_never_activates_a_model` |
 | 79 | Short queries with correlated sub-selects took over a second (creating an alert rule 2-7 s, the dashboard overview 1.5 s) | PostgreSQL's JIT compiled them because of their cost estimate (~1.2 s of compilation for a 70 ms query) | JIT disabled on application connections (`app/db/session.py`); the overview dropped to 0.6 s, alert evaluation from 1.4 s to 0.07 s | timed on the database copy; backend suite |
 | 80 | Creating an area alert rule matching many recent events was slow | Alerts were committed and the rule locked once per alert | All of a rule's alerts are committed together before delivery; a commit per alert only after an e-mail or push actually left | E2E acceptance |
+| 81 | The web Docker image did not build | A literal `
+` inside the Dockerfile's `ENV` line (added with `VITE_SATELLITE_IMAGERY`) | Line continuation restored | `docker build ./frontend` |

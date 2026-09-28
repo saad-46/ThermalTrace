@@ -130,7 +130,7 @@ test.describe("explore modes", () => {
 
     const steps = await walk(page, "desktop analyst");
     test.info().annotations.push({ type: "analyst steps", description: steps.map(([t, l]) => `${l ? "●" : "○"} ${t}`).join(" | ") });
-    expect(steps.length).toBe(24);
+    expect(steps.length).toBe(25);
     expect(steps.filter(([, lit]) => lit).length, "spotlighted steps").toBeGreaterThanOrEqual(17);
     await shot(page, "analyst-done");
 
@@ -193,7 +193,7 @@ test.describe("explore modes", () => {
     await page.getByRole("region", { name: "Demo mode" }).getByRole("button", { name: "Restart tour" }).click();
     const steps = await walk(page, "desktop admin");
     test.info().annotations.push({ type: "admin steps", description: steps.map(([t, l]) => `${l ? "●" : "○"} ${t}`).join(" | ") });
-    expect(steps.length).toBe(17);
+    expect(steps.length).toBe(18);
     expect(steps.every(([, lit]) => lit), "every admin step spotlights its target").toBe(true);
     await shot(page, "admin-done");
     await page.getByRole("button", { name: "Explore ThermalTrace" }).click();
@@ -223,7 +223,7 @@ test.describe("explore modes", () => {
       await expect(page.locator("#tour-step-title")).toHaveText("Welcome to ThermalTrace", { timeout: 20_000 });
       if (mobile) await expect(page.locator(".tour-card.tour-sheet")).toBeVisible();
       const analyst = await walk(page, `${name} analyst`);
-      expect(analyst.length).toBe(24);
+      expect(analyst.length).toBe(25);
       test.info().annotations.push({ type: `${name} analyst`, description: analyst.map(([t, l]) => `${l ? "●" : "○"} ${t}`).join(" | ") });
       await shot(page, `${name}-analyst-done`);
       await page.getByRole("button", { name: "Explore ThermalTrace" }).click();
@@ -232,7 +232,7 @@ test.describe("explore modes", () => {
       await banner.getByRole("button", { name: "Switch", exact: true }).click();
       await expect(page.locator("#tour-step-title")).toHaveText("Behind the investigation", { timeout: 20_000 });
       const admin = await walk(page, `${name} admin`);
-      expect(admin.length).toBe(17);
+      expect(admin.length).toBe(18);
       test.info().annotations.push({ type: `${name} admin`, description: admin.map(([t, l]) => `${l ? "●" : "○"} ${t}`).join(" | ") });
       await banner.getByRole("button", { name: "Exit demo" }).click();
       await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();

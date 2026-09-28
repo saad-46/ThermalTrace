@@ -7,6 +7,9 @@ import type { Tour, TourContext } from "./types";
 const ev = (ctx: TourContext) => ctx.featured?.public_id ?? null;
 const eventRoute = (ctx: TourContext) => (ev(ctx) ? `/events/${ev(ctx)}` : null);
 const mapRoute = (ctx: TourContext) => (ev(ctx) ? `/map?event=${ev(ctx)}` : "/map");
+/** The featured event's nearest facility, opened in its satellite view (null when the event has no mapped facility). */
+const satelliteRoute = (ctx: TourContext) => (ev(ctx) && ctx.featured?.nearest_facility_id
+  ? `/facilities/${ctx.featured.nearest_facility_id}?event=${ev(ctx)}&view=satellite` : null);
 const NO_EVENT = "No thermal events have been ingested on this installation yet, so there is no real event to show here. Once FIRMS data arrives, this step points at one.";
 
 const list = (items: string[]) => (items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`);
@@ -89,6 +92,14 @@ export const ANALYST_TOUR: Tour = {
       id: "rings", title: "The 2 km and 10 km rings", target: "map-canvas", route: mapRoute,
       body: "Around the selected event, the inner dashed ring is 2 km, the distance the rules treat as “near” industry; the outer ring is 10 km, the facility search radius.",
       learnMore: "Both radii are configuration, documented in docs/GIS.md; they are not tuned per event.",
+      needsEvent: true, fallback: NO_EVENT,
+    },
+    {
+      id: "satellite", title: "Satellite context", target: "facility-satellite", route: satelliteRoute,
+      body: "On a facility's page, Satellite swaps the street map for real imagery centred on the facility's registered coordinates, with the same 2 km and 10 km rings, the selected event and the other events linked to it. Clicking an event opens it. The card names the source and the imagery date.",
+      how: "Sentinel-2 cloudless annual mosaics by EOX (contains modified Copernicus Sentinel data), loaded as map tiles only when Satellite is chosen. A mosaic blends many cloud-free scenes from its year, so it has no single acquisition date; the year selector lists only the mosaics that exist.",
+      why: "Seeing the ground (a plant's footprint, stockyards, fields or forest around the event) helps judge whether the facility or something else nearby is the likelier heat source.",
+      limits: "The imagery is geographic context. It is not dated to the event, does not show fire or burn scars and does not prove the facility caused the anomaly; the before/after spectral analysis is separate evidence.",
       needsEvent: true, fallback: NO_EVENT,
     },
     {
@@ -252,6 +263,14 @@ export const ADMIN_TOUR: Tour = {
       body: "Facilities are assembled from OpenStreetMap, the WRI power-plant database, Global Energy Monitor trackers and CEA files where available. Each record keeps its source, version and retrieval date; matching records from independent sources are merged.",
       why: "The system never claims two sources agree unless both list the facility near the same place.",
       limits: "Registries are incomplete and sometimes out of date, so “no facility nearby” can mean “none mapped”.",
+    },
+    {
+      id: "satellite-provider", title: "Satellite imagery provider", target: "facility-satellite", route: satelliteRoute,
+      body: "The facility satellite view uses EOX Sentinel-2 cloudless annual mosaics, fetched by the browser as public map tiles. No credentials are involved and nothing passes through the API, so it works in read-only demo sessions too.",
+      how: "Configuration is one optional web setting: VITE_SATELLITE_IMAGERY=off hides the imagery (the view then says it is not configured). The Copernicus credentials used for event imagery analysis are server-side and are not used for this basemap.",
+      why: "If the provider is slow, rate-limits or fails, the view says so with a Retry button and never substitutes other imagery; the street map remains available.",
+      limits: "EOX cloudless tiles are licensed CC BY-NC-SA 4.0 (non-commercial). A commercial deployment should turn them off or license another provider.",
+      needsEvent: true, fallback: NO_EVENT,
     },
     {
       id: "workers", title: "Background workers", target: "system-workers", route: "/system",

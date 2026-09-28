@@ -35,6 +35,7 @@ E2E_EMAIL=analyst@... E2E_PASSWORD=... [E2E_BASE_URL=http://localhost:5174] [E2E
 | `frontend/e2e/explore.spec.ts` | 7 | Guided exploration: login page, full analyst and admin tours on desktop, tablet and phones (360/390/430 px) with overflow, viewport and no-cover checks on every step; Back/Next/Skip/Restart, keyboard, read-only review refused, explicit role switch with privileges checked, exit revokes the session on the server |
 | `frontend/e2e/landing.spec.ts` | 11 | Landing page at 1920×1080, 1440×900, 1280×800, 1024×768, 768×1024, 360×800, 390×844, 430×932: flames on real busiest areas, source-health list equal to the backend (states and reasons), India outline on the Copernicus card, sign-in and Explore buttons in the first viewport, live figures equal to the public endpoint, every section, no overflow or escaping panels, no console errors; wrong-password error; reduced motion; Explore Analyst then Admin start server demo sessions and their tours |
 | `frontend/e2e/investigation.spec.ts` | 1 | A real event: Sentinel-2 state and search, weather retrieval (values or an explicit no-data / provider state), then its attributed facility clicked on the map, the facility page, and the relationship back from the event. Assumes no facility name or future scene |
+| `frontend/e2e/satellite.spec.ts` | 9 | Facility satellite view through the analyst demo (no credentials, writes nothing): Map default with no imagery requests; Satellite loads tiles at the facility's coordinates, card wording (annual mosaic, no acquisition date, context only), no refetch when toggling; EOX tiles intercepted to simulate 403, 429, all-404 (no imagery, no Retry) and a timeout, then Retry recovers; the facility popup's Satellite view link; 360/390/430 px |
 | `frontend/e2e/acceptance.spec.ts` | 3 | **Desktop**: search → map → event → all tabs → review → note → PDF → alert rule with cooldown → priority queue → every screen; asserts zero console errors, no horizontal overflow, ≤ 1 list request while idle. **Tablet** (820 × 1180): icon rail, map, tables. **Mobile** (390 × 844, touch): map, search, priority queue, event, swipeable evidence, review, alerts, watchlist, more. |
 
 ## Results — 2026-09-25 (final cleanup, fresh clone)
@@ -95,7 +96,7 @@ Facility attribution (10 km): Index Scan using ix_facilities_geom … 62 ms
 - Frontend: `tsc` clean, Vitest 68 passed, production build clean, no credentials from `.env` in the bundle except the
   browser-side CARTO basemap key (`VITE_CARTO_API_KEY`, by design; restrict it to the app's domains in CARTO).
 - Browser (dev data): no horizontal overflow and no error states on event, share view, compare, analytics, overview,
-  facility, events, alerts and sources at 360, 390, 430, 768 and 1440 px; every analyst (24) and admin (17) tour target
+  facility, events, alerts and sources at 360, 390, 430, 768 and 1440 px; every analyst (25) and admin (18) tour target
   mounted on its route; status and knowledge labels ≥ 4.5:1 contrast in light and dark themes.
 - The acceptance E2E spec records a review and a note on the featured event, so it was not run against the development
   database; run it against a disposable database.
@@ -113,6 +114,21 @@ Facility attribution (10 km): Index Scan using ix_facilities_geom … 62 ms
   panel while it was still loading; all passed on rerun with a warm cache. The E2E locator for the event *Review* tab was
   made exact (evidence-stage buttons also contain the word).
 - Docker: API and web images build; the import check passes and the image refuses to start with development defaults.
+
+Finalization pass (facility satellite view added):
+
+- Backend: ruff clean, **144 passed** on the disposable test database, migrations at head 0013, `alembic check` no drift.
+- Frontend: `tsc` clean, Vitest **68 passed**, production build clean; `npm audit --omit=dev` 0 vulnerabilities (the 5
+  advisories of the full tree are dev tooling: vite, vitest, esbuild; their fixes need major upgrades). `pip-audit -r
+  requirements.txt`: no known vulnerabilities.
+- E2E (safe suites against the live development stack; the acceptance spec was not run because it writes reviews and
+  notes): landing, explore, investigation and satellite, **28 passed**. Two checks (one landing, one explore) timed out on
+  the first run while the background workers were processing and heavy analytics queries ran cold (`POST /auth/demo`
+  waited ~29 s for a connection); both passed on rerun. `VITE_SATELLITE_IMAGERY=off` checked on a separate dev server:
+  "not configured", no year selector, no tile requests.
+- Docker: API and web images build (the web Dockerfile's `ENV` line was fixed); the API image imports with
+  `ENVIRONMENT=development` and refuses to start in production without a real `SECRET_KEY`.
+- Demo: write requests from a demo session return `403 demo_read_only`.
 - UI smoke: demo admin views (system health with workers, model versions and audit log; data sources; settings;
   analytics; facilities; reports) and the event page at 375 px, without console errors or horizontal overflow.
 
