@@ -45,3 +45,26 @@ def test_train_predict_explain_roundtrip(tmp_path):
 def test_refuses_to_train_without_enough_labels(tmp_path):
     with pytest.raises(ValueError, match="not enough labelled data"):
         train(_rows(3), tmp_path)
+
+
+@pytest.mark.parametrize("n_classes", [2, 4])
+def test_tree_shap_rows_are_exact_contributions_of_the_predicted_score(n_classes):
+    """TreeSHAP is additive: per class, the contributions plus the expected value equal the model's raw score."""
+    import numpy as np
+    from lightgbm import LGBMClassifier
+
+    from app.ml.gbm import tree_shap_row
+
+    rng = np.random.default_rng(3)
+    x_train = rng.normal(size=(400, 6))
+    x_train[rng.random(x_train.shape) < 0.05] = np.nan
+    model = LGBMClassifier(n_estimators=40, verbose=-1).fit(x_train, rng.integers(0, n_classes, 400))
+    for i in range(10):
+        x = x_train[i:i + 1]
+        raw = np.atleast_1d(model.predict(x, raw_score=True)[0])
+        contrib = model.predict(x, pred_contrib=True)[0]
+        for k in range(n_classes if n_classes > 2 else 1):
+            row = tree_shap_row(model, x, k)
+            assert row.shape == (6,)
+            bias = contrib[6] if n_classes == 2 else contrib[k * 7 + 6]
+            assert math.isclose(float(row.sum() + bias), float(raw[k]), rel_tol=1e-6, abs_tol=1e-6)

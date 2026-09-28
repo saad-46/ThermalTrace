@@ -1,4 +1,4 @@
 # Test and lint tools (not installed in production images or the Vercel function)
--r requirements.txt
+-r requirements-server.txt
 pytest==9.0.3
 ruff==0.8.4

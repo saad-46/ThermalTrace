@@ -1,0 +1,3 @@
+# Runtime dependencies plus uvicorn's server extras, for processes that run their own server (Docker, local dev)
+-r requirements.txt
+uvicorn[standard]==0.32.1

@@ -81,7 +81,7 @@ def train_and_register(db: Session) -> ModelVersion:
     metrics = info["metrics"]
     mv = ModelVersion(
         id=clf.model_id, kind="lightgbm", is_active=False, feature_names=FEATURE_NAMES, classes=info["classes"],
-        description="LightGBM multiclass over the explicit feature pipeline, explained with SHAP TreeExplainer.",
+        description="LightGBM multiclass over the explicit feature pipeline, explained with exact TreeSHAP values (LightGBM pred_contrib).",
         label_provenance=(f"{metrics['origins'].get('analyst', 0)} analyst-adjudicated labels (weight 3) + "
                           f"{metrics['origins'].get('weak', 0)} weak labels from {RULE_ID} with p ≥ 0.55 (weight 1)."),
         training_summary={"n_rows": len(rows), "class_counts": metrics["class_counts"], "split": metrics["split"]},

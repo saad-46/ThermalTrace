@@ -9,7 +9,8 @@ This is the state of branch `production-consolidation` after the final cleanup: 
 | `backend/app/` (72 files) | FastAPI application. The modules are: `api/v1` routers, `core` (config, security, middleware, logging), `db`, `models`, `schemas`, `repositories`, `integrations` (FIRMS, Overpass, registries, Sentinel, weather, HTTP layer), `processing` (clustering, persistence, attribution, features, confidence, priority, evidence, pipeline), `ml` (rule cascade, LightGBM + SHAP, registry), `services`, `workers` (job queue, scheduler), `cli.py`, `main.py`. |
 | `backend/alembic/`, `backend/alembic.ini` | Schema migrations 0001–0003. Nothing is created at application start. |
 | `backend/requirements.txt` | Pinned runtime Python dependencies (Docker image, Vercel function). |
-| `backend/requirements-dev.txt` | Runtime dependencies plus test and lint tools. |
+| `backend/requirements-server.txt` | Runtime dependencies plus uvicorn's server extras (Docker image, local dev). |
+| `backend/requirements-dev.txt` | Server dependencies plus test and lint tools. |
 | `frontend/src/` (38 files) | React application: desktop, tablet and mobile shells, pages, components, API client, hooks. |
 | `frontend/index.html`, `frontend/public/{icon.svg,manifest.webmanifest,sw.js}` | App entry and PWA assets (service worker, manifest, icon). |
 | `frontend/package.json`, `frontend/package-lock.json` | Node dependencies (lockfile kept for reproducible `npm ci`). |

@@ -13,7 +13,7 @@ Two independent axes are used.
 | Model | Kind | Role |
 |---|---|---|
 | `rule-cascade-v1.1` | `RuleCascadeClassifier` (deterministic) | Classifier of record, and the source of weak labels. It produces a readable rule trace. |
-| `lgbm-<timestamp>` | `GradientBoostingClassifier` (LightGBM + SHAP TreeExplainer) | Trained on adjudicated plus weak labels. When active and at least as confident as the rules, it becomes the primary model. |
+| `lgbm-<timestamp>` | `GradientBoostingClassifier` (LightGBM + TreeSHAP) | Trained on adjudicated plus weak labels. When active and at least as confident as the rules, it becomes the primary model. |
 | `RemoteSensingClassifier` | Interface only | Extension point for a Sentinel-2 SWIR image model. It is deliberately not registered because no trained image model exists. |
 
 Both models implement `BaseClassifier.predict(features, context) -> Prediction`. Every prediction is stored in `model_predictions` with the model version, label, probability, full probability vector, the exact features used, and its explanation (rule trace or SHAP).
@@ -57,7 +57,11 @@ Missing inputs stay **NaN**; nothing is imputed with invented constants. For exa
 ## Explainability
 
 - **Rules**: an ordered trace of the rules that fired, plus signed contributions for the features involved.
-- **LightGBM**: SHAP TreeExplainer values for the predicted class, top 10 by magnitude.
+- **LightGBM**: exact TreeSHAP values for the predicted class, top 10 by magnitude, computed by LightGBM itself
+  (`predict(..., pred_contrib=True)`). This is the same path-dependent TreeSHAP that `shap.TreeExplainer` returns
+  for a LightGBM model (verified identical: maximum difference 0.0 for 2-, 3- and 8-class models), without the
+  `shap` package and its numba / llvmlite / pandas stack (~235 MB). `test_tree_shap_rows_are_exact_contributions_
+  of_the_predicted_score` checks additivity: contributions plus the expected value equal the raw model score.
 - Both the UI and the reports label SHAP as *"model evidence — not causal proof"*.
 
 ## Confidence engine (`processing/confidence.py`)

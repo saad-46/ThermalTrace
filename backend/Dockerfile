@@ -6,8 +6,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 libexp
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 10001 app
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
+COPY requirements.txt requirements-server.txt ./
+RUN pip install -r requirements-server.txt
 # Images default to production so a deployment that forgets ENVIRONMENT fails closed (the API refuses to start
 # without a real SECRET_KEY, database password and CORS origins). docker-compose sets development explicitly.
 ENV ENVIRONMENT=production

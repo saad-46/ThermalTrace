@@ -8,7 +8,9 @@ Training labels (stored in the model card, shown in the UI):
 Because most labels are weak, this model largely *smooths* the rule cascade over all features;
 its independent value grows as analyst adjudications accumulate. Validation uses a spatial
 block split (1° cells) so neighbouring pixels never sit on both sides (leakage).
-SHAP values are model evidence, not causal proof.
+SHAP values are model evidence, not causal proof. They are computed with LightGBM's built-in TreeSHAP
+(`predict(..., pred_contrib=True)`, path-dependent), which is what `shap.TreeExplainer` returns for a LightGBM
+model without background data; the separate `shap` package (and its numba/llvmlite/pandas stack) is not needed.
 """
 import json
 import logging
@@ -36,7 +38,6 @@ class GradientBoostingClassifier(BaseClassifier):
         self.model = booster
         self.classes = classes
         self.feature_names = feature_names
-        self._explainer = None
 
     # -- persistence ------------------------------------------------------------------------
     @classmethod
@@ -71,17 +72,7 @@ class GradientBoostingClassifier(BaseClassifier):
 
     def _shap(self, x: np.ndarray, class_idx: int, features: dict) -> list[Contribution]:
         try:
-            import shap
-
-            if self._explainer is None:
-                self._explainer = shap.TreeExplainer(self.model)
-            values = self._explainer.shap_values(x)
-            if isinstance(values, list):  # older shap: list per class
-                row = values[class_idx][0]
-            elif values.ndim == 3:  # (n, features, classes)
-                row = values[0, :, class_idx]
-            else:
-                row = values[0]
+            row = tree_shap_row(self.model, x, class_idx)
         except Exception:  # SHAP failure must not block classification — but it is logged
             logger.exception("SHAP explanation failed for %s", self.model_id)
             return []
@@ -92,6 +83,17 @@ class GradientBoostingClassifier(BaseClassifier):
             out.append(Contribution(name, None if fv is None or (isinstance(fv, float) and math.isnan(fv)) else fv,
                                     round(float(val), 4)))
         return out
+
+
+def tree_shap_row(model, x: np.ndarray, class_idx: int) -> np.ndarray:
+    """Exact TreeSHAP values of one row for one class, from LightGBM itself. `pred_contrib` returns, per class, one
+    value per feature followed by the expected value (bias). A binary model has a single block, for the positive class,
+    used whatever the predicted class (as `shap.TreeExplainer` returns it); a multiclass model has one block per class."""
+    contrib = np.asarray(model.predict(x, pred_contrib=True))
+    n = x.shape[1]
+    if contrib.shape[1] == n + 1:
+        return contrib[0, :n]
+    return contrib[0, class_idx * (n + 1): class_idx * (n + 1) + n]
 
 
 def _spatial_block(lat: float, lon: float) -> int:

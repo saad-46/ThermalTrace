@@ -1,7 +1,7 @@
 # --- runtime ---
 fastapi==0.141.1
 starlette==1.3.1  # pinned above the versions with published advisories (pip-audit)
-uvicorn[standard]==0.32.1
+uvicorn==0.32.1  # server extras (uvloop, httptools, ...) in requirements-server.txt: Vercel runs the ASGI app itself
 pydantic==2.10.4
 pydantic-settings==2.7.0
 email-validator==2.2.0
@@ -13,10 +13,8 @@ httpx==0.28.1
 pyjwt==2.13.0
 bcrypt==4.2.1
 numpy==2.2.1
-pandas==2.2.3  # not imported directly; pinned because shap requires it
 scikit-learn==1.6.0
 lightgbm==4.6.0
-shap==0.46.0
 joblib==1.4.2
 reportlab==4.2.5
 matplotlib==3.10.0

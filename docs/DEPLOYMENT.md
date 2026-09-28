@@ -56,10 +56,14 @@ to the frontend. The browser calls the API same-origin, so no CORS setup is need
 - Python dependencies come from `backend/requirements.txt` and Python 3.12 from `backend/.python-version`. Do not add a
   `backend/pyproject.toml`: Vercel would treat it as the dependency manifest and ignore `requirements.txt`. Tool
   settings live in `ruff.toml` and `pytest.ini`; test tools in `requirements-dev.txt`.
-- The backend function is ~730 MB uncompressed (scipy, shap/llvmlite, rasterio/GDAL, pandas, scikit-learn,
-  lightgbm, matplotlib), above the standard 500 MB Python limit. It needs Vercel **large functions** (beta, up to
-  5 GB, Fluid compute): enabled by default for new projects; otherwise set `VERCEL_SUPPORT_LARGE_FUNCTIONS=1` in the
-  project's environment variables.
+- Dependency footprint: `requirements.txt` installs ~477 MB (scipy, rasterio/GDAL, scikit-learn, lightgbm,
+  matplotlib, numpy, ...), under Vercel's 500 MB Python limit, so the build works whether or not large functions are
+  enabled for the project. Vercel packs ~225 MB into the function and installs the remaining pinned packages into
+  `/tmp` on a cold start (about a minute; later requests on a warm instance are unaffected). Two choices keep it
+  there: SHAP values come from LightGBM's own TreeSHAP instead of the `shap` package (identical values), and
+  uvicorn's server extras (uvloop, httptools, watchfiles, websockets) live in `requirements-server.txt`, which the
+  Docker image and local development install; on Vercel the platform runs the ASGI app itself. Adding a large
+  dependency to `requirements.txt` can push the build over 500 MB again: check the build log's "Bundle size" line.
 - Project environment variables: leave `VITE_API_BASE_URL` empty (same-origin `/api`). `VITE_*` values are compiled
   into the public bundle: only public values (map styles, the domain-restricted CARTO key, `VITE_SATELLITE_IMAGERY`).
   The backend needs `ENVIRONMENT=production`, a random `SECRET_KEY` (32+ characters), `DATABASE_URL` for a reachable
