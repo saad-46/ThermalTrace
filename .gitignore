@@ -53,3 +53,6 @@ playwright/.cache/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# local documents produced outside the codebase
+Claude outputs/
